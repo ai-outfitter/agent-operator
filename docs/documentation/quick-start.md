@@ -192,7 +192,7 @@ Tearing down a local development cluster is covered in
 - [Use case: researcher wiki maintainer](usecases.researcher-wiki-maintainer.md)
 - [Architecture](../architecture.md)
 - [Organizations](../requirements/OPR-001-orgs.md)
+- [Projects](../requirements/OPR-002-projects.md)
 - [Agents](../requirements/OPR-003-agents.md)
 - [Credentials and configuration exposure](../requirements/OPR-004-config-secrets.md)
 - [Subagent execution (Jobs)](../requirements/OPR-005-subagent-jobs.md)
-- [Projects](../requirements/OPR-002-projects.md)

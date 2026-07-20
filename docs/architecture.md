@@ -107,23 +107,14 @@ Multi-tenant hardening — NetworkPolicy / egress control, per-tenant identity, 
 API-stability discipline — is explicitly deferred. It is the first thing to add
 before the platform hosts mutually distrusting owners.
 
-## Non-goals / deferred
+## Deferral is implementation-only
 
-Each is deferred until a concrete use case exercises it. Deferral is
-**implementation-only**: where the future direction is known (multiple
-memberships, multiple catalogs, multiple credentials), the CRD keeps the
-plural/list shape now so we never have to migrate a scalar to a list later. We
-defer the behavior, not the schema.
+Where the future direction is known (multiple memberships, multiple catalogs,
+multiple credentials), the CRD keeps the plural/list shape now so we never have to
+migrate a scalar to a list later. **We defer the behavior, not the schema.**
 
-| Deferred | Reintroduce when |
-| --- | --- |
-| A channel `Trigger`/`EventSource` CRD | a second channel makes an operator-level primitive clearly worth it over agent-runtime adapters |
-| Projects grouping ([OPR-002](requirements/OPR-002-projects.md)) and the public environment-launch API | an agent needs operator-managed, project-scoped work rather than self-launched subagent Jobs |
-| Many-to-many membership routing | an agent must serve more than one organization |
-| Multi-catalog union + duplicate-slug rejection | an organization needs more than its single pinned catalog |
-| NetworkPolicy / egress + multi-tenant identity | the fleet hosts mutually distrusting owners |
-| Recursive research beyond the seed (depth > 0) | after the first research milestone; the eventual hard maximum depth is five |
-| Wiki push / branch / PR publication | a reviewed publication mode is needed beyond the local commit |
+Which capabilities are deferred, and when each is picked up, is a scope decision —
+it lives in each milestone's Non-Goals, not here.
 
 ## Example: attributing a composition's steps
 

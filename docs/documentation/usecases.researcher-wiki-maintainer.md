@@ -24,14 +24,11 @@ Beyond the operator and cluster prerequisites, this composition needs:
 
 ## Credentials
 
-`Agent.spec.credentials` references Secrets and ConfigMaps **by name**; the
-operator exposes them but never inspects their contents (see
-[OPR-004](../requirements/OPR-004-config-secrets.md)). The keys inside are this
-composition's contract.
-
-Use your cluster's secret manager in production. For local development, create
-ignored files with mode `0600` and load them with `kubectl`; do not commit them or
-put secret values directly in a custom resource.
+The operator exposes referenced Secrets/ConfigMaps by name without inspecting them
+(quick start §4); the keys inside are *this composition's* contract, defined here.
+Create these Secrets in the `agent-researcher` namespace — via your cluster's
+secret manager in production, or ignored `0600` files loaded with `kubectl` for
+local development.
 
 The email channel adapter's `email.env` must contain — this is the adapter's
 authoritative key contract:

@@ -16,13 +16,12 @@ the executable acceptance contract is [demo.md](demo.md).
 
 ## Motivation
 
-The operator is only valuable if its primitives — a bounded namespace workspace,
-generic secret/config exposure, catalog resolution, and running an agent — hold up
-under a real, useful agent. Email-paper-research is a self-contained composition
-(a channel + tools) that exercises every primitive without requiring the deferred
-parts of the system (projects, multi-org routing, subagent launch). Passing it
-demonstrates the primitives-vs-composition split described in
-[architecture.md](../../architecture.md) is real, not cosmetic.
+The operator's primitives are only worth building if they hold up under a real,
+useful agent. Email-paper-research is a self-contained composition — a channel
+plus tools — that exercises every primitive while needing none of the system's
+deferred parts. Passing it demonstrates the primitives-vs-composition split
+described in [architecture.md](../../architecture.md) is real, not cosmetic. The
+primitives it exercises, and the composition itself, are enumerated in Goals.
 
 ## Goals
 
