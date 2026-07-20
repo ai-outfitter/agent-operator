@@ -26,3 +26,18 @@ and the official Kubernetes ResourceQuota documentation.
 Added [[Forge Owner]] and clarified that the product-facing organization/owner
 maps to a GitHub or Forgejo owner namespace, while Link Operator projects group
 one or more `owner/repository` resources into a user-meaningful work boundary.
+
+## [2026-07-20] create | Research Wiki Maintainer delivery models
+
+Added [[Research Wiki Maintainer]], framing the paper-to-wiki flow as a
+composition and comparing three delivery models — pure operator (this project),
+forge-native Actions/GitHub App, and a hybrid in-cluster coordinator that
+delegates via forge issues/PRs. Introduced the `method/delivery-model` tag.
+
+## [2026-07-20] create | Code Implementation Workflow and review convergence
+
+Added [[Code Implementation Workflow]] — the multi-agent, pull-request-centric
+flow that turns a feature/fix/milestone request into merged code via separate
+implementer and reviewer agents — and the companion problem
+[[Multi-Agent Review Convergence]]. Introduced the `process/code-review`,
+`topic/pull-request`, and `method/multi-agent` tags.

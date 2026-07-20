@@ -7,7 +7,7 @@ tags:
   - topic/knowledge-base
   - evidence/design
 created: 2026-07-19
-updated: 2026-07-19
+updated: 2026-07-20
 ---
 
 # Link Operator Wiki
@@ -39,6 +39,8 @@ the systems, boundaries, and persistent problems behind them.
 - [[Dotagents Catalog Composition]] — commit-pinned profile and skill resolution.
 - [[Project Environment]] — embedded template for future project workloads.
 - [[Email Paper Research Workflow]] — email-to-wiki processing flow.
+- [[Research Wiki Maintainer]] — the paper-to-wiki composition and its operator / Actions / hybrid delivery models.
+- [[Code Implementation Workflow]] — multi-agent feature/fix/milestone delivery through pull-request review.
 - [[Wiki Source Ingestion]] — preservation, extraction, and graph reconciliation.
 - [[Local Development Environment]] — devenv v2, microVM, k3s, and GreenMail stack.
 - [[Recursive Literature Exploration]] — bounded follow-up traversal from a seed paper.
@@ -51,6 +53,7 @@ the systems, boundaries, and persistent problems behind them.
 - [[Catalog Resource Collisions]] — composing catalogs without hidden replacement.
 - [[Bounded Recursive Research]] — controlling recursive paper discovery and cost.
 - [[Secret Containment]] — making credentials usable without leaking them.
+- [[Multi-Agent Review Convergence]] — making the implement/review loop terminate correctly.
 
 ## Sources
 
