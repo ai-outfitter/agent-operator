@@ -10,45 +10,41 @@ the operator. See [architecture.md](../architecture.md).
 An organization owns generic Git repositories and one pinned agent catalog. An
 agent runs in its own namespace; that entire namespace is the agent's workspace,
 with a durable volume and broad namespaced administrator access, while an
-operator-owned ResourceQuota bounds its total consumption. This guide follows the
-single-owner-fleet MVP, where an agent has one organization membership.
+operator-owned ResourceQuota bounds its total consumption. This guide stands up
+the primitives with one example agent; what that agent *does* is a composition —
+see the [use cases](usecases.researcher-wiki-maintainer.md).
 
 > **Implementation status:** this is the target user experience. The CRDs,
-> controller, runtime image, and devenv tasks are specified but not implemented
-> yet. Until they land, the commands below document the interface and will not
-> complete successfully.
+> controller, and runtime image are specified but not implemented yet. Until they
+> land, the commands below document the interface and will not complete
+> successfully.
 
 ## Prerequisites
 
-To run the operator and the local cluster you need:
+To follow this guide you need:
 
-- Nix and devenv v2;
-- a host capable of running the repository's microVM;
-- `kubectl` (provided by the devenv shell once implemented); and
+- a Kubernetes cluster and `kubectl` configured for it;
+- the Link Operator installed on that cluster (see step 1); and
 - credentials for the model selected by your Dotagents agent.
 
-The demo's **researcher composition** additionally needs a writable Git wiki
-repository with Git LFS enabled and an IMAP/SMTP mailbox (the local environment
-supplies GreenMail). These are composition inputs, not operator requirements — a
-different composition (say a GitHub PR watcher) would need different inputs.
+To stand up a local cluster with the operator for evaluation or development, see
+[CONTRIBUTING.md](../../CONTRIBUTING.md).
+
+A composition brings its own inputs on top — for example the
+[researcher wiki maintainer](usecases.researcher-wiki-maintainer.md) needs a Git
+wiki repository and a mailbox. These are composition inputs, not operator
+requirements; a different composition (say a GitHub PR watcher) would need
+different inputs.
 
 The pinned Dotagents catalog must use a full commit SHA. Review every agent,
-skill, MCP server, plugin, and script in it before trusting it. The MVP resolves
-one catalog per organization.
+skill, MCP server, plugin, and script in it before trusting it. The operator
+currently resolves one catalog per organization.
 
-## 1. Start the local cluster
+## 1. Install the operator
 
-From the repository root:
-
-```sh
-devenv shell
-devenv tasks run cluster:up
-devenv tasks run operator:install
-```
-
-The target `cluster:up` task starts a microVM containing single-node k3s,
-GreenMail, a local image path, and the Link Operator. `operator:install` is
-idempotent and waits until these resources are ready.
+Install the Link Operator into your cluster. A Helm chart is planned; it will
+install the controller and the two CRDs. (For a local cluster with the operator
+preinstalled, see [CONTRIBUTING.md](../../CONTRIBUTING.md).)
 
 Confirm that the two CRDs are installed:
 
@@ -81,8 +77,8 @@ kubectl wait organization/example-org \
 kubectl get organization/example-org -o yaml
 ```
 
-The organization owns generic repositories and one pinned catalog. Projects
-grouping is deferred for the single-owner-fleet MVP.
+The organization owns generic repositories and one pinned catalog. Projects are
+not used in this guide.
 
 ## 3. Create an agent namespace
 
@@ -117,54 +113,24 @@ requests or limits. See the Kubernetes
 [ResourceQuota documentation](https://kubernetes.io/docs/concepts/policy/resource-quotas/).
 
 The sample grants organization-level membership in `example-org`. `memberships`
-is a list, so the shape already supports multiple organizations; the MVP simply
-exercises one entry. See
+is a list — an agent may belong to many organizations — though this guide uses one
+entry. See
 [the multi-organization sample](../../config/samples/link_v1alpha1_agent_multi_org.yaml)
-for the forward-compatible multi-membership shape (routing across organizations
-is deferred).
+for the multi-membership shape.
 
 ## 4. Supply credentials
 
 `Agent.spec.credentials` references Secrets and ConfigMaps **by name** and
 declares how each is exposed to the runtime (`as: env` or `as: volume`). The
 operator waits for them to exist and projects them in; it never inspects their
-contents (see [OPR-005](../requirements/OPR-005-config-secrets.md)). The keys
+contents (see [OPR-004](../requirements/OPR-004-config-secrets.md)). The keys
 inside each object are a contract of the *composed agent* — below, the email
 channel adapter's contract.
 
-Use your cluster's secret manager in production. For local development, create
-ignored files with mode `0600` and load them with `kubectl`; do not commit them
-or put secret values directly in a custom resource.
-
-The email adapter's `email.env` must contain:
-
-```dotenv
-address=researcher@link.test
-imapHost=greenmail
-imapPort=3143
-imapUsername=researcher@link.test
-imapPassword=REPLACE_ME
-imapTLS=false
-smtpHost=greenmail
-smtpPort=3025
-smtpUsername=researcher@link.test
-smtpPassword=REPLACE_ME
-smtpTLS=false
-```
-
-The cleartext TLS settings are permitted only inside the isolated GreenMail
-demo. Use TLS for a real mailbox.
-
-Create the email Secret:
-
-```sh
-kubectl -n agent-researcher create secret generic \
-  researcher-email \
-  --from-env-file=email.env
-```
-
-Create the model Secret with the environment variable expected by the selected
-model provider:
+Use your cluster's secret manager in production. For local development, create the
+referenced Secrets/ConfigMaps in the `agent-<name>` namespace with `kubectl`; do
+not commit secret values or put them directly in a custom resource. A generic
+example:
 
 ```sh
 kubectl -n agent-researcher create secret generic \
@@ -172,20 +138,13 @@ kubectl -n agent-researcher create secret generic \
   --from-env-file=model.env
 ```
 
-For private wiki or catalog repositories, create the SSH Secret and known-hosts
-entry from local files:
+*Which* Secrets and ConfigMaps an agent needs, and the keys inside them, depend on
+its composition. For a complete concrete set — an email mailbox Secret, a model
+Secret, and an SSH Secret for the wiki — see the
+[researcher wiki maintainer use case](usecases.researcher-wiki-maintainer.md).
 
-```sh
-kubectl -n agent-researcher create secret generic \
-  researcher-ssh \
-  --type=kubernetes.io/ssh-auth \
-  --from-file=ssh-privatekey=./id_ed25519 \
-  --from-file=known_hosts=./known_hosts
-```
-
-Remove the temporary credential files when they are no longer needed. Bootstrap
-Secret volumes are mounted read-only. The agent is the administrator of its
-namespace workspace and can manage its namespaced Secrets, but cannot access
+Exposed Secret volumes are mounted read-only. The agent is the administrator of
+its namespace workspace and can manage its namespaced Secrets, but cannot access
 Secrets in another namespace.
 
 ## 5. Wait for the agent
@@ -201,60 +160,39 @@ kubectl -n agent-researcher describe resourcequota agent-workspace
 
 `Ready=True` means the organization membership, pinned catalogs, credentials,
 Dotagents profile, namespace workspace and quota guardrails, and runtime
-Deployment are ready. It does not mean a research email has completed.
+Deployment are ready. It does not mean the agent has done any work yet.
 
 If readiness fails, inspect the agent's conditions first. They distinguish
 invalid membership, unresolved catalogs, missing credentials, unresolved
 profiles, and workload failures without exposing secret values.
 
-## 6. Email a paper
+## 6. Give the agent work
 
-Email is this composition's **channel** — the way the researcher receives work.
-A different agent could swap it for a GitHub-notifications or Signal channel over
-the same primitives. Send one message to the configured agent address with
-exactly one PDF attachment of at most 25 MiB. For the MVP, the email maps to the
-agent's configured default organization (delivered as runtime config, not a CRD
-field).
-
-The agent will:
-
-1. receive and deduplicate the message by Message-ID;
-2. clone the organization's wiki into storage it manages in its namespace
-   workspace;
-3. run the selected Dotagents agent through Outfitter and Pi;
-4. preserve the PDF under `wiki/sources/` using Git LFS;
-5. extract `content.md` with Docling and add a source note;
-6. update concepts, the wiki index, and the append-only log;
-7. list linked papers to explore next without downloading them;
-8. create one local Git commit; and
-9. reply in the original email thread with its summary and commit SHA.
-
-M1 does not push the commit. Research traversal is limited to the emailed seed
-paper; future recursive research has a hard maximum depth of five.
-
-The fully scripted local scenario and its evidence requirements are in the
-[M1 demo](../milestones/M1-email-paper-reserach/demo.md).
+How a ready agent receives and does work is its composition's concern — its
+channel and tools, not the operator. Walk through a concrete end-to-end example in
+the [researcher wiki maintainer use case](usecases.researcher-wiki-maintainer.md):
+email a PDF to the agent and get a threaded reply with a source-traceable wiki
+commit.
 
 ## Clean up
 
-Delete the agent first so its finalizer can remove only its generated namespace:
+Delete the agent first so its finalizer can remove only its generated namespace,
+then the organization:
 
 ```sh
 kubectl delete agent/researcher
 kubectl delete organization/example-org
-devenv tasks run cluster:down
 ```
 
-Normal shutdown preserves caches and evidence. Use a separately named
-`reset`/`destroy` task only when you intend to remove cluster disks, model
-caches, or the demo wiki fixture.
+Tearing down a local development cluster is covered in
+[CONTRIBUTING.md](../../CONTRIBUTING.md).
 
 ## Learn more
 
+- [Use case: researcher wiki maintainer](usecases.researcher-wiki-maintainer.md)
 - [Architecture](../architecture.md)
 - [Organizations](../requirements/OPR-001-orgs.md)
 - [Agents](../requirements/OPR-003-agents.md)
-- [Credentials and configuration exposure](../requirements/OPR-005-config-secrets.md)
-- [Subagent execution (Jobs)](../requirements/OPR-004-environments.md)
-- [Projects (deferred)](../requirements/OPR-002-projects.md)
-- [M1 implementation tasks](../milestones/M1-email-paper-reserach/task.md)
+- [Credentials and configuration exposure](../requirements/OPR-004-config-secrets.md)
+- [Subagent execution (Jobs)](../requirements/OPR-005-subagent-jobs.md)
+- [Projects](../requirements/OPR-002-projects.md)
