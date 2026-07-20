@@ -1,13 +1,11 @@
 # OPR-001: Organizations
 
-Status: first-pass requirement; M1 obligations are identified explicitly. See
-[architecture.md](../architecture.md) for how organizations fit the
-primitives-vs-composition split.
-
-An organization is the ownership and policy boundary for an owner's repositories
-and a pinned Dotagents catalog. It is domain-agnostic: it does not model wikis,
-mailboxes, or any other channel or tool. `Organization` and `Agent` are the only
-top-level CRDs in this system.
+An organization is the outermost ownership and policy boundary, mirroring a forge
+organization (GitHub, Forgejo, Gitea): it is where an agent's access begins. An
+organization owns repositories, projects, and Dotagents catalogs. It is
+domain-agnostic — it does not model wikis, mailboxes, or any other channel or
+tool. `Organization` and `Agent` are the only top-level CRDs in this system. See
+[architecture.md](../architecture.md) for the primitives-vs-composition split.
 
 ## OPR-001.1: API identity and scope
 
@@ -28,10 +26,9 @@ generic: the operator attaches no meaning such as "wiki" to any of them.
 An immutable commit SHA MAY be used as an initial revision, but a repository the
 agent works in MUST remain writable so a run can create a new commit.
 
-M1 supports one repository per organization — the demo's wiki, named `wiki`. Its
-expected knowledge layout is governed by the agent's `wiki` skill, not by the CRD
-schema. See the [M1 milestone](../milestones/M1-email-paper-reserach/task.md) for
-how the researcher composition uses it.
+The operator attaches no meaning to any repository. What a repository is *for* —
+a wiki, source code, a knowledge base — is decided by the agent composition that
+uses it, never by the CRD schema.
 
 ## OPR-001.3: Dotagents catalogs
 
@@ -47,28 +44,22 @@ payload subdirectory, including a colocated `.agents` directory. Standalone
 `owner/.agents` and `owner/.agent` repositories have the Dotagents payload at
 their root.
 
-The MVP supports a **single catalog per organization** — its own pinned
-`.agents` payload — so no cross-catalog composition is required. The resolved
-source and its revision MUST be visible in status.
+Resolution MUST concatenate the disjoint resources from all catalogs into one
+effective set and index each resource by `<resource-kind>/<slug>`. Duplicate
+identities MUST be rejected — with `CatalogsResolved=False`, reason
+`DuplicateResourceSlug`, and the resource and source names (no credentials) —
+rather than resolved by order. Override, shadowing, and last-source-wins behavior
+MUST NOT be introduced without an explicit precedence rule, a user-facing
+conflict explanation, and tests that exercise replacement. The resolved sources
+and their revisions MUST be visible in status.
 
-Multi-catalog resolution is deferred. When a second catalog is needed, the
-controller MUST concatenate the disjoint resources from all catalogs into one
-effective set, index each resource by `<resource-kind>/<slug>`, and reject
-duplicates (including identical ones) by setting `CatalogsResolved=False` with
-reason `DuplicateResourceSlug`, identifying the resource and source names without
-credentials. Override, shadowing, and last-source-wins behavior MUST NOT be
-introduced without an explicit precedence rule, a user-facing conflict
-explanation, and tests that exercise replacement. See
-[architecture.md](../architecture.md) deferred items.
+## OPR-001.4: Embedded projects
 
-## OPR-001.4: Embedded projects (deferred)
-
-Projects grouping is **deferred** for the single-owner fleet; see
-[OPR-002](OPR-002-projects.md). The MVP organization schema is
-`repositories` + one catalog. When projects are reintroduced, `spec.projects`
-will contain zero or more entries conforming to OPR-002, with unique names and no
-separate CRD. The useful in-MVP seam — an agent launching subagent Jobs — lives
-in [OPR-004](OPR-004-environments.md), not in projects.
+`spec.projects` MUST contain zero or more projects conforming to
+[OPR-002](OPR-002-projects.md). Project names MUST be unique within an
+organization. Projects and environments are embedded data, not separate CRDs. An
+organization's projects and their repositories are how an agent discovers what it
+has access to within that organization.
 
 ## OPR-001.5: Status and conditions
 
@@ -82,7 +73,7 @@ in [OPR-004](OPR-004-environments.md), not in projects.
 A failed external fetch MUST set a condition with a stable reason and useful
 message. It MUST NOT copy a URI containing credentials into status or events.
 
-## M1 example
+## Example
 
 ```yaml
 apiVersion: link.aioutfitter.com/v1alpha1
@@ -92,7 +83,7 @@ metadata:
 spec:
   displayName: AI Outfitter
   repositories:
-    # A generic repository; the researcher composition treats "wiki" as its wiki.
+    # A generic repository; a composition decides what it is for.
     - name: wiki
       uri: ssh://git@example.test/ai-outfitter/wiki.git
       defaultBranch: main
@@ -103,6 +94,3 @@ spec:
       revision: 0123456789abcdef0123456789abcdef01234567
       path: .agents
 ```
-
-The single catalog's `.agents` payload vendors the `wiki` and `source-ingest`
-skills and defines the `researcher` agent, so the MVP needs only one catalog.

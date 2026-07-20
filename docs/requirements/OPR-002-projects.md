@@ -1,16 +1,9 @@
 # OPR-002: Projects
 
-> **Deferred (post-MVP).** Projects grouping is not part of the single-owner-fleet
-> MVP. This document is retained as a forward design note, not an MVP obligation.
-> The useful in-MVP seam — an agent launching subagent Jobs — lives in
-> [OPR-004](OPR-004-environments.md), not in projects. Reintroduce projects when an
-> agent needs operator-managed, project-scoped work rather than self-launched
-> subagent Jobs. See [architecture.md](../architecture.md).
-
-Status: deferred design note.
-
-A project is an organization-owned unit of work. It groups repositories and
-reusable execution environments without introducing another top-level CRD.
+A project is an organization-owned unit of work — the level at which an agent's
+access is scoped within an organization. It groups repositories and reusable
+execution environments without introducing another top-level CRD, mirroring how a
+forge organization contains repositories and teams.
 
 ## OPR-002.1: Ownership and identity
 
@@ -47,16 +40,15 @@ agent membership invalid.
 ## OPR-002.4: Embedded environments
 
 `environments` MAY contain entries conforming to
-[OPR-004](OPR-004-environments.md). Environment names MUST be unique within the
-project. Every M1 environment uses the same shape and has no kind discriminator.
+[OPR-005](OPR-005-subagent-jobs.md). Environment names MUST be unique within the
+project. Every environment uses the same shape and has no kind discriminator.
 
-## OPR-002.5: MVP boundary
+## OPR-002.5: Validation
 
-Projects grouping is deferred, so the MVP carries no `spec.projects` schema. When
-reintroduced, validation MUST cover project, repository, environment, and agent
-reference names, and MUST NOT create project namespaces, Deployments, or Jobs
-solely because a project exists. Organization-level agents (an empty membership
-`projects` list) work without any project.
+Validation MUST cover project, repository, environment, and agent reference names.
+A reconciled project does not by itself create namespaces, Deployments, or Jobs;
+work happens only when an agent launches it. Organization-level agents (an empty
+membership `projects` list) operate without any project.
 
 ## Example embedded project
 

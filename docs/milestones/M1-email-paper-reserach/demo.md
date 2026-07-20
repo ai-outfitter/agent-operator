@@ -19,8 +19,8 @@ requirements:
 
 - [organization and catalog ownership](../../requirements/OPR-001-orgs.md)
 - [agent workspace primitives](../../requirements/OPR-003-agents.md)
-- [credential and config exposure](../../requirements/OPR-005-config-secrets.md)
-- [subagent-Job delegation seam](../../requirements/OPR-004-environments.md) (not exercised here)
+- [credential and config exposure](../../requirements/OPR-004-config-secrets.md)
+- [subagent-Job delegation seam](../../requirements/OPR-005-subagent-jobs.md) (not exercised here)
 
 ## Fixed demo inputs
 
@@ -84,9 +84,10 @@ Before credentials are created, the observable intermediate state MUST be
 `CredentialsReady=False` rather than a crashing Deployment.
 
 The namespace MUST also contain `ResourceQuota/agent-workspace`,
-`LimitRange/agent-workspace-defaults`, and a RoleBinding to the built-in
-`admin` ClusterRole. The agent may freely create namespaced resources while the
-operator-owned quota bounds their aggregate consumption.
+`LimitRange/agent-workspace-defaults`, a durable per-agent workspace volume, and
+a RoleBinding to the built-in `admin` ClusterRole. The agent may freely create
+namespaced resources while the operator-owned quota bounds their aggregate
+consumption.
 
 ## 3. Send the paper
 
@@ -176,7 +177,8 @@ directory:
 - tool and image revisions;
 - applied organization/agent manifests without Secrets;
 - final conditions and namespace resource inventory;
-- ResourceQuota hard/used values and LimitRange defaults;
+- ResourceQuota hard/used values, LimitRange defaults, and the durable
+  per-agent workspace volume;
 - redacted controller and agent logs;
 - original and reply headers plus reply text;
 - attachment and committed-source digests;

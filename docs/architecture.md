@@ -9,7 +9,8 @@ the agent. It deliberately does **not** implement any agent behavior. Channels
 **composed at the agent layer** and are invisible to the controller.
 
 This document is the anchor for the more detailed requirement documents under
-[`requirements/`](requirements/) and the [M1 milestone](milestones/M1-email-paper-reserach/task.md).
+[`requirements/`](requirements/) (the eventual goals) and the milestones under
+[`milestones/`](milestones/) (which decide scope).
 
 ## Core principle
 
@@ -49,7 +50,7 @@ These are the operator's contract. They are domain-agnostic.
   ConfigMaps from the agent namespace into the runtime as environment variables
   or read-only mounts. The operator waits only for their **existence**; it never
   reads, logs, copies, or validates their contents. See
-  [OPR-005](requirements/OPR-005-config-secrets.md).
+  [OPR-004](requirements/OPR-004-config-secrets.md).
 - **Catalog resolution + run** — resolve the organization's commit-pinned
   Dotagents catalog and run the selected agent (`outfitter run <agent> --harness
   pi`). The runtime image is a generic base (Pi, Outfitter, git, ssh).
@@ -63,15 +64,15 @@ Dotagents resources and its runtime image.
   tick (a stop-hook / agentic loop), surveys a prioritized set of input sources,
   turns them into tasks, and works or delegates them. Staying responsive is a
   goal: heavy work is pushed to background subagents.
-- **Channels.** Adapters for external event and message sources — email in M1,
-  later GitHub notifications, Signal, Telegram, WhatsApp. Each is a Dotagents
+- **Channels.** Adapters for external event and message sources — email first,
+  then GitHub notifications, Signal, Telegram, WhatsApp. Each is a Dotagents
   skill / MCP server / Pi extension inside the runtime. Task and notification
   handling may become dedicated MCP tooling over time. The operator models none
   of this.
 - **Tools.** Capabilities such as the `wiki` and `source-ingest` skills.
 - **Subagent delegation.** A running agent may launch subagents as Kubernetes
   Jobs in its own namespace, using its `admin` rights and bounded by the shared
-  `ResourceQuota`. See [OPR-004](requirements/OPR-004-environments.md).
+  `ResourceQuota`. See [OPR-005](requirements/OPR-005-subagent-jobs.md).
 - **External systems of record.** The authoritative state for a mailbox is a mail
   server (JMAP / Stalwart); for issues and pull requests it is GitHub / Forgejo;
   for the wiki it is a Git repository. The agent's durable volume is a working
@@ -82,8 +83,8 @@ Dotagents resources and its runtime image.
 - **Agent = persistent Deployment.** One long-running pod per agent runs the main
   loop.
 - **Subagent = ephemeral Job.** Delegated work runs as a Job in the same
-  namespace, sharing the agent's service account and quota. M1 does not exercise
-  this — the researcher ingests inline — but the seam exists and is documented.
+  namespace, sharing the agent's service account and quota. A simple composition
+  may ingest inline instead; the seam exists for those that delegate.
 - **Restart safety.** The loop is resumable because durable state lives in the
   per-agent volume and, more importantly, in the external systems of record.
   Idempotency leans on external read-state (a seen/flagged message, a read
@@ -118,27 +119,29 @@ defer the behavior, not the schema.
 | --- | --- |
 | A channel `Trigger`/`EventSource` CRD | a second channel makes an operator-level primitive clearly worth it over agent-runtime adapters |
 | Projects grouping ([OPR-002](requirements/OPR-002-projects.md)) and the public environment-launch API | an agent needs operator-managed, project-scoped work rather than self-launched subagent Jobs |
-| Many-to-many membership *routing* (the `memberships` field stays a list — only the multi-org behavior is deferred) | an agent must serve more than one organization |
-| Multi-catalog union + duplicate-slug rejection (`agentCatalogs` stays a list — only union behavior is deferred) | an organization needs more than its single pinned catalog |
+| Many-to-many membership routing | an agent must serve more than one organization |
+| Multi-catalog union + duplicate-slug rejection | an organization needs more than its single pinned catalog |
 | NetworkPolicy / egress + multi-tenant identity | the fleet hosts mutually distrusting owners |
-| Recursive research beyond the seed (depth > 0) | after M1; the eventual hard maximum depth is five |
+| Recursive research beyond the seed (depth > 0) | after the first research milestone; the eventual hard maximum depth is five |
 | Wiki push / branch / PR publication | a reviewed publication mode is needed beyond the local commit |
 
-## M1 demo mapping
+## Example: attributing a composition's steps
 
-The M1 demo — email a PDF, get a research reply with a source-traceable wiki
-commit — is the priority. Its behavior is unchanged; only the layer that owns
-each step is clarified. Nothing email- or wiki-shaped is an operator primitive.
+To make the split concrete, here is how an email-research agent's steps divide
+between the two layers. Nothing email- or wiki-shaped is an operator primitive.
 
-| Demo step | Owner |
+| Step | Owner |
 | --- | --- |
-| Create `agent-researcher` namespace, service account, `admin` binding, quota, LimitRange, durable volume, Deployment | Operator primitive |
-| Wait for the `researcher-email` / `researcher-model` Secrets to exist and project them into the runtime | Operator primitive (generic exposure) |
-| Resolve the pinned `.agents` catalog and run `outfitter run researcher --harness pi` | Operator primitive |
+| Create the agent namespace, service account, `admin` binding, quota, LimitRange, durable volume, Deployment | Operator primitive |
+| Wait for the referenced Secrets/ConfigMaps to exist and project them into the runtime | Operator primitive (generic exposure) |
+| Resolve the pinned catalog and run `outfitter run <agent> --harness pi` | Operator primitive |
 | Poll IMAP, accept one PDF, keep Message-ID idempotency state | Agent composition (email channel adapter) |
 | Preserve the PDF with Git LFS, extract `content.md` with Docling | Agent composition (`source-ingest` tool) |
 | Update source notes, concepts, index, log; create one local commit | Agent composition (`wiki` tool) |
 | Send the threaded SMTP reply | Agent composition (email channel adapter) |
+
+The [researcher wiki maintainer](documentation/usecases.researcher-wiki-maintainer.md)
+is exactly this composition — the first proof of the primitives.
 
 ## Glossary
 
