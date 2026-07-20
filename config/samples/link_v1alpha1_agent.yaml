@@ -1,0 +1,44 @@
+apiVersion: link.aioutfitter.com/v1alpha1
+kind: Agent
+metadata:
+  name: researcher
+spec:
+  memberships:
+    - organization: example-org
+      # An empty list grants organization-level work, not every project.
+      projects: []
+  profile:
+    # This slug must resolve from one of example-org's pinned catalogs.
+    agent: researcher
+    harness: pi
+  credentials:
+    # These Secrets belong in namespace agent-researcher. The controller
+    # creates the namespace, but never creates or copies secret values.
+    emailSecret: researcher-email
+    modelSecret: researcher-model
+    sshSecret: researcher-ssh
+  email:
+    defaultOrganization: example-org
+  workspace:
+    # The entire namespace is this agent's workspace and autonomy boundary.
+    resourceQuota:
+      hard:
+        requests.cpu: "4"
+        requests.memory: 8Gi
+        limits.cpu: "8"
+        limits.memory: 16Gi
+        requests.storage: 50Gi
+        persistentvolumeclaims: "8"
+        count/pods: "20"
+        count/jobs.batch: "50"
+        count/services: "10"
+        count/configmaps: "50"
+        count/secrets: "20"
+    limitRange:
+      container:
+        defaultRequest:
+          cpu: 100m
+          memory: 128Mi
+        default:
+          cpu: "1"
+          memory: 1Gi

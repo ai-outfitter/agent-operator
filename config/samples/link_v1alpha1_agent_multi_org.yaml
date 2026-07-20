@@ -1,0 +1,43 @@
+# This sample demonstrates many-to-many membership. Apply matching Organization
+# resources before applying this Agent.
+apiVersion: link.aioutfitter.com/v1alpha1
+kind: Agent
+metadata:
+  name: shared-engineer
+spec:
+  memberships:
+    - organization: example-org
+      projects:
+        - knowledge-platform
+    - organization: example-lab
+      projects:
+        - literature-review
+        - prototype
+  profile:
+    agent: engineer
+    harness: pi
+  credentials:
+    modelSecret: shared-engineer-model
+    sshSecret: shared-engineer-ssh
+  workspace:
+    resourceQuota:
+      hard:
+        requests.cpu: "8"
+        requests.memory: 16Gi
+        limits.cpu: "16"
+        limits.memory: 32Gi
+        requests.storage: 100Gi
+        persistentvolumeclaims: "12"
+        count/pods: "40"
+        count/jobs.batch: "100"
+        count/services: "20"
+        count/configmaps: "100"
+        count/secrets: "40"
+    limitRange:
+      container:
+        defaultRequest:
+          cpu: 100m
+          memory: 128Mi
+        default:
+          cpu: "2"
+          memory: 2Gi

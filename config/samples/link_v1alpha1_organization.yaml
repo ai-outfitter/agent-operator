@@ -1,0 +1,30 @@
+# Replace repository locations and revisions before applying this sample.
+apiVersion: link.aioutfitter.com/v1alpha1
+kind: Organization
+metadata:
+  name: example-org
+spec:
+  displayName: Example Organization
+  wiki:
+    repository:
+      uri: ssh://git@example.com/example-org/wiki.git
+      defaultBranch: main
+  agentCatalogs:
+    # A standalone owner/.agents repository has its Dotagents payload at root.
+    - name: organization-agents
+      github: example-org/.agents
+      revision: 0123456789abcdef0123456789abcdef01234567
+  projects:
+    - name: knowledge-platform
+      displayName: Knowledge Platform
+      repositories:
+        - name: source
+          uri: ssh://git@example.com/example-org/knowledge-platform.git
+          defaultBranch: main
+      environments:
+        - name: default
+          profile:
+            agent: engineer
+          workload:
+            image: registry.example.com/example-org/workspace@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+            timeout: 2h
