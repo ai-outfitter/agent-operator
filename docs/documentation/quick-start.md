@@ -1,11 +1,17 @@
 # Quick start
 
-Link Operator runs composable Dotagents agents on Kubernetes. An organization
-owns its wiki, pinned agent catalogs, projects, and environments. An agent can
-belong to multiple organizations and projects, but always runs in its own
-namespace. That entire namespace is the agent's workspace: it has broad
-namespaced administrator access while an operator-owned ResourceQuota bounds
-its total consumption.
+Link Operator runs composable Dotagents agents on Kubernetes. It provides
+**primitives** — a per-agent namespace workspace, generic secret/config exposure,
+catalog resolution, and running the agent — and treats what the agent *does* as
+composition. Channels (email, and later GitHub notifications or Signal) and tools
+(a wiki, source ingestion) are supplied by the agent's Dotagents resources, not by
+the operator. See [architecture.md](../architecture.md).
+
+An organization owns generic Git repositories and one pinned agent catalog. An
+agent runs in its own namespace; that entire namespace is the agent's workspace,
+with a durable volume and broad namespaced administrator access, while an
+operator-owned ResourceQuota bounds its total consumption. This guide follows the
+single-owner-fleet MVP, where an agent has one organization membership.
 
 > **Implementation status:** this is the target user experience. The CRDs,
 > controller, runtime image, and devenv tasks are specified but not implemented
@@ -14,20 +20,21 @@ its total consumption.
 
 ## Prerequisites
 
-For the local path you need:
+To run the operator and the local cluster you need:
 
 - Nix and devenv v2;
 - a host capable of running the repository's microVM;
-- `kubectl` (provided by the devenv shell once implemented);
-- a writable Git wiki repository with Git LFS enabled;
-- an IMAP/SMTP mailbox; the local environment supplies GreenMail; and
+- `kubectl` (provided by the devenv shell once implemented); and
 - credentials for the model selected by your Dotagents agent.
 
-Remote Dotagents catalogs must be pinned to full commit SHAs. Review every
-agent, skill, MCP server, plugin, and script in a catalog before trusting it.
-M1 combines only disjoint resource identities; duplicate
-`<resource-kind>/<slug>` entries across catalogs are rejected rather than
-resolved by order.
+The demo's **researcher composition** additionally needs a writable Git wiki
+repository with Git LFS enabled and an IMAP/SMTP mailbox (the local environment
+supplies GreenMail). These are composition inputs, not operator requirements — a
+different composition (say a GitHub PR watcher) would need different inputs.
+
+The pinned Dotagents catalog must use a full commit SHA. Review every agent,
+skill, MCP server, plugin, and script in it before trusting it. The MVP resolves
+one catalog per organization.
 
 ## 1. Start the local cluster
 
@@ -49,8 +56,7 @@ Confirm that the two CRDs are installed:
 kubectl api-resources --api-group=link.aioutfitter.com
 ```
 
-The output should contain `organizations` and `agents`. Projects and
-environments are embedded data and do not appear as resources.
+The output should contain `organizations` and `agents`, the only two CRDs.
 
 ## 2. Configure an organization
 
@@ -60,9 +66,10 @@ Copy the sample before editing it:
 cp config/samples/link_v1alpha1_organization.yaml /tmp/example-org.yaml
 ```
 
-Replace the example wiki/catalog URLs and every placeholder revision. The wiki
-repository must be writable by the agent's SSH identity. Every remote catalog
-revision must be an immutable 40-character commit SHA.
+Replace the example repository/catalog URLs and every placeholder revision. A
+repository the agent commits to (the demo's `wiki`) must be writable by the
+agent's identity. The catalog revision must be an immutable 40-character commit
+SHA.
 
 Apply the organization and wait for its catalog composition to resolve:
 
@@ -74,8 +81,8 @@ kubectl wait organization/example-org \
 kubectl get organization/example-org -o yaml
 ```
 
-The example embeds one project with one common-shape environment. It
-demonstrates the API, but M1 validates the entry without launching it.
+The organization owns generic repositories and one pinned catalog. Projects
+grouping is deferred for the single-owner-fleet MVP.
 
 ## 3. Create an agent namespace
 
@@ -91,8 +98,9 @@ kubectl wait agent/researcher \
 
 The controller creates `agent-researcher`, its service account, a
 namespaced binding to the built-in `admin` ClusterRole, an operator-owned
-ResourceQuota and LimitRange, and the runtime workload. The agent is not ready
-yet: it should report `CredentialsReady=False` until you supply its Secrets.
+ResourceQuota and LimitRange, a durable workspace volume, and the runtime
+workload. The agent is not ready yet: it should report `CredentialsReady=False`
+until you supply its Secrets.
 
 Inspect the workspace boundary and budget:
 
@@ -108,18 +116,27 @@ default CPU and memory values because compute quotas can reject Pods that omit
 requests or limits. See the Kubernetes
 [ResourceQuota documentation](https://kubernetes.io/docs/concepts/policy/resource-quotas/).
 
-The sample grants organization-level membership in `example-org`. It does not
-grant access to every embedded project. See
+The sample grants organization-level membership in `example-org`. `memberships`
+is a list, so the shape already supports multiple organizations; the MVP simply
+exercises one entry. See
 [the multi-organization sample](../../config/samples/link_v1alpha1_agent_multi_org.yaml)
-for explicit project memberships across two organizations.
+for the forward-compatible multi-membership shape (routing across organizations
+is deferred).
 
 ## 4. Supply credentials
+
+`Agent.spec.credentials` references Secrets and ConfigMaps **by name** and
+declares how each is exposed to the runtime (`as: env` or `as: volume`). The
+operator waits for them to exist and projects them in; it never inspects their
+contents (see [OPR-005](../requirements/OPR-005-config-secrets.md)). The keys
+inside each object are a contract of the *composed agent* — below, the email
+channel adapter's contract.
 
 Use your cluster's secret manager in production. For local development, create
 ignored files with mode `0600` and load them with `kubectl`; do not commit them
 or put secret values directly in a custom resource.
 
-`email.env` must contain:
+The email adapter's `email.env` must contain:
 
 ```dotenv
 address=researcher@link.test
@@ -192,9 +209,12 @@ profiles, and workload failures without exposing secret values.
 
 ## 6. Email a paper
 
-Send one message to the configured agent address with exactly one PDF
-attachment of at most 25 MiB. For M1, the email maps to the agent's
-`defaultOrganization`.
+Email is this composition's **channel** — the way the researcher receives work.
+A different agent could swap it for a GitHub-notifications or Signal channel over
+the same primitives. Send one message to the configured agent address with
+exactly one PDF attachment of at most 25 MiB. For the MVP, the email maps to the
+agent's configured default organization (delivered as runtime config, not a CRD
+field).
 
 The agent will:
 
@@ -231,8 +251,10 @@ caches, or the demo wiki fixture.
 
 ## Learn more
 
+- [Architecture](../architecture.md)
 - [Organizations](../requirements/OPR-001-orgs.md)
-- [Projects](../requirements/OPR-002-projects.md)
 - [Agents](../requirements/OPR-003-agents.md)
-- [Environments](../requirements/OPR-004-environments.md)
+- [Credentials and configuration exposure](../requirements/OPR-005-config-secrets.md)
+- [Subagent execution (Jobs)](../requirements/OPR-004-environments.md)
+- [Projects (deferred)](../requirements/OPR-002-projects.md)
 - [M1 implementation tasks](../milestones/M1-email-paper-reserach/task.md)

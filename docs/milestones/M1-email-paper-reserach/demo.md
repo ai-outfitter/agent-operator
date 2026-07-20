@@ -12,12 +12,15 @@ ingest it into one `Organization` wiki, creates one local Git commit, and sends
 a threaded SMTP reply. No linked paper is downloaded and no Git remote is
 modified.
 
-Relevant requirements:
+The email channel and wiki tools are **agent-layer composition**; the operator
+provides only the workspace, secret/config exposure, catalog resolution, and
+running the agent (see [architecture.md](../../architecture.md)). Relevant
+requirements:
 
 - [organization and catalog ownership](../../requirements/OPR-001-orgs.md)
-- [project boundary](../../requirements/OPR-002-projects.md)
-- [agent isolation and email workflow](../../requirements/OPR-003-agents.md)
-- [deferred environment interface](../../requirements/OPR-004-environments.md)
+- [agent workspace primitives](../../requirements/OPR-003-agents.md)
+- [credential and config exposure](../../requirements/OPR-005-config-secrets.md)
+- [subagent-Job delegation seam](../../requirements/OPR-004-environments.md) (not exercised here)
 
 ## Fixed demo inputs
 

@@ -5,26 +5,16 @@ metadata:
   name: example-org
 spec:
   displayName: Example Organization
-  wiki:
-    repository:
+  # Generic repositories; the researcher composition treats "wiki" as its wiki.
+  repositories:
+    - name: wiki
       uri: ssh://git@example.com/example-org/wiki.git
       defaultBranch: main
+  # The MVP resolves a single pinned catalog. The list shape is kept so more can
+  # be added later without a schema change.
   agentCatalogs:
     # A standalone owner/.agents repository has its Dotagents payload at root.
     - name: organization-agents
       github: example-org/.agents
       revision: 0123456789abcdef0123456789abcdef01234567
-  projects:
-    - name: knowledge-platform
-      displayName: Knowledge Platform
-      repositories:
-        - name: source
-          uri: ssh://git@example.com/example-org/knowledge-platform.git
-          defaultBranch: main
-      environments:
-        - name: default
-          profile:
-            agent: engineer
-          workload:
-            image: registry.example.com/example-org/workspace@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
-            timeout: 2h
+  # Projects grouping is deferred for the single-owner-fleet MVP (see OPR-002).

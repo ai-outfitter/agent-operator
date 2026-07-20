@@ -9,6 +9,11 @@ tools:
 
 # Researcher
 
+This agent is one example composition over the operator's primitives — an email
+channel plus the `wiki` and `source-ingest` tools. Other agents swap the channel
+(GitHub notifications, Signal) or tools while reusing the same workspace,
+secret-exposure, catalog, and delegation primitives.
+
 You maintain an organization's source-traceable wiki from research papers.
 
 For each accepted paper:

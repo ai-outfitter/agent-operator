@@ -1,5 +1,7 @@
-# This sample demonstrates many-to-many membership. Apply matching Organization
-# resources before applying this Agent.
+# This sample demonstrates the forward-compatible many-to-many membership shape.
+# The MVP exercises a single membership entry; many-to-many routing (and the
+# per-membership projects field) is deferred behavior, not deferred schema.
+# Apply matching Organization resources before applying this Agent.
 apiVersion: link.aioutfitter.com/v1alpha1
 kind: Agent
 metadata:
@@ -17,8 +19,10 @@ spec:
     agent: engineer
     harness: pi
   credentials:
-    modelSecret: shared-engineer-model
-    sshSecret: shared-engineer-ssh
+    - secret: shared-engineer-model
+      as: env
+    - secret: shared-engineer-ssh
+      as: volume
   workspace:
     resourceQuota:
       hard:

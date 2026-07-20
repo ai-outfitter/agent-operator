@@ -3,22 +3,29 @@ kind: Agent
 metadata:
   name: researcher
 spec:
+  # A list preserves the many-to-many future; the MVP exercises one entry.
   memberships:
     - organization: example-org
       # An empty list grants organization-level work, not every project.
       projects: []
   profile:
-    # This slug must resolve from one of example-org's pinned catalogs.
+    # This slug must resolve from example-org's pinned catalog.
     agent: researcher
     harness: pi
   credentials:
-    # These Secrets belong in namespace agent-researcher. The controller
-    # creates the namespace, but never creates or copies secret values.
-    emailSecret: researcher-email
-    modelSecret: researcher-model
-    sshSecret: researcher-ssh
-  email:
-    defaultOrganization: example-org
+    # Referenced by name only, in namespace agent-researcher. The controller
+    # creates the namespace and exposes these, but never inspects their contents.
+    # Key-level contracts (e.g. the email adapter's IMAP/SMTP keys) belong to the
+    # composed agent, not the operator.
+    - secret: researcher-email
+      as: env
+    - secret: researcher-model
+      as: env
+    - secret: researcher-ssh
+      as: volume
+    # Non-secret runtime config (e.g. channel default-org routing) via ConfigMap.
+    - configMap: researcher-runtime
+      as: env
   workspace:
     # The entire namespace is this agent's workspace and autonomy boundary.
     resourceQuota:

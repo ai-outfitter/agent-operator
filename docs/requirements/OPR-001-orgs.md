@@ -1,10 +1,13 @@
 # OPR-001: Organizations
 
-Status: first-pass requirement; M1 obligations are identified explicitly.
+Status: first-pass requirement; M1 obligations are identified explicitly. See
+[architecture.md](../architecture.md) for how organizations fit the
+primitives-vs-composition split.
 
-An organization is the ownership and policy boundary for wikis, projects, and
-shared Dotagents catalogs. `Organization` and `Agent` are the only top-level
-CRDs in this system.
+An organization is the ownership and policy boundary for an owner's repositories
+and a pinned Dotagents catalog. It is domain-agnostic: it does not model wikis,
+mailboxes, or any other channel or tool. `Organization` and `Agent` are the only
+top-level CRDs in this system.
 
 ## OPR-001.1: API identity and scope
 
@@ -13,18 +16,22 @@ CRDs in this system.
 MUST be a DNS label and is the stable identifier referenced by agents.
 
 Deletion MUST use a finalizer while operator-owned resources still require
-cleanup. The controller MUST NOT delete an external wiki or catalog repository.
+cleanup. The controller MUST NOT delete an external repository or catalog.
 
-## OPR-001.2: Wiki repository
+## OPR-001.2: Repositories
 
-`spec.wiki.repository` MUST identify one Git repository by clone URL. It MAY
-also specify a default branch and subdirectory. An immutable commit SHA MAY be
-used as the initial revision, but the agent workspace MUST remain writable so
-the research run can create a new commit.
+`spec.repositories` MUST be a list of named Git repositories the organization
+owns. Each entry MUST provide a clone URL and MAY specify a default branch and a
+subdirectory. Names MUST be unique within the organization. The repositories are
+generic: the operator attaches no meaning such as "wiki" to any of them.
 
-M1 MUST support one wiki repository per organization. Its expected knowledge
-layout is governed by the selected `wiki` skill rather than duplicated in the
-CRD schema.
+An immutable commit SHA MAY be used as an initial revision, but a repository the
+agent works in MUST remain writable so a run can create a new commit.
+
+M1 supports one repository per organization — the demo's wiki, named `wiki`. Its
+expected knowledge layout is governed by the agent's `wiki` skill, not by the CRD
+schema. See the [M1 milestone](../milestones/M1-email-paper-reserach/task.md) for
+how the researcher composition uses it.
 
 ## OPR-001.3: Dotagents catalogs
 
@@ -40,27 +47,28 @@ payload subdirectory, including a colocated `.agents` directory. Standalone
 `owner/.agents` and `owner/.agent` repositories have the Dotagents payload at
 their root.
 
-M1 MUST concatenate the resources resolved from all catalogs into one effective
-set. Catalog declaration order has no precedence meaning. Before invoking
-Outfitter, the controller MUST index each resource by `<resource-kind>/<slug>`
-and reject duplicates, including duplicates whose contents are identical. On a
-collision it MUST set `CatalogsResolved=False` with reason
-`DuplicateResourceSlug` and identify the resource and source names without
-including credentials.
+The MVP supports a **single catalog per organization** — its own pinned
+`.agents` payload — so no cross-catalog composition is required. The resolved
+source and its revision MUST be visible in status.
 
-M1 MUST NOT implement override, shadowing, or last-source-wins behavior. Such
-composition MAY be introduced after M1 only with an explicit precedence rule,
-a user-facing conflict explanation, and tests that exercise replacement. The
-resolved source list and revisions MUST be visible in status.
+Multi-catalog resolution is deferred. When a second catalog is needed, the
+controller MUST concatenate the disjoint resources from all catalogs into one
+effective set, index each resource by `<resource-kind>/<slug>`, and reject
+duplicates (including identical ones) by setting `CatalogsResolved=False` with
+reason `DuplicateResourceSlug`, identifying the resource and source names without
+credentials. Override, shadowing, and last-source-wins behavior MUST NOT be
+introduced without an explicit precedence rule, a user-facing conflict
+explanation, and tests that exercise replacement. See
+[architecture.md](../architecture.md) deferred items.
 
-## OPR-001.4: Embedded projects
+## OPR-001.4: Embedded projects (deferred)
 
-`spec.projects` MUST contain zero or more projects conforming to
-[OPR-002](OPR-002-projects.md). Project names MUST be unique within an
-organization. Projects and environments MUST NOT be installed as CRDs.
-
-M1 MUST validate and preserve embedded project data, but it does not have to
-launch project environments.
+Projects grouping is **deferred** for the single-owner fleet; see
+[OPR-002](OPR-002-projects.md). The MVP organization schema is
+`repositories` + one catalog. When projects are reintroduced, `spec.projects`
+will contain zero or more entries conforming to OPR-002, with unique names and no
+separate CRD. The useful in-MVP seam — an agent launching subagent Jobs — lives
+in [OPR-004](OPR-004-environments.md), not in projects.
 
 ## OPR-001.5: Status and conditions
 
@@ -83,8 +91,9 @@ metadata:
   name: ai-outfitter
 spec:
   displayName: AI Outfitter
-  wiki:
-    repository:
+  repositories:
+    # A generic repository; the researcher composition treats "wiki" as its wiki.
+    - name: wiki
       uri: ssh://git@example.test/ai-outfitter/wiki.git
       defaultBranch: main
   agentCatalogs:
@@ -93,8 +102,7 @@ spec:
       # Replace with the commit containing the reviewed .agents payload.
       revision: 0123456789abcdef0123456789abcdef01234567
       path: .agents
-  projects: []
 ```
 
-The repository's `.agents` payload vendors the `wiki` and `source-ingest`
-skills and defines the `researcher` agent, so M1 needs only one catalog.
+The single catalog's `.agents` payload vendors the `wiki` and `source-ingest`
+skills and defines the `researcher` agent, so the MVP needs only one catalog.

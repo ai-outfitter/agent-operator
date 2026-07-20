@@ -1,24 +1,31 @@
 # OPR-003: Agents
 
-Status: first-pass requirement; namespace isolation and email research are M1.
+Status: first-pass requirement; the namespace-workspace primitive is the MVP.
+The agent runs as a persistent Deployment; channels and tools are composed at the
+agent layer, not by the controller. See [architecture.md](../architecture.md).
 
 An `Agent` is a cluster-deployed worker and membership identity. Its selected
 Dotagents agent definition is its composable Outfitter profile; there is no
-separate profile resource.
+separate profile resource. The operator provisions the agent's workspace and runs
+it, but treats what the agent *does* — its channels, tools, and subagents — as
+opaque composition.
 
-## OPR-003.1: API identity and memberships
+## OPR-003.1: API identity and membership
 
 `Agent` MUST be a cluster-scoped resource served as
 `link.aioutfitter.com/v1alpha1`, kind `Agent`. Its name MUST be a DNS label no
 longer than 57 characters so its namespace can be `agent-<name>`.
 
-`spec.memberships` MUST contain one or more unique organization references. A
-membership MAY list project names from that organization. This is a
-many-to-many relationship: one agent may belong to many organizations and
-projects, and an organization or project may be referenced by many agents.
+`spec.memberships` MUST be a **list** of `{organization, projects?}` entries with
+unique organization references. Keeping it a list preserves the many-to-many
+future so no scalar→list migration is ever needed.
 
-An empty `projects` list means organization-level access only. Every referenced
-organization and project MUST exist before `Accepted=True`.
+The MVP is a **single-owner fleet** and only *exercises* one membership entry: it
+validates that the referenced organization exists before `Accepted=True`, and an
+empty or omitted `projects` grants organization-level access. Many-to-many
+routing across several organizations, and per-membership `projects` semantics,
+are deferred as implementation — not as schema. See
+[architecture.md](../architecture.md) deferred items.
 
 ## OPR-003.2: Dotagents runtime
 
@@ -39,6 +46,11 @@ The M1 image MUST be reproducibly built from Outfitter commit
 an immutable image digest; a mutable development tag may be accepted only until
 the local image is loaded and its digest recorded in status.
 
+The runtime image is a **generic base** (Pi, Outfitter, git, ssh). Channel and
+tool dependencies — for example an email adapter or Docling — belong to the
+composed agent, not to the operator's contract. A single image is acceptable for
+M1; the operator does not care what capabilities it contains.
+
 ## OPR-003.3: Namespace workspace and owned resources
 
 The entire agent namespace MUST be the agent's workspace and autonomy boundary,
@@ -53,8 +65,15 @@ for every accepted agent:
 - one RoleBinding from that service account to the built-in `admin` ClusterRole;
 - one operator-owned ResourceQuota named `agent-workspace`;
 - one operator-owned LimitRange named `agent-workspace-defaults`;
-- one long-running agent Deployment; and
-- one ConfigMap for bounded mailbox processing state.
+- one durable per-agent workspace volume; and
+- one long-running agent Deployment.
+
+The durable volume gives the agent a working cache and Git working tree that
+survive pod restarts. It is a cache, not a system of record: authoritative state
+lives in external services (a mail server, GitHub/Forgejo, the wiki's Git
+remote), and the agent manages any additional persistence it wants within quota.
+The operator does NOT own a channel-state resource such as a mailbox ConfigMap;
+channel and processing state is the agent's concern.
 
 Every owned object MUST carry the agent name and UID as labels. Cross-namespace
 owner references MUST NOT be used. Namespace cleanup MUST be guarded by an
@@ -99,74 +118,44 @@ The agent MUST treat this as a bounded-capacity result: clean up completed work,
 request a quota change, or report failure. It MUST NOT retry an unchanged
 quota-violating request indefinitely.
 
-## OPR-003.5: Credentials
+## OPR-003.5: Credentials and configuration
 
-Secret values MUST live in ordinary Kubernetes Secrets in the generated agent
-namespace. `Agent.spec.credentials` contains names only. The operator creates
-the namespace first and then waits with `CredentialsReady=False` until required
-Secrets exist and contain their required keys.
+Credential and configuration values MUST live in ordinary Kubernetes Secrets and
+ConfigMaps in the generated agent namespace. `Agent.spec.credentials` references
+them **by name only** and declares how each is exposed to the runtime. This is a
+generic primitive defined in [OPR-005](OPR-005-config-secrets.md).
 
-The M1 email Secret MUST contain:
+The operator creates the namespace first and then waits with
+`CredentialsReady=False` until every referenced Secret and ConfigMap **exists**.
+The controller MUST NOT inspect, log, copy, or schema-validate their contents —
+it does not know or care whether a Secret holds email settings, a model key, or
+an SSH key. Key-level contracts (for example the email adapter's IMAP/SMTP keys)
+belong to the composed agent and are documented with the demo, not here.
 
-| Key | Meaning |
-| --- | --- |
-| `address` | Mailbox and reply From address |
-| `imapHost`, `imapPort` | Incoming server endpoint |
-| `imapUsername`, `imapPassword` | Incoming authentication |
-| `imapTLS` | `true` for TLS, `false` only in the isolated demo |
-| `smtpHost`, `smtpPort` | Submission server endpoint |
-| `smtpUsername`, `smtpPassword` | Submission authentication |
-| `smtpTLS` | `true` for TLS, `false` only in the isolated demo |
+Exposed Secret/ConfigMap volumes MUST be mounted read-only. Because the agent is
+the administrator of its namespace workspace, it can read and manage namespaced
+Secrets; cross-namespace Secret access remains forbidden.
 
-A referenced SSH Secret MUST use `kubernetes.io/ssh-auth`, with optional
-`known_hosts`. Model-provider Secrets are mounted as explicitly selected
-environment variables; the controller MUST not log their keys or values.
-Bootstrap Secret volumes MUST be mounted read-only and MUST not be copied into
-catalog settings, Git working trees, status, events, or email replies. Because
-the agent is the administrator of its namespace workspace, it can read and
-manage namespaced Secrets; cross-namespace Secret access remains forbidden.
+## OPR-003.6: Runtime execution and delegation
 
-## OPR-003.6: Email processing and idempotency
+The controller runs the agent as a long-running Deployment and treats it as
+**opaque**. It launches the equivalent of `outfitter run <agent-slug> --harness
+pi` with the resolved catalog and the exposed credentials/config, and does not
+model what the agent does next. Channels (how the agent receives work) and tools
+(how it acts) are supplied by the agent's Dotagents resources and runtime image,
+not by the operator.
 
-M1 MUST poll the configured IMAP mailbox and process one message at a time. A
-valid request has exactly one `application/pdf` attachment no larger than 25
-MiB and maps unambiguously to one organization membership. M1 may use
-`spec.email.defaultOrganization` because its demo agent has one active research
-organization.
+A running agent MAY delegate work to **subagents that run as Kubernetes Jobs** in
+its own namespace, using its `admin` rights and bounded by the shared
+`ResourceQuota`. The delegation contract is defined in
+[OPR-004](OPR-004-environments.md). Systems of record for the agent's work are
+external services (a mail server, GitHub/Forgejo, a Git remote); the durable
+workspace volume is a cache.
 
-Mailbox state MUST be keyed by the RFC Message-ID, with a content digest
-fallback when Message-ID is absent. The state machine is `received`, `running`,
-`committed`, `replied`, or `failed`. It MUST persist the source digest and local
-commit SHA so a restart after committing cannot create a duplicate ingest.
-IMAP mail MUST be marked complete only after the reply is accepted by SMTP.
-
-The reply MUST set `In-Reply-To` and `References`, retain a recognizable
-subject, and report the organization, source title, summary, local commit SHA,
-changed wiki paths, linked-paper candidates, and any warnings. A permanent
-validation failure MUST receive one failure reply; a retryable infrastructure
-failure MUST remain retryable without sending repeated replies.
-
-Email bodies, attachments, extracted text, and linked pages are untrusted data.
-They MUST NOT override the selected agent policy or be treated as operator
-instructions.
-
-## OPR-003.7: M1 research result
-
-The selected agent MUST compose the pinned `wiki` and `source-ingest` skills.
-For the seed PDF it MUST:
-
-1. add the untouched PDF under a dated `wiki/sources/<source>/` directory and
-   track it with Git LFS;
-2. generate and verify `content.md` with Docling;
-3. create `source.md` with verified provenance and links;
-4. update or create durable concepts without duplicating existing notes;
-5. update `wiki/index.md` and append to `wiki/log.md`;
-6. record verified linked-paper candidates as depth-one follow-up work without
-   downloading them; and
-7. create exactly one local Git commit and perform no push.
-
-Recursive ingestion is deferred. Future traversal MUST have a hard maximum
-depth of five.
+Inputs the agent processes — message bodies, attachments, extracted text, fetched
+pages — are **untrusted data**. They MUST NOT override the selected agent policy
+or be treated as operator instructions. This rule holds at the agent layer
+regardless of channel.
 
 ## OPR-003.8: Status
 
@@ -183,7 +172,8 @@ summary. It MUST include Kubernetes conditions:
 - `Ready`.
 
 Messages MUST identify missing references or failed reconciliation stages while
-redacting credentials and email content.
+redacting credential values. Status reflects only the operator's primitives — it
+says nothing about channel or tool progress, which is the agent's concern.
 
 ## M1 example
 
@@ -193,20 +183,25 @@ kind: Agent
 metadata:
   name: researcher
 spec:
+  # A list preserves the many-to-many future; the MVP exercises one entry.
   memberships:
     - organization: ai-outfitter
       projects: []
-    - organization: example-lab
-      projects: [literature-review]
   profile:
     agent: researcher
     harness: pi
   credentials:
-    emailSecret: researcher-email
-    modelSecret: researcher-model
-    sshSecret: researcher-ssh
-  email:
-    defaultOrganization: ai-outfitter
+    # Names only. The operator exposes these but never inspects their contents.
+    # Key-level contracts belong to the composed agent (see the M1 demo).
+    - secret: researcher-email
+      as: env
+    - secret: researcher-model
+      as: env
+    - secret: researcher-ssh
+      as: volume
+    # Non-secret runtime config (e.g. channel routing) rides the same mechanism.
+    - configMap: researcher-runtime
+      as: env
   workspace:
     resourceQuota:
       hard:

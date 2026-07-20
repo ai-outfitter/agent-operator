@@ -1,6 +1,13 @@
 # OPR-002: Projects
 
-Status: first-pass requirement; only validation and membership are in M1.
+> **Deferred (post-MVP).** Projects grouping is not part of the single-owner-fleet
+> MVP. This document is retained as a forward design note, not an MVP obligation.
+> The useful in-MVP seam — an agent launching subagent Jobs — lives in
+> [OPR-004](OPR-004-environments.md), not in projects. Reintroduce projects when an
+> agent needs operator-managed, project-scoped work rather than self-launched
+> subagent Jobs. See [architecture.md](../architecture.md).
+
+Status: deferred design note.
 
 A project is an organization-owned unit of work. It groups repositories and
 reusable execution environments without introducing another top-level CRD.
@@ -43,12 +50,13 @@ agent membership invalid.
 [OPR-004](OPR-004-environments.md). Environment names MUST be unique within the
 project. Every M1 environment uses the same shape and has no kind discriminator.
 
-## OPR-002.5: M1 boundary
+## OPR-002.5: MVP boundary
 
-M1 MUST validate project names, repository names, environment names, and agent
-references. M1 MUST NOT create project namespaces, Deployments, or Jobs solely
-because a project exists. The email-paper workflow is organization-level and
-works when `projects` is empty.
+Projects grouping is deferred, so the MVP carries no `spec.projects` schema. When
+reintroduced, validation MUST cover project, repository, environment, and agent
+reference names, and MUST NOT create project namespaces, Deployments, or Jobs
+solely because a project exists. Organization-level agents (an empty membership
+`projects` list) work without any project.
 
 ## Example embedded project
 
