@@ -40,7 +40,7 @@ namespace first and then waits with `CredentialsReady=False` until every
 referenced Secret and ConfigMap **exists**. The controller MUST NOT:
 
 - read, log, copy, or emit the contents of any referenced object;
-- validate that a Secret contains particular keys (for example `imapHost`); or
+- validate that a Secret contains particular keys (for example `JMAP_URL`); or
 - copy exposed values into catalog settings, Git working trees, status, events,
   or any agent output.
 

@@ -18,7 +18,7 @@ Beyond the operator and cluster prerequisites, this composition needs:
 
 - a writable Git wiki repository with Git LFS enabled — the organization's `wiki`
   repository, which the agent commits to;
-- an IMAP/SMTP mailbox for the agent (the local environment supplies GreenMail);
+- a JMAP mailbox for the agent (the local environment supplies Stalwart);
   and
 - credentials for the model the `researcher` agent selects.
 
@@ -34,21 +34,13 @@ The email channel adapter's `email.env` must contain — this is the adapter's
 authoritative key contract:
 
 ```dotenv
-address=researcher@link.test
-imapHost=greenmail
-imapPort=3143
-imapUsername=researcher@link.test
-imapPassword=REPLACE_ME
-imapTLS=false
-smtpHost=greenmail
-smtpPort=3025
-smtpUsername=researcher@link.test
-smtpPassword=REPLACE_ME
-smtpTLS=false
+JMAP_URL=http://stalwart.link-system.svc.cluster.local:8080
+JMAP_USERNAME=researcher@link.test
+JMAP_PASSWORD=REPLACE_ME
 ```
 
-The cleartext TLS settings are permitted only inside the isolated GreenMail demo.
-Use TLS for a real mailbox.
+Cleartext HTTP is permitted only inside the isolated Stalwart demo. Use HTTPS for
+a real mailbox.
 
 Create the email Secret:
 

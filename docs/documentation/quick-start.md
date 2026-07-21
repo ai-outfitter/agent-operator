@@ -2,7 +2,7 @@
 
 Link Operator runs composable Dotagents agents on Kubernetes. It provides
 **primitives** — a per-agent namespace workspace, generic secret/config exposure,
-catalog resolution, and running the agent — and treats what the agent *does* as
+Outfitter settings, and running the agent — and treats what the agent *does* as
 composition. Channels (email, and later GitHub notifications or Signal) and tools
 (a wiki, source ingestion) are supplied by the agent's Dotagents resources, not by
 the operator. See [architecture.md](../architecture.md).
@@ -36,9 +36,10 @@ wiki repository and a mailbox. These are composition inputs, not operator
 requirements; a different composition (say a GitHub PR watcher) would need
 different inputs.
 
-The pinned Dotagents catalog must use a full commit SHA. Review every agent,
-skill, MCP server, plugin, and script in it before trusting it. The operator
-currently resolves one catalog per organization.
+The pinned Dotagents source must use a full commit SHA. Review every agent,
+skill, MCP server, plugin, and script in it before trusting it. M1 writes one
+source per organization to Outfitter settings; Outfitter performs fetching and
+resolution inside the runtime.
 
 ## 1. Install the operator
 

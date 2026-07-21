@@ -7,13 +7,13 @@ than a claim that the demo already runs.
 
 ## Demonstrated behavior
 
-One `Agent` receives a PDF over IMAP, uses an Outfitter Dotagents profile to
+One `Agent` receives a PDF over JMAP, uses an Outfitter Dotagents profile to
 ingest it into one `Organization` wiki, creates one local Git commit, and sends
-a threaded SMTP reply. No linked paper is downloaded and no Git remote is
+a threaded JMAP reply. No linked paper is downloaded and no Git remote is
 modified.
 
 The email channel and wiki tools are **agent-layer composition**; the operator
-provides only the workspace, secret/config exposure, catalog resolution, and
+provides only the workspace, secret/config exposure, Outfitter settings, and
 running the agent (see [architecture.md](../../architecture.md)). Relevant
 requirements:
 
@@ -26,7 +26,7 @@ requirements:
 
 - A devenv v2 shell on a host capable of running the configured microVM.
 - Single-node k3s in that microVM.
-- GreenMail providing isolated SMTP and IMAP; it must not relay to the Internet.
+- Stalwart providing isolated JMAP mailboxes; its pod has no Internet egress.
 - A bare writable wiki fixture with the `wiki/` layout, Git LFS enabled, and a
   clean default branch.
 - A known research PDF at `fixtures/m1/seed-paper.pdf`, no larger than 25 MiB.
@@ -50,12 +50,13 @@ devenv tasks run cluster:up
 devenv tasks run operator:install
 ```
 
-`cluster:up` MUST start or resume the microVM, wait for the k3s API, load the
-locally built operator and agent images, install the CRDs/controller, deploy
-GreenMail, seed the bare wiki remote, and print the kubeconfig path.
+`cluster:up` MUST start or resume the microVM, wait for the k3s API, deploy and
+declaratively seed Stalwart, and print the kubeconfig path. `operator:install`
+MUST build and load the local operator image, install the CRDs/controller, and
+wait for the controller rollout.
 
 `operator:install` MUST be idempotent. The environment is ready only when the
-controller and GreenMail report ready and both CRDs are discoverable.
+controller and Stalwart report ready and both CRDs are discoverable.
 
 ## 2. Apply the organization and agent
 
@@ -75,9 +76,9 @@ use it to push.
 The task MUST wait for:
 
 ```text
-Organization/ai-outfitter: Accepted, CatalogsResolved, Ready
+Organization/ai-outfitter: Accepted, CatalogSourcesReady, Ready
 Agent/researcher: Accepted, NamespaceReady, WorkspaceReady,
-                        CredentialsReady, ProfileResolved, WorkloadReady, Ready
+                  CredentialsReady, OutfitterSettingsReady, WorkloadReady, Ready
 ```
 
 Before credentials are created, the observable intermediate state MUST be
@@ -97,7 +98,8 @@ Run:
 devenv tasks run demo:m1
 ```
 
-The task sends a standards-compliant message through GreenMail SMTP:
+The task creates a standards-compliant message and submits it through Stalwart's
+JMAP API:
 
 ```text
 From: demo-user@link.test
@@ -116,7 +118,7 @@ original message headers and attachment SHA-256 in the evidence directory.
 
 The agent MUST:
 
-1. receive the message over IMAP and persist `received`;
+1. receive the message through JMAP mailbox changes and persist `received`;
 2. validate the request and persist `running`;
 3. clone or reset a clean organization wiki working tree without discarding a
    prior completed M1 commit;
@@ -130,8 +132,8 @@ The agent MUST:
 9. record cited or linked papers as verified candidates at depth one without
    downloading them;
 10. create exactly one local commit and persist `committed` with its SHA; and
-11. send the reply and persist `replied` before marking the IMAP message
-    complete.
+11. create and submit the reply through JMAP, then persist `replied` before
+    marking the source message complete.
 
 The commit subject MUST begin `wiki(ingest):`. The working tree MUST be clean
 after the commit.
@@ -144,7 +146,7 @@ Run:
 devenv tasks run demo:verify
 ```
 
-The verifier MUST fetch the reply from the sender mailbox over IMAP and prove:
+The verifier MUST query the sender mailbox through JMAP and prove:
 
 - exactly one reply exists for `<m1-seed-paper@link.test>`;
 - `In-Reply-To` equals that Message-ID and `References` contains it;
@@ -188,7 +190,7 @@ directory:
 
 A failed assertion MUST make `demo:verify` non-zero and print the relevant
 artifact path. It MUST distinguish validation failure, catalog/profile failure,
-Docling failure, model failure, Git failure, and SMTP failure.
+Docling failure, model failure, Git failure, and JMAP submission failure.
 
 ## Teardown
 

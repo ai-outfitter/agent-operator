@@ -122,7 +122,7 @@ quota-violating request indefinitely.
 `Agent.spec.credentials` references Secrets and ConfigMaps in the agent namespace
 **by name only** and declares how each is exposed to the runtime. The operator
 waits for them to exist (`CredentialsReady`) and never inspects their contents;
-key-level contracts (for example the email channel adapter's IMAP/SMTP keys)
+key-level contracts (for example the email channel adapter's JMAP keys)
 belong to the composed agent, not here. This is the generic primitive defined in
 [OPR-004](OPR-004-config-secrets.md) — see it for the full contract.
 
@@ -149,21 +149,23 @@ regardless of channel.
 
 ## OPR-003.7: Status
 
-Status MUST include `observedGeneration`, `namespace`, resolved Outfitter and
-catalog revisions, resolved image digest, and the ResourceQuota hard/used
+Status MUST include `observedGeneration`, `namespace`, the pinned Outfitter and
+catalog-source revisions, resolved image digest, and the ResourceQuota hard/used
 summary. It MUST include Kubernetes conditions:
 
 - `Accepted`;
 - `NamespaceReady`;
 - `WorkspaceReady` for the admin binding, ResourceQuota, and LimitRange;
 - `CredentialsReady`;
-- `ProfileResolved`;
+- `OutfitterSettingsReady`;
 - `WorkloadReady`; and
 - `Ready`.
 
 Messages MUST identify missing references or failed reconciliation stages while
-redacting credential values. Status reflects only the operator's primitives — it
-says nothing about channel or tool progress, which is the agent's concern.
+redacting credential values. `OutfitterSettingsReady` means only that the
+operator rendered the pinned sources and defaults; it MUST NOT claim that the
+controller resolved a profile. Status reflects only the operator's primitives —
+it says nothing about channel or tool progress, which is the agent's concern.
 
 ## Example
 

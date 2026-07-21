@@ -51,9 +51,12 @@ These are the operator's contract. They are domain-agnostic.
   or read-only mounts. The operator waits only for their **existence**; it never
   reads, logs, copies, or validates their contents. See
   [OPR-004](requirements/OPR-004-config-secrets.md).
-- **Catalog resolution + run** — resolve the organization's commit-pinned
-  Dotagents catalog and run the selected agent (`outfitter run <agent> --harness
-  pi`). The runtime image is a generic base (Pi, Outfitter, git, ssh).
+- **Outfitter settings + runtime start** — write the organization's
+  commit-pinned source into `.agents/settings.yml`, pass the selected agent and
+  harness to the declared runtime image, and start it. The controller does not
+  invoke or interpret a profile. The runtime invokes `outfitter run <agent>
+  --harness pi` for work; Outfitter fetches sources and resolves and composes the
+  agent. The runtime image is a generic base (Pi, Outfitter, git, ssh).
 
 ### Agent composition (the behavior)
 
@@ -125,11 +128,12 @@ between the two layers. Nothing email- or wiki-shaped is an operator primitive.
 | --- | --- |
 | Create the agent namespace, service account, `admin` binding, quota, LimitRange, durable volume, Deployment | Operator primitive |
 | Wait for the referenced Secrets/ConfigMaps to exist and project them into the runtime | Operator primitive (generic exposure) |
-| Resolve the pinned catalog and run `outfitter run <agent> --harness pi` | Operator primitive |
-| Poll IMAP, accept one PDF, keep Message-ID idempotency state | Agent composition (email channel adapter) |
+| Write pinned sources to Outfitter settings and start the declared runtime image | Operator primitive |
+| Resolve and run `outfitter run <agent> --harness pi` for a work item | Agent runtime / Outfitter |
+| Consume JMAP mailbox changes, accept one PDF, keep Message-ID idempotency state | Agent composition (email channel adapter) |
 | Preserve the PDF with Git LFS, extract `content.md` with Docling | Agent composition (`source-ingest` tool) |
 | Update source notes, concepts, index, log; create one local commit | Agent composition (`wiki` tool) |
-| Send the threaded SMTP reply | Agent composition (email channel adapter) |
+| Create and submit the threaded JMAP reply | Agent composition (email channel adapter) |
 
 The [researcher wiki maintainer](documentation/usecases.researcher-wiki-maintainer.md)
 is exactly this composition — the first proof of the primitives.

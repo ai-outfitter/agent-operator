@@ -44,14 +44,12 @@ payload subdirectory, including a colocated `.agents` directory. Standalone
 `owner/.agents` and `owner/.agent` repositories have the Dotagents payload at
 their root.
 
-Resolution MUST concatenate the disjoint resources from all catalogs into one
-effective set and index each resource by `<resource-kind>/<slug>`. Duplicate
-identities MUST be rejected — with `CatalogsResolved=False`, reason
-`DuplicateResourceSlug`, and the resource and source names (no credentials) —
-rather than resolved by order. Override, shadowing, and last-source-wins behavior
-MUST NOT be introduced without an explicit precedence rule, a user-facing
-conflict explanation, and tests that exercise replacement. The resolved sources
-and their revisions MUST be visible in status.
+The operator MUST validate only the source declaration and serialize the sources
+to `.agents/settings.yml` in declared order. Outfitter owns fetching, indexing,
+union/conflict behavior, profile resolution, composition, and launch. The
+operator MUST NOT clone catalogs or implement a parallel Dotagents resource
+resolver. Source names and pinned revisions (but not credential-bearing URIs)
+MUST be visible in status.
 
 ## OPR-001.4: Embedded projects
 
@@ -67,11 +65,14 @@ has access to within that organization.
 `status.conditions` MUST use Kubernetes conditions and include:
 
 - `Accepted`: the specification and internal references are valid;
-- `CatalogsResolved`: every pinned catalog can be resolved and validated; and
+- `CatalogSourcesReady`: every source declaration is pinned, valid, and ready to
+  be written to Outfitter settings; and
 - `Ready`: the organization is usable by agents.
 
-A failed external fetch MUST set a condition with a stable reason and useful
-message. It MUST NOT copy a URI containing credentials into status or events.
+Validation failures MUST set a stable reason and useful message. Status and
+events MUST NOT copy a URI containing credentials. Runtime fetch or resolution
+failures belong to Outfitter and the agent workload, not Organization
+reconciliation.
 
 ## Example
 

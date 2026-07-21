@@ -15,7 +15,7 @@ spec:
   credentials:
     # Referenced by name only, in namespace agent-researcher. The controller
     # creates the namespace and exposes these, but never inspects their contents.
-    # Key-level contracts (e.g. the email adapter's IMAP/SMTP keys) belong to the
+    # Key-level contracts (e.g. the email adapter's JMAP keys) belong to the
     # composed agent, not the operator.
     - secret: researcher-email
       as: env

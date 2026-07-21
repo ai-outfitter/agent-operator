@@ -30,13 +30,13 @@ In scope for M1:
 - The two cluster-scoped CRDs and the controller for the **operator primitives**:
   agent namespace workspace (service account, `admin` binding, ResourceQuota,
   LimitRange, durable per-agent volume, Deployment), generic Secret/ConfigMap
-  exposure, catalog resolution, and running the agent.
+  exposure, Outfitter catalog settings, and running the agent.
 - One `Organization` with one repository (the wiki) and one pinned catalog.
 - One `Agent` with a single organization membership.
 - The **researcher composition**: an in-runtime email channel adapter plus the
   vendored `wiki` and `source-ingest` tools, ingesting an emailed PDF into the
   wiki as one local commit and replying in-thread.
-- A local devenv/k3s/GreenMail demo harness that runs and verifies the above.
+- A local devenv/k3s/Stalwart JMAP demo harness that runs and verifies the above.
 
 ## Non-Goals
 
@@ -50,7 +50,8 @@ not built yet:
 - **Many-to-many membership routing** across multiple organizations
   ([OPR-003](../../requirements/OPR-003-agents.md)); M1 exercises one membership.
 - **Multi-catalog union + duplicate-slug rejection**
-  ([OPR-001](../../requirements/OPR-001-orgs.md)); M1 resolves one catalog.
+  ([OPR-001](../../requirements/OPR-001-orgs.md)); M1 passes one pinned source to
+  Outfitter and delegates resolution entirely.
 - **Recursive research** beyond the emailed seed paper (the eventual hard maximum
   depth is five).
 - **Wiki publication** — pushing the commit, opening a branch or PR, or resolving
@@ -63,36 +64,38 @@ not built yet:
 
 ### 1. Repository and operator foundation
 
-- [ ] Initialize the repository and scaffold `code/operator` with Go, Kubebuilder,
+- [x] Initialize the repository and scaffold `code/operator` with Go, Kubebuilder,
       controller-runtime, and envtest.
-- [ ] Establish generation, formatting, lint, unit-test, image-build, and CRD
+- [x] Establish generation, formatting, lint, unit-test, image-build, and CRD
       manifest checks.
-- [ ] Add the two cluster-scoped APIs at `link.aioutfitter.com/v1alpha1` and no
+- [x] Add the two cluster-scoped APIs at `link.aioutfitter.com/v1alpha1` and no
       other CRDs.
 
 ### 2. Organization reconciliation
 
-- [ ] Implement `Organization` validation and conditions over `repositories` and
+- [x] Implement `Organization` validation and conditions over `repositories` and
       one pinned catalog. (Multi-catalog union is a Non-Goal; keep the
       `agentCatalogs` list shape without implementing concatenation.)
-- [ ] Resolve the single commit-pinned standalone or colocated Dotagents catalog
-      before invoking Outfitter.
-- [ ] Produce redacted status containing only resolved repositories and revisions.
+- [x] Validate the single standalone or colocated Dotagents catalog source is
+      commit-pinned, then pass that source through in Outfitter settings. The
+      controller does not fetch, index, merge, or resolve catalog contents.
+- [x] Produce redacted status containing only resolved repositories and revisions.
 
 ### 3. Agent workspace primitives (controller)
 
 Channel- and tool-agnostic controller work.
 
-- [ ] Reconcile `agent-<name>` as the entire agent workspace, with its service
+- [x] Reconcile `agent-<name>` as the entire agent workspace, with its service
       account, namespaced `admin` RoleBinding, operator-owned ResourceQuota and
       LimitRange, durable per-agent workspace volume, and Deployment. No
       channel-state (mailbox) resource is operator-owned.
 - [ ] Expose aggregate quota hard/used values and make quota rejection a clear,
       non-looping agent failure mode.
-- [ ] Expose referenced Secrets/ConfigMaps to the runtime and wait only for their
+- [x] Expose referenced Secrets/ConfigMaps to the runtime and wait only for their
       existence (`CredentialsReady`); never inspect their contents.
-- [ ] Resolve the pinned catalog, generate Outfitter settings, and run the
-      selected Dotagents agent through Pi.
+- [ ] Generate Outfitter settings for the pinned source and run the selected
+      Dotagents agent through Pi. Outfitter owns source fetching, catalog/profile
+      resolution, composition, and launch behavior.
 
 The demo runtime image is built from Outfitter commit
 `c44205ef35265c893ad9f088772c35c71753bfb7`: a generic Pi/Outfitter/git/ssh base
@@ -105,14 +108,14 @@ Agent-runtime behavior delivered by the researcher composition, **not** the
 controller. Mailbox state is agent-managed; the mail server is the system of
 record.
 
-- [ ] Poll IMAP sequentially and persist a Message-ID state machine in
-      agent-managed workspace state.
+- [x] Consume JMAP mailbox changes sequentially and persist a Message-ID state
+      machine in agent-managed workspace state.
 - [ ] Validate one PDF of at most 25 MiB and resolve the target organization
       (routing config supplied via a ConfigMap through OPR-004).
-- [ ] Preserve thread headers and send success or permanent-failure replies by
-      SMTP.
+- [ ] Preserve thread headers and send success or permanent-failure replies with
+      JMAP `Email/set` and `EmailSubmission/set`.
 - [ ] Make retries after each state transition safe, especially commit-before-
-      reply restarts, leaning on external mailbox read-state plus a local dedup
+      reply restarts, leaning on external JMAP mailbox state plus a local dedup
       cache.
 
 The adapter's email Secret is referenced by name only in `Agent.spec.credentials`
@@ -138,8 +141,9 @@ catalog, and delegation primitives.
 
 ### 6. Local developer experience
 
-- [ ] Add devenv v2 configuration and a microVM containing single-node k3s.
-- [ ] Run GreenMail in the local cluster with deterministic test credentials.
+- [x] Add devenv v2 configuration and a microVM containing single-node k3s.
+- [x] Run Stalwart in the local cluster with deterministic JMAP test accounts and
+      no Internet egress.
 - [ ] Provide `cluster:up`, `operator:install`, `demo:m1`, `demo:verify`, and
       `cluster:down` tasks plus an explicitly named destructive reset task.
 - [ ] Cache large Docling models outside disposable agent Jobs so repeated demos
@@ -153,8 +157,8 @@ catalog, and delegation primitives.
   pages are data, never instructions; the composition must never let them override
   agent policy or leak credentials.
 - **Duplicate ingest on restart.** A crash between commit and reply must not create
-  a second commit or reply; idempotency leans on external mailbox read-state plus a
-  local dedup cache.
+  a second commit or reply; idempotency leans on external JMAP mailbox state plus
+  a local dedup cache.
 - **Docling/model cost.** Large models make repeated demos slow; cache them outside
   disposable Jobs.
 - **Primitive leakage.** The controller must stay channel-agnostic; any email/wiki
@@ -171,7 +175,13 @@ catalog, and delegation primitives.
 
 ## Implementation History
 
-- Requirements and this milestone defined; controller not yet scaffolded.
+- Operator foundation, two CRDs, workspace reconciliation, and the microVM/k3s
+  Stalwart environment implemented.
+- Persistent mail loop implemented with JMAP `Email/queryChanges`, durable
+  Message-ID state, local `.pi` PVC seeding, threaded acknowledgement submission,
+  sender-mailbox return-address verification, and restart persistence. PDF
+  ingestion, Outfitter/Pi work execution, wiki commit, and the final research
+  reply body remain.
 
 ## Alternatives
 
