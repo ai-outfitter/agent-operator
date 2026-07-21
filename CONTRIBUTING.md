@@ -3,9 +3,9 @@
 This covers the local development environment. For *using* the operator against a
 cluster you already have, see the [quick start](docs/documentation/quick-start.md).
 
-> **Implementation status:** the controller, runtime image, and devenv tasks below
-> are specified but not implemented yet. The commands document the intended
-> developer workflow.
+> **Implementation status:** the controller, local cluster, and persistent JMAP
+> receive/reply loop are implemented. PDF ingestion, wiki updates, and the final
+> research reply remain M1 work.
 
 ## Prerequisites
 
@@ -27,10 +27,11 @@ devenv tasks run cluster:up
 devenv tasks run operator:install
 ```
 
-`cluster:up` starts a microVM containing single-node k3s, GreenMail (an isolated
-SMTP/IMAP server for compositions that need mail), a local image path, and the
-Link Operator. `operator:install` is idempotent and waits until these resources
-are ready.
+`cluster:up` starts a microVM containing single-node k3s, Stalwart (an isolated
+JMAP server for compositions that need mail), and a local image path.
+`operator:install` builds and loads both the pinned Outfitter/Pi agent image and
+the Link Operator image, installs the operator idempotently, and waits until the
+controller is ready.
 
 Confirm the two CRDs are installed:
 
@@ -42,17 +43,26 @@ From here the [quick start](docs/documentation/quick-start.md) and the
 [use cases](docs/documentation/usecases.researcher-wiki-maintainer.md) work
 against your local cluster.
 
-## Run the scripted scenario
+## Verify the mail loop
 
-The email-research demo has scripted `devenv` tasks that apply the sample
-resources, send a paper, and verify the result:
+The mail-loop scenario applies a demo `Organization` and `Agent`, copies the
+local `$HOME/.pi` directory directly into the agent's durable volume, starts the
+agent, and submits a uniquely identified message through Stalwart JMAP. It then
+logs back into the sender mailbox and proves exactly one threaded reply has
+the return address `From: researcher@link.test`, `To: demo-user@link.test`, and
+the original Message-ID in `In-Reply-To`, including after a Deployment restart:
 
 ```sh
-devenv tasks run demo:m1
-devenv tasks run demo:verify
+devenv tasks run demo:mail-loop
 ```
 
-The full acceptance contract and evidence requirements are in the
+The task never stores the local `.pi` payload in a Kubernetes Secret or committed
+image. It streams the directory through a temporary pod into the researcher PVC,
+deletes the pod, and only then unblocks the agent Deployment. Redacted mail-loop
+evidence is retained under `.devenv/state/link-cluster/shared/evidence/mail-loop/`.
+
+This proves the persistent JMAP receive/reply transport slice of the agent
+runtime. The full PDF/wiki/research-response acceptance contract remains in the
 [email-research milestone](docs/milestones/M1-email-paper-reserach/demo.md).
 
 ## Teardown

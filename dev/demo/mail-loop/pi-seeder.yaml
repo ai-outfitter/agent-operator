@@ -1,0 +1,25 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pi-seeder
+  namespace: agent-researcher
+  labels:
+    app.kubernetes.io/name: pi-seeder
+    app.kubernetes.io/part-of: link-operator-mail-loop-demo
+spec:
+  restartPolicy: Never
+  terminationGracePeriodSeconds: 1
+  securityContext:
+    runAsNonRoot: true
+  containers:
+    - name: seeder
+      image: localhost/link-agent:dev
+      imagePullPolicy: IfNotPresent
+      command: ["sleep", "3600"]
+      volumeMounts:
+        - name: workspace
+          mountPath: /workspace
+  volumes:
+    - name: workspace
+      persistentVolumeClaim:
+        claimName: agent-workspace

@@ -1,0 +1,50 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: stalwart-bootstrap
+  namespace: link-system
+  labels:
+    app.kubernetes.io/name: stalwart-bootstrap
+    app.kubernetes.io/part-of: link-operator
+spec:
+  backoffLimit: 4
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: stalwart-bootstrap
+        app.kubernetes.io/part-of: link-operator
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: stalwart-cli
+          image: stalwartlabs/cli@sha256:a2304c65e8f76a4a704d8f1aa05324956ceaf2e27614767bd7d33003cf294bea
+          imagePullPolicy: IfNotPresent
+          args:
+            - apply
+            - --file
+            - /plan/plan.ndjson
+            - --json
+          env:
+            - name: STALWART_URL
+              value: http://stalwart-bootstrap:8080
+            - name: STALWART_USER
+              valueFrom:
+                secretKeyRef:
+                  name: stalwart-bootstrap
+                  key: STALWART_USER
+            - name: STALWART_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: stalwart-bootstrap
+                  key: STALWART_PASSWORD
+          volumeMounts:
+            - name: plan
+              mountPath: /plan
+              readOnly: true
+      volumes:
+        - name: plan
+          secret:
+            secretName: stalwart-bootstrap
+            items:
+              - key: plan.ndjson
+                path: plan.ndjson

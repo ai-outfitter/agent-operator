@@ -1,0 +1,10 @@
+inputs:
+  nixpkgs:
+    url: github:cachix/devenv-nixpkgs/rolling
+  nixos:
+    url: github:NixOS/nixpkgs/nixos-unstable
+  microvm:
+    url: github:microvm-nix/microvm.nix
+    inputs:
+      nixpkgs:
+        follows: nixos
