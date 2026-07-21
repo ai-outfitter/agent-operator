@@ -1,0 +1,37 @@
+apiVersion: link.aioutfitter.com/v1alpha1
+kind: Agent
+metadata:
+  labels:
+    app.kubernetes.io/name: link-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: agent-sample
+spec:
+  memberships:
+    - organization: organization-sample
+  profile:
+    agent: researcher
+    harness: pi
+  workspace:
+    resourceQuota:
+      hard:
+        requests.cpu: "2"
+        requests.memory: 4Gi
+        limits.cpu: "4"
+        limits.memory: 8Gi
+        requests.storage: 20Gi
+        persistentvolumeclaims: "4"
+        count/pods: "10"
+        count/jobs.batch: "20"
+        count/services: "5"
+        count/configmaps: "20"
+        count/secrets: "10"
+    limitRange:
+      container:
+        defaultRequest:
+          cpu: 100m
+          memory: 128Mi
+        default:
+          cpu: "1"
+          memory: 1Gi
+    volume:
+      size: 10Gi
