@@ -100,3 +100,9 @@ way.
 - How is the receiver's registration expressed — a Grafana contact point /
   notification policy or an Alertmanager receiver — via a `setup:` step, a
   composition-owned manifest, or out of band?
+- Who owns the *setup* side — provisioning the alerting, the receiver, the MCP,
+  and the RBAC? This is the platform-provisioning half the
+  [grafana-alert-investigator use case](../documentation/usecases.grafana-alert-investigator.md)
+  leaves manual today; a conventional **platform profile** is a candidate home
+  for it, under evaluation in
+  [ai-outfitter/outfitter#197](https://github.com/ai-outfitter/outfitter/issues/197).

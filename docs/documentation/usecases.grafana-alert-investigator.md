@@ -52,6 +52,12 @@ Beyond the operator and cluster prerequisites, this composition needs:
 The operator installs none of the observability stack. It resolves the catalog,
 exposes the credentials, grants the read-only RBAC, and runs the agent.
 
+Standing up these prerequisites — the alerting rule and webhook, the MCP, and the
+RBAC — is manual, documented setup today. Automating it via a conventional
+**platform profile** (a setup counterpart to this run-time composition) is under
+evaluation in
+[ai-outfitter/outfitter#197](https://github.com/ai-outfitter/outfitter/issues/197).
+
 ## Pin the catalog
 
 An `Organization` pins the community catalog by revision (mirror
