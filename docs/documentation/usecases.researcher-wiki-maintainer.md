@@ -21,9 +21,26 @@ Beyond the operator and cluster prerequisites, this composition needs:
 
 - a writable Git wiki repository with Git LFS enabled — the organization's `wiki`
   repository, which the agent commits to;
-- a JMAP mailbox for the agent (the local environment supplies Stalwart);
-  and
+- a mailbox for the agent (see *Choosing a mailbox backend* below); and
 - credentials for the model the `researcher` agent selects.
+
+### Choosing a mailbox backend
+
+Email is the researcher's **channel**, and the channel is an agent-runtime concern
+the operator never touches (see [architecture](../architecture.md)). That makes
+the mailbox backend a swappable choice — the operator projects whatever credential
+Secret you name, and a mailbox-specific skill drives an existing CLI against it.
+Two backends are documented here; both preserve the same invariants (reply-then-
+move, no local state, state lives server-side) and the same downstream behavior in
+*Email a paper*:
+
+| Backend | Protocol / CLI | Skill | When to use |
+| --- | --- | --- | --- |
+| **Stalwart (JMAP)** | JMAP via `xin` | `mail` | The self-contained local demo; any JMAP mailbox. Offline, no internet egress. |
+| **Google Workspace (Gmail)** | Gmail API via GAMADV-XTD3 (`gam`) | `mail-gmail` | Your organization already runs Google Workspace. |
+
+Pick one; the two are parallel, not layered. The rest of this page covers each
+backend's credential contract in turn.
 
 ## Credentials
 
@@ -33,7 +50,12 @@ Create these Secrets in the `agent-researcher` namespace — via your cluster's
 secret manager in production, or ignored `0600` files loaded with `kubectl` for
 local development.
 
-The mail skill and `xin` CLI use this `email.env` contract:
+The mailbox credentials go in the `researcher-email` Secret. Its keys depend on
+which backend you chose above.
+
+#### Stalwart (JMAP) mailbox
+
+The `mail` skill and `xin` CLI use this `email.env` contract:
 
 ```dotenv
 XIN_BASE_URL=http://stalwart.link-system.svc.cluster.local:8080
@@ -51,6 +73,77 @@ kubectl -n agent-researcher create secret generic \
   researcher-email \
   --from-env-file=email.env
 ```
+
+#### Google Workspace (Gmail) mailbox
+
+For a Google Workspace organization the `mail-gmail` skill drives GAMADV-XTD3
+(`gam`) against the Gmail API. The agent authenticates as **exactly one mailbox**
+using a **per-mailbox OAuth 2.0 token** that the researcher mailbox consents to
+once. There is **no service account and no domain-wide delegation**, so the
+credential cannot read or send as any other user — it is bound to the one mailbox
+that authorized it, and to two narrow scopes.
+
+> **Why not domain-wide delegation.** A DWD service account can impersonate *any*
+> user in the domain for its scopes — Google offers no way to bind a DWD grant to
+> a single mailbox. That is an org-wide credential in the agent's namespace, which
+> we deliberately avoid. A per-mailbox OAuth token is issued to, and valid only
+> for, the account that consented.
+>
+> **Why not IMAP/SMTP.** Gmail's IMAP/SMTP OAuth accepts *only* the full
+> `https://mail.google.com/` scope (it rejects granular scopes), which includes
+> permanent delete. Staying on the Gmail API lets us keep the restricted
+> read/modify + send scopes below — Google's own recommendation.
+
+**One-time setup** — done once, by (or on behalf of) the researcher mailbox; no
+super-admin domain settings are changed:
+
+1. In a **dedicated, single-purpose GCP project**, enable the Gmail API and create
+   an **OAuth client** (Desktop-app type) → `client_secrets.json`. Set the OAuth
+   consent screen's **User type to _Internal_** so only accounts in your Workspace
+   org can ever consent to this client.
+2. Point `gam` at a scratch config dir holding that `client_secrets.json` and run
+   `gam oauth create`. From the scope menu, select **only** Gmail
+   **read/modify** and Gmail **send**, deselect everything else, and complete the
+   browser consent **signed in as `researcher@yourcompany.com`**. This writes an
+   `oauth2.txt` bound to that mailbox with just these scopes:
+
+   ```
+   https://www.googleapis.com/auth/gmail.modify   # read bodies + add/remove labels; cannot permanently delete
+   https://www.googleapis.com/auth/gmail.send     # post the threaded reply
+   ```
+
+   `gmail.modify` is the narrowest scope that still lets the agent read a message
+   and move it `INBOX`→`Processed`; it explicitly **cannot delete** mail.
+
+The `mail-gmail` skill reads this `email.env` contract:
+
+```dotenv
+GMAIL_USER=researcher@yourcompany.com
+GAMCFGDIR=/var/run/secrets/gmail
+```
+
+Create the Secret with the env contract plus the two `gam` config files (mounted
+as files because `gam` reads them from `$GAMCFGDIR` on disk):
+
+```sh
+kubectl -n agent-researcher create secret generic \
+  researcher-email \
+  --from-env-file=email.env \
+  --from-file=client_secrets.json=./client_secrets.json \
+  --from-file=oauth2.txt=./oauth2.txt
+```
+
+Reference it from the Agent's `credentials` with `as: volume` (so both files land
+in `$GAMCFGDIR`) — the operator projects it unchanged. Then swap the agent's skill
+from `mail` to `mail-gmail` and replace the `mail-bootstrap` setup step's `xin`
+commands with their `gam` equivalents (verify the token works, then `gam user
+"$GMAIL_USER" create label "$LINK_MAIL_PROCESSED"`, tolerating "already exists").
+
+Remove the temporary `client_secrets.json` and `oauth2.txt` files once the Secret
+exists, and rotate the token by re-running `gam oauth create` if it is ever
+exposed. Because the OAuth client is _Internal_ and the token holds only these two
+scopes for one mailbox, a leaked token exposes exactly that mailbox's mail — never
+the rest of the domain.
 
 Create the model Secret with the environment variable expected by the selected
 model provider:
