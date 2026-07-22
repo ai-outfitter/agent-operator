@@ -8,7 +8,7 @@ tags:
   - method/catalog-composition
   - control/supply-chain
 created: 2026-07-19
-updated: 2026-07-19
+updated: 2026-07-21
 ---
 
 # Catalog Resource Collisions
@@ -21,15 +21,15 @@ choosing one by declaration order can mask configuration mistakes and makes an
 
 ## Current approach
 
-[[Dotagents Catalog Composition]] concatenates disjoint resources and rejects
-duplicate `<resource-kind>/<slug>` identities with a stable error. M1 has no
-override, shadowing, or last-source-wins semantics.
+Link Operator delegates catalog union and collision behavior to Outfitter. The
+operator validates and writes pinned source declarations but does not inspect
+resource identities or choose a winner. Collision policy therefore belongs to
+Outfitter's documented composition contract.
 
 ## Deferred alternative
 
-Replacement can be introduced later only with a concrete need, explicit
-precedence, conflict reporting, and tests that exercise replacement. This
-simplification was selected in the
-[[sources/2026-07-19-link-operator-design-conversation/source|design conversation]]
-and is specified in the
-[[sources/2026-07-19-link-operator-requirements/source|requirements]].
+If Link Operator ever adds policy above Outfitter, it needs a concrete use case,
+explicit precedence, conflict reporting, and tests that exercise replacement.
+The initial design selected controller-side duplicate rejection in the
+[[sources/2026-07-19-link-operator-design-conversation/source|design conversation]],
+but the later architecture revision removed that parallel resolver.

@@ -7,7 +7,7 @@ tags:
   - topic/knowledge-base
   - evidence/design
 created: 2026-07-19
-updated: 2026-07-20
+updated: 2026-07-21
 ---
 
 # Link Operator Wiki
@@ -34,7 +34,7 @@ the systems, boundaries, and persistent problems behind them.
 - [[Forge Owner]] — GitHub/Forgejo-style owner namespace behind an organization.
 - [[Project]] — embedded organization-owned unit of work.
 - [[Agent]] — cluster-deployed worker and many-to-many membership identity.
-- [[Researcher Agent]] — the M1 paper-ingestion agent profile named `researcher`.
+- [[Researcher Agent]] — the M2 paper-ingestion profile named `researcher`.
 - [[Agent Namespace Workspace]] — one namespace as an agent's complete autonomy boundary.
 - [[Dotagents Catalog Composition]] — commit-pinned profile and skill resolution.
 - [[Project Environment]] — embedded template for future project workloads.
@@ -42,7 +42,7 @@ the systems, boundaries, and persistent problems behind them.
 - [[Research Wiki Maintainer]] — the paper-to-wiki composition and its operator / Actions / hybrid delivery models.
 - [[Code Implementation Workflow]] — multi-agent feature/fix/milestone delivery through pull-request review.
 - [[Wiki Source Ingestion]] — preservation, extraction, and graph reconciliation.
-- [[Local Development Environment]] — devenv v2, microVM, k3s, and GreenMail stack.
+- [[Local Development Environment]] — devenv v2, microVM, k3s, and Stalwart JMAP stack.
 - [[Recursive Literature Exploration]] — bounded follow-up traversal from a seed paper.
 
 ## Problems

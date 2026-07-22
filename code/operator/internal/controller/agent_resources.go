@@ -31,9 +31,32 @@ const (
 	SettingsName    = "outfitter-settings"
 	WorkspaceMount  = "/workspace"
 	CredentialsRoot = "/var/run/link/credentials"
+	NixStoreName    = "agent-nix-store"
+	NixMount        = "/nix"
+	HomeEnvName     = "HOME"
 )
 
 var defaultWorkspaceSize = resource.MustParse("10Gi")
+
+// The Nix store holds the image's runtime closure plus anything the agent
+// installs at runtime, so it is sized generously.
+var defaultNixStoreSize = resource.MustParse("20Gi")
+
+// agentFSGroup makes the persistent volumes group-writable by the uid-1000
+// agent process (and the seed init container), so single-user Nix can write the
+// /nix store.
+var agentFSGroup = ptr.To[int64](1000)
+
+// Each image boot merges its immutable store closure into the persistent store.
+// --no-clobber keeps the agent's existing store paths and Nix state intact.
+// SOURCE_NIX and DESTINATION_NIX make the exact upgrade behavior testable without
+// requiring a mounted image or PVC.
+const nixStoreSeedScript = `set -eu
+source_nix="${SOURCE_NIX:-/nix}"
+destination_nix="${DESTINATION_NIX:-/mnt/nix}"
+mkdir -p "$destination_nix/store"
+cp -a --no-clobber "$source_nix/store/." "$destination_nix/store/"
+touch "$destination_nix/.seeded"`
 
 func agentNamespace(agentName string) string { return "agent-" + agentName }
 
@@ -123,26 +146,54 @@ func (r *AgentReconciler) ensureWorkspaceResources(
 		return nil, err
 	}
 
-	claim := &corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{Name: WorkspaceName, Namespace: namespace}}
-	if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, claim, func() error {
-		claim.Labels = mergeLabels(claim.Labels, labels)
-		claim.Spec.AccessModes = []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce}
-		// Preserve a StorageClass defaulted by admission. Setting it back to nil
-		// on a bound claim would attempt to mutate an immutable PVC field.
-		if agent.Spec.Workspace.Volume.StorageClassName != nil || claim.CreationTimestamp.IsZero() {
-			claim.Spec.StorageClassName = agent.Spec.Workspace.Volume.StorageClassName
-		}
-		size := agent.Spec.Workspace.Volume.Size.DeepCopy()
-		if size.IsZero() {
-			size = defaultWorkspaceSize.DeepCopy()
-		}
-		claim.Spec.Resources.Requests = corev1.ResourceList{corev1.ResourceStorage: size}
-		return nil
-	}); err != nil {
+	storageClass := agent.Spec.Workspace.Volume.StorageClassName
+	workspaceSize := agent.Spec.Workspace.Volume.Size.DeepCopy()
+	if workspaceSize.IsZero() {
+		workspaceSize = defaultWorkspaceSize.DeepCopy()
+	}
+	if err := r.ensurePVC(ctx, namespace, WorkspaceName, labels, storageClass, workspaceSize); err != nil {
+		return nil, err
+	}
+	// Persistent Nix store: seeded from the image on first boot, then writable so
+	// agents can `nix profile install` tools that survive restarts.
+	if err := r.ensurePVC(ctx, namespace, NixStoreName, labels, storageClass, defaultNixStoreSize.DeepCopy()); err != nil {
 		return nil, err
 	}
 
 	return quota, nil
+}
+
+// ensurePVC creates or updates a ReadWriteOnce PVC. It preserves a StorageClass
+// defaulted by admission — setting it back to nil on a bound claim would attempt
+// to mutate an immutable PVC field.
+func (r *AgentReconciler) ensurePVC(
+	ctx context.Context,
+	namespace, name string,
+	labels map[string]string,
+	storageClass *string,
+	size resource.Quantity,
+) error {
+	claim := &corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace}}
+	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, claim, func() error {
+		claim.Labels = mergeLabels(claim.Labels, labels)
+		claim.Spec.AccessModes = []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce}
+		if storageClass != nil || claim.CreationTimestamp.IsZero() {
+			claim.Spec.StorageClassName = storageClass
+		}
+		claim.Spec.Resources.Requests = corev1.ResourceList{corev1.ResourceStorage: size}
+		return nil
+	})
+	return err
+}
+
+// pvcVolume is a pod volume backed by the same-named PersistentVolumeClaim.
+func pvcVolume(name string) corev1.Volume {
+	return corev1.Volume{
+		Name: name,
+		VolumeSource: corev1.VolumeSource{PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+			ClaimName: name,
+		}},
+	}
 }
 
 func (r *AgentReconciler) ensureAgentDeployment(
@@ -169,6 +220,9 @@ func (r *AgentReconciler) ensureAgentDeployment(
 		deployment.Spec.Template.Spec.AutomountServiceAccountToken = ptr.To(true)
 		deployment.Spec.Template.Spec.SecurityContext = &corev1.PodSecurityContext{
 			RunAsNonRoot: ptr.To(true),
+			RunAsUser:    agentFSGroup,
+			RunAsGroup:   agentFSGroup,
+			FSGroup:      agentFSGroup,
 		}
 
 		container := corev1.Container{
@@ -177,37 +231,62 @@ func (r *AgentReconciler) ensureAgentDeployment(
 			ImagePullPolicy: corev1.PullIfNotPresent,
 			WorkingDir:      WorkspaceMount,
 			Env: []corev1.EnvVar{
-				{Name: "HOME", Value: WorkspaceMount},
+				{Name: HomeEnvName, Value: WorkspaceMount},
 				{Name: "LINK_AGENT", Value: agent.Name},
 				{Name: "LINK_AGENT_SLUG", Value: agent.Spec.Profile.Agent},
 				{Name: "LINK_AGENT_HARNESS", Value: agent.Spec.Profile.Harness},
 				{Name: "LINK_ORGANIZATION", Value: organization.Name},
 			},
-			ReadinessProbe: &corev1.Probe{
-				ProbeHandler: corev1.ProbeHandler{Exec: &corev1.ExecAction{
-					Command: []string{"test", "-s", path.Join(WorkspaceMount, ".link", "mail-loop-ready")},
-				}},
-				InitialDelaySeconds: 1,
-				PeriodSeconds:       2,
-				FailureThreshold:    15,
-			},
 			VolumeMounts: []corev1.VolumeMount{
 				{Name: WorkspaceName, MountPath: WorkspaceMount},
+				{Name: NixStoreName, MountPath: NixMount},
 				{Name: SettingsName, MountPath: path.Join(WorkspaceMount, ".agents"), ReadOnly: true},
 			},
 		}
-		volumes := []corev1.Volume{{
-			Name: WorkspaceName,
-			VolumeSource: corev1.VolumeSource{PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
-				ClaimName: WorkspaceName,
-			}},
-		}, {
-			Name: SettingsName,
-			VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{
-				LocalObjectReference: corev1.LocalObjectReference{Name: SettingsName},
-			}},
-		}}
-		appendCredentialProjection(agent, &container, &volumes)
+		volumes := []corev1.Volume{
+			pvcVolume(WorkspaceName),
+			pvcVolume(NixStoreName),
+			{
+				Name: SettingsName,
+				VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{
+					LocalObjectReference: corev1.LocalObjectReference{Name: SettingsName},
+				}},
+			},
+		}
+		// Merge the current image's store paths on every boot. A prior .seeded
+		// marker is informational only: image upgrades can introduce new hashes,
+		// while --no-clobber preserves paths and Nix state already on the PVC.
+		seedInit := corev1.Container{
+			Name:            "seed-nix-store",
+			Image:           r.agentImage(),
+			ImagePullPolicy: corev1.PullIfNotPresent,
+			Command:         []string{"sh", "-c", nixStoreSeedScript},
+			VolumeMounts:    []corev1.VolumeMount{{Name: NixStoreName, MountPath: "/mnt/nix"}},
+		}
+		credentialEnvFrom, credentialMounts, credentialVolumes := credentialProjection(agent)
+		container.EnvFrom = credentialEnvFrom
+		container.VolumeMounts = append(container.VolumeMounts, credentialMounts...)
+		volumes = append(volumes, credentialVolumes...)
+
+		initContainers := make([]corev1.Container, 0, len(agent.Spec.Setup)+1)
+		initContainers = append(initContainers, seedInit)
+		for _, step := range agent.Spec.Setup {
+			mounts := append([]corev1.VolumeMount{}, credentialMounts...)
+			mounts = append(mounts,
+				corev1.VolumeMount{Name: WorkspaceName, MountPath: WorkspaceMount},
+				corev1.VolumeMount{Name: NixStoreName, MountPath: NixMount},
+			)
+			initContainers = append(initContainers, corev1.Container{
+				Name:            "setup-" + step.Name,
+				Image:           r.agentImage(),
+				ImagePullPolicy: corev1.PullIfNotPresent,
+				Command:         []string{"sh", "-c", step.Script},
+				EnvFrom:         credentialEnvFrom,
+				Env:             []corev1.EnvVar{{Name: HomeEnvName, Value: WorkspaceMount}},
+				VolumeMounts:    mounts,
+			})
+		}
+		deployment.Spec.Template.Spec.InitContainers = initContainers
 		deployment.Spec.Template.Spec.Containers = []corev1.Container{container}
 		deployment.Spec.Template.Spec.Volumes = volumes
 		return nil
@@ -264,11 +343,9 @@ func (r *AgentReconciler) ensureOutfitterSettings(
 	return err
 }
 
-func appendCredentialProjection(
+func credentialProjection(
 	agent *linkv1alpha1.Agent,
-	container *corev1.Container,
-	volumes *[]corev1.Volume,
-) {
+) (envFrom []corev1.EnvFromSource, mounts []corev1.VolumeMount, volumes []corev1.Volume) {
 	for _, reference := range agent.Spec.Credentials {
 		name, kind := credentialObject(reference)
 		if reference.As == linkv1alpha1.CredentialExposureEnv {
@@ -278,7 +355,7 @@ func appendCredentialProjection(
 			} else {
 				envSource.ConfigMapRef = &corev1.ConfigMapEnvSource{LocalObjectReference: corev1.LocalObjectReference{Name: name}}
 			}
-			container.EnvFrom = append(container.EnvFrom, envSource)
+			envFrom = append(envFrom, envSource)
 			continue
 		}
 
@@ -290,13 +367,14 @@ func appendCredentialProjection(
 		} else {
 			volume.ConfigMap = &corev1.ConfigMapVolumeSource{LocalObjectReference: corev1.LocalObjectReference{Name: name}}
 		}
-		*volumes = append(*volumes, volume)
-		container.VolumeMounts = append(container.VolumeMounts, corev1.VolumeMount{
+		volumes = append(volumes, volume)
+		mounts = append(mounts, corev1.VolumeMount{
 			Name:      volumeName,
 			MountPath: mountPath,
 			ReadOnly:  true,
 		})
 	}
+	return envFrom, mounts, volumes
 }
 
 func credentialVolumeName(kind, name string) string {

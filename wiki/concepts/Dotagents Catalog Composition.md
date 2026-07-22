@@ -9,7 +9,7 @@ tags:
   - method/catalog-composition
   - control/supply-chain
 created: 2026-07-19
-updated: 2026-07-19
+updated: 2026-07-21
 ---
 
 # Dotagents Catalog Composition
@@ -19,16 +19,15 @@ profiles, skills, and related resources. Remote catalogs are pinned to immutable
 commit SHAs. An [[Agent]] selects an agent slug resolved from this set, and
 Outfitter runs the resulting profile.
 
-M1 concatenates disjoint catalog resources. It indexes each resource by
-`<resource-kind>/<slug>` and rejects any duplicate, even when the duplicate
-contents are identical. Declaration order has no precedence meaning; override,
-shadowing, and last-source-wins behavior are deferred until a concrete use case
-can define and test explicit precedence.
+The operator validates source declarations and serializes their pinned
+revisions into `.agents/settings.yml` in declaration order. It does not clone,
+index, merge, or resolve catalog resources. Outfitter owns fetching,
+union/conflict behavior, profile resolution, composition, and launch; the
+operator must not grow a parallel Dotagents resolver.
 
-For the first milestone, the Link Operator repository's `.agents` payload is a
-single catalog that defines [[Researcher Agent|`researcher`]] and vendors the
-`wiki` and `source-ingest` skills. The model and pinned revisions are recorded
-by the
+M2 uses the Link Operator repository's `.agents` payload as the single source
+that defines [[Researcher Agent|`researcher`]] and vendors the `wiki` and
+`source-ingest` skills. The model and pinned revisions were recorded by the
 [[sources/2026-07-19-link-operator-requirements/source|requirements and catalog source]].
 
 ## Persistent risk

@@ -181,6 +181,9 @@ func (r *AgentReconciler) validateAgent(
 	if len(missingQuotaKeys) > 0 {
 		return nil, "Resource quota is missing required keys: " + strings.Join(missingQuotaKeys, ", "), nil
 	}
+	if message := storageQuotaValidationMessage(agent); message != "" {
+		return nil, message, nil
+	}
 	if !hasComputeDefaults(agent.Spec.Workspace.LimitRange.Container.DefaultRequest) ||
 		!hasComputeDefaults(agent.Spec.Workspace.LimitRange.Container.Default) {
 		return nil, "LimitRange defaults must include CPU and memory requests and limits", nil
@@ -295,6 +298,27 @@ func hasComputeDefaults(resources corev1.ResourceList) bool {
 	cpu, cpuFound := resources[corev1.ResourceCPU]
 	memory, memoryFound := resources[corev1.ResourceMemory]
 	return cpuFound && memoryFound && cpu.Sign() > 0 && memory.Sign() > 0
+}
+
+func storageQuotaValidationMessage(agent *linkv1alpha1.Agent) string {
+	workspaceSize := agent.Spec.Workspace.Volume.Size.DeepCopy()
+	if workspaceSize.IsZero() {
+		workspaceSize = defaultWorkspaceSize.DeepCopy()
+	}
+	requiredStorage := workspaceSize.DeepCopy()
+	requiredStorage.Add(defaultNixStoreSize)
+	storageQuota := agent.Spec.Workspace.ResourceQuota.Hard[corev1.ResourceRequestsStorage]
+	if storageQuota.Cmp(requiredStorage) < 0 {
+		return fmt.Sprintf(
+			"Resource quota requests.storage must be at least %s (workspace %s + Nix store %s)",
+			requiredStorage.String(), workspaceSize.String(), defaultNixStoreSize.String(),
+		)
+	}
+	pvcQuota := agent.Spec.Workspace.ResourceQuota.Hard[corev1.ResourcePersistentVolumeClaims]
+	if pvcQuota.CmpInt64(2) < 0 {
+		return "Resource quota persistentvolumeclaims must allow at least 2 claims (workspace + Nix store)"
+	}
+	return ""
 }
 
 func setAgentCondition(

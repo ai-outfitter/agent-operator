@@ -18,7 +18,7 @@ tags:
   - process/email-processing
   - process/source-ingestion
 created: 2026-07-19
-updated: 2026-07-19
+updated: 2026-07-21
 ---
 
 # Link Operator M1 Requirements and Catalog
@@ -34,7 +34,8 @@ are:
 - `docs/requirements/OPR-002-projects.md`
 - `docs/requirements/OPR-003-agents.md`
 - `docs/requirements/OPR-004-environments.md`
-- `docs/milestones/M1-email-paper-reserach/demo.md`
+- `docs/milestones/M2-email-paper-research/demo.md` (originally the M1 demo at
+  this source revision)
 - `.agents/README.md`
 - `.agents/agents/researcher/agent.md`
 
@@ -88,3 +89,11 @@ those upstream repositories.
 
 The source is a first-pass specification. It describes target behavior and does
 not prove that the CRDs, controller, local environment, or email demo exist.
+
+## Subsequent milestone revision
+
+On 2026-07-21 the executable plain-message JMAP round trip became M1, and the
+paper/wiki composition moved intact to M2. Stalwart JMAP replaced the original
+GreenMail IMAP/SMTP fixture, and Outfitter—not the controller—became responsible
+for catalog fetching and profile resolution. The historical summary above is
+retained as a description of revision `5df121e…`, not current milestone status.

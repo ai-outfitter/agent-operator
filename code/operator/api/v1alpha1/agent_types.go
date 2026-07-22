@@ -66,6 +66,16 @@ type CredentialReference struct {
 	As CredentialExposure `json:"as"`
 }
 
+// SetupStep defines one initialization script that runs before the agent.
+type SetupStep struct {
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`
+	// +kubebuilder:validation:MaxLength=40
+	Name string `json:"name"`
+
+	// +kubebuilder:validation:MinLength=1
+	Script string `json:"script"`
+}
+
 // ResourceQuotaSpec contains the aggregate namespace hard limits.
 // +kubebuilder:validation:XValidation:rule="self.hard.size() > 0",message="resourceQuota.hard must not be empty"
 type ResourceQuotaSpec struct {
@@ -118,6 +128,13 @@ type AgentSpec struct {
 	// +listType=atomic
 	// +optional
 	Credentials []CredentialReference `json:"credentials,omitempty"`
+
+	// Setup steps run as ordered init containers before the agent starts, with
+	// the agent's credentials and workspace mounted. Use them for usecase
+	// bootstrap (e.g. provisioning a mailbox, waiting for a dependency).
+	// +listType=atomic
+	// +optional
+	Setup []SetupStep `json:"setup,omitempty"`
 
 	Workspace WorkspaceSpec `json:"workspace"`
 }

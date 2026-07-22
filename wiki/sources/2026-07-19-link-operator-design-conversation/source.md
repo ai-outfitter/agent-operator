@@ -16,7 +16,7 @@ tags:
   - process/source-ingestion
   - environment/local-development
 created: 2026-07-19
-updated: 2026-07-19
+updated: 2026-07-21
 ---
 
 # Link Operator Design Conversation
@@ -61,6 +61,10 @@ This is design evidence, not evidence that the operator or demo is implemented.
 The version-controlled requirements are the more precise source for field-level
 behavior. See
 [[sources/2026-07-19-link-operator-requirements/source|Link Operator M1 requirements and catalog]].
+
+The milestone sequence was revised on 2026-07-21: a local JMAP email round trip
+became M1, while the paper/wiki workflow described above moved to M2. The
+original decision remains here as historical evidence.
 
 ## Problems identified
 

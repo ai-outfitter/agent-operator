@@ -1,4 +1,4 @@
-{ pkgs, inputs, config, ... }:
+{ pkgs, inputs, config, lib, ... }:
 
 let
   system = pkgs.stdenv.hostPlatform.system;
@@ -12,6 +12,53 @@ let
     unqualified-search-registries = ["docker.io"]
   '';
   registryAuth = pkgs.writeText "link-registry-auth.json" "{}";
+  outfitter = inputs.outfitter.packages.${system}.outfitter;
+  xin = pkgs.callPackage ./nix/xin.nix { };
+  piLoop = pkgs.callPackage ./nix/pi-loop.nix { };
+  operator = pkgs.callPackage ./nix/operator.nix { };
+
+  emptyContainerHome = pkgs.runCommand "link-container-empty-home" { } ''
+    mkdir -p "$out"
+  '';
+
+  agentContainerRoot = pkgs.runCommand "link-agent-container-root" { } ''
+    mkdir -p \
+      "$out/opt/link/.agents" \
+      "$out/opt/link/.cache" \
+      "$out/workspace/.link" \
+      "$out/workspace/.pi/agent"
+    cp -r ${./code/agent/agents-catalog}/. "$out/opt/link/.agents/"
+    cp -r ${piLoop}/. "$out/opt/link/.cache/"
+    cp ${./code/agent/pi-loop.config.json} "$out/opt/link/.pi-loop.config.json"
+    cp ${./code/agent/entrypoint.sh} "$out/opt/link/entrypoint"
+    chmod +x "$out/opt/link/entrypoint"
+  '';
+
+  agentContainerPackages = pkgs.buildEnv {
+    name = "link-agent-container-packages";
+    paths = [
+      xin
+      outfitter
+      pkgs.nodejs_22
+      pkgs.jq
+      pkgs.bash
+      pkgs.coreutils
+      pkgs.gitMinimal
+      pkgs.gnutar
+      pkgs.cacert
+      pkgs.nix
+      pkgs.dockerTools.usrBinEnv
+      pkgs.dockerTools.binSh
+    ];
+    pathsToLink = [ "/bin" "/etc" "/usr/bin" ];
+    ignoreCollisions = true;
+  };
+
+  operatorContainerRoot = pkgs.buildEnv {
+    name = "link-operator-container-root";
+    paths = [ operator pkgs.cacert ];
+    pathsToLink = [ "/bin" "/etc" ];
+  };
 
   clusterVm = inputs.nixos.lib.nixosSystem {
     inherit system;
@@ -145,7 +192,7 @@ let
   clusterRunner = clusterVm.config.microvm.declaredRunner;
 in
 {
-  packages = with pkgs; [
+  packages = lib.optionals (!config.container.isBuilding) (with pkgs; [
     curl
     git
     go
@@ -160,7 +207,7 @@ in
     skopeo
     socat
     yq-go
-  ];
+  ]);
 
   env = {
     CGO_ENABLED = "0";
@@ -170,8 +217,53 @@ in
     SSL_CERT_FILE = "${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt";
   };
 
+  # Development OCI images are assembled by devenv/nix2container. Component
+  # packages remain flake outputs; this layer only describes their runtime
+  # filesystem and entrypoint.
+  containers.agent = {
+    name = "localhost/link-agent";
+    version = "dev";
+    copyToRoot = emptyContainerHome;
+    entrypoint = [ "/opt/link/entrypoint" ];
+    startupCommand = [ ];
+    workingDir = "/workspace";
+    maxLayers = 20;
+    layers = [
+      {
+        # Keep the large, stable runtime closure reusable when only a skill,
+        # loadout, or the entrypoint changes.
+        copyToRoot = [ agentContainerPackages ];
+      }
+      {
+        copyToRoot = [ agentContainerRoot ];
+        perms = [{
+          path = agentContainerRoot;
+          regex = "/workspace(/.*)?";
+          mode = "0755";
+          uid = 1000;
+          gid = 1000;
+          uname = "user";
+          gname = "user";
+        }];
+      }
+    ];
+  };
+
+  containers.operator = {
+    name = "localhost/link-operator";
+    version = "dev";
+    copyToRoot = emptyContainerHome;
+    entrypoint = [ "/bin/manager" ];
+    startupCommand = [ ];
+    workingDir = "/env";
+    maxLayers = 20;
+    layers = [{
+      copyToRoot = [ operatorContainerRoot ];
+    }];
+  };
+
   process.manager.implementation = "native";
-  processes.cluster = {
+  processes.cluster = lib.mkIf (!config.container.isBuilding) {
     ports.kubernetes.allocate = 6443;
     ports.jmap.allocate = 18080;
     exec = ''
@@ -181,7 +273,7 @@ in
     restart.on = "on_failure";
   };
 
-  tasks = {
+  tasks = lib.mkIf (!config.container.isBuilding) {
     "operator:generate" = {
       cwd = "code/operator";
       exec = "exec make generate manifests";
@@ -211,16 +303,36 @@ in
 
     "agent:check" = {
       cwd = "code/agent";
+      showOutput = true;
       exec = ''
         set -euo pipefail
-        unformatted="$(gofmt -l .)"
-        if [ -n "$unformatted" ]; then
-          echo "Go files need formatting:"
-          echo "$unformatted"
-          exit 1
-        fi
-        go vet ./...
-        go test ./...
+        # The agent is a shell entrypoint plus a generic, prebuilt Pi loop. Its
+        # selected skills own channel behavior such as mail through `xin`.
+        bash -n entrypoint.sh
+        test -f agents-catalog/skills/mail/SKILL.md
+        test ! -d agents-catalog/extensions
+        grep -Fq 'outfitter run --strict "''${LINK_AGENT_SLUG:-researcher}" --' entrypoint.sh
+        grep -Fq 'LINK_AGENT_LOOP_INTERVAL:-10m' entrypoint.sh
+        grep -Fq 'export PI_OFFLINE=1' entrypoint.sh
+        test "$(jq -r .version ${piLoop}/outfitter/pi-extensions/npm/node_modules/@pi-agents/loop/package.json)" = "0.3.1"
+        validation_home="$(mktemp -d)"
+        trap 'rm -rf "$validation_home"' EXIT
+        (
+          cd ${agentContainerRoot}/opt/link
+          HOME="$validation_home" \
+            XDG_CACHE_HOME=${agentContainerRoot}/opt/link/.cache \
+            PI_OFFLINE=1 \
+            ${outfitter}/bin/outfitter validate --strict
+        )
+        printf '%s\n' '{"type":"get_commands"}' | (
+          cd ${agentContainerRoot}/opt/link
+          HOME="$validation_home" \
+            XDG_CACHE_HOME=${agentContainerRoot}/opt/link/.cache \
+            PI_OFFLINE=1 \
+            ${outfitter}/bin/outfitter run --strict researcher -- \
+              --mode rpc --no-session --offline
+        ) >"$validation_home/runtime.jsonl" 2>&1
+        grep -Fq '"name":"loop"' "$validation_home/runtime.jsonl"
       '';
     };
 
@@ -228,28 +340,21 @@ in
       showOutput = true;
       exec = ''
         set -euo pipefail
-        podman build --tag link-agent:dev --file code/agent/Dockerfile code/agent
-        archive=${clusterShare}/images/link-agent-dev.tar
-        temporary="$archive.tmp"
-        mkdir -p ${clusterShare}/images ${clusterShare}/imported
-        podman save --output "$temporary" link-agent:dev
-        mv "$temporary" "$archive"
-        digest="$(sha256sum "$archive" | cut -d' ' -f1)"
-        stamp=${clusterShare}/imported/link-agent-dev.tar.sha256
-        if kubectl get --raw=/readyz >/dev/null 2>&1; then
-          until [ -s "$stamp" ] && [ "$(tr -d '\n' < "$stamp")" = "$digest" ]; do
-            sleep 2
-          done
-        fi
+        bash dev/scripts/build-image.sh agent \
+          ${clusterShare}/images/link-agent-dev.tar \
+          ${clusterShare}/imported/link-agent-dev.tar.sha256
         echo "agent image ready: localhost/link-agent:dev"
       '';
     };
 
     "operator:image" = {
-      cwd = "code/operator";
+      showOutput = true;
       exec = ''
-        : "''${IMG:=link-operator:dev}"
-        exec make docker-build IMG="$IMG" CONTAINER_TOOL=podman
+        set -euo pipefail
+        bash dev/scripts/build-image.sh operator \
+          ${clusterShare}/images/link-operator-dev.tar \
+          ${clusterShare}/imported/link-operator-dev.tar.sha256
+        echo "operator image ready: localhost/link-operator:dev"
       '';
     };
 
@@ -290,20 +395,10 @@ in
 
     "operator:install" = {
       showOutput = true;
-      after = [ "agent:image" ];
+      after = [ "agent:image" "operator:image" ];
       exec = ''
         set -euo pipefail
         kubectl get --raw=/readyz >/dev/null
-        make -C code/operator docker-build IMG=link-operator:dev CONTAINER_TOOL=podman
-        archive=${clusterShare}/images/link-operator-dev.tar
-        temporary="$archive.tmp"
-        podman save --output "$temporary" link-operator:dev
-        mv "$temporary" "$archive"
-        digest="$(sha256sum "$archive" | cut -d' ' -f1)"
-        stamp=${clusterShare}/imported/link-operator-dev.tar.sha256
-        until [ -s "$stamp" ] && [ "$(tr -d '\n' < "$stamp")" = "$digest" ]; do
-          sleep 2
-        done
         kubectl apply -k code/operator/config/dev
         kubectl -n link-operator-system rollout restart deployment/link-operator-controller-manager
         kubectl -n link-operator-system rollout status deployment/link-operator-controller-manager --timeout=3m
@@ -338,10 +433,45 @@ in
       '';
     };
 
-    "demo:mail-loop" = {
+    "demo:m1" = {
       showOutput = true;
       exec = ''
         set -euo pipefail
+
+        probe_token="probe$(date -u +%Y%m%d%H%M%S)$$"
+        probe_subject="Link M1 email probe $probe_token"
+        evidence=${clusterShare}/evidence/m1-email-flow/$probe_token
+        mkdir -p "$evidence"
+
+        diagnose_m1() {
+          exit_code=$?
+          trap - EXIT
+          if [ "$exit_code" -ne 0 ]; then
+            set +e
+            echo "demo:m1 failed; collecting diagnostics in $evidence" >&2
+            kubectl get agent researcher -o yaml > "$evidence/agent.yaml" 2>&1
+            kubectl -n agent-researcher get deployment,pods,pvc,events -o wide \
+              > "$evidence/workload.txt" 2>&1
+            kubectl -n agent-researcher describe deployment/agent-runtime \
+              > "$evidence/deployment.txt" 2>&1
+            pod="$(kubectl -n agent-researcher get pods \
+              -l app.kubernetes.io/name=link-agent \
+              -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)"
+            if [ -n "$pod" ]; then
+              kubectl -n agent-researcher describe pod "$pod" \
+                > "$evidence/pod.txt" 2>&1
+              kubectl -n agent-researcher logs "$pod" -c agent --tail=300 \
+                > "$evidence/agent.log" 2>&1
+              for init_container in seed-nix-store setup-mail-bootstrap; do
+                kubectl -n agent-researcher logs "$pod" -c "$init_container" --tail=300 \
+                  > "$evidence/$init_container.log" 2>&1
+              done
+            fi
+          fi
+          exit "$exit_code"
+        }
+        trap diagnose_m1 EXIT
+
         kubectl get --raw=/readyz >/dev/null
         kubectl apply -f dev/demo/mail-loop/organization.yaml
         kubectl apply -f dev/demo/mail-loop/agent.yaml
@@ -353,68 +483,149 @@ in
         done
         kubectl get namespace agent-researcher >/dev/null
         kubectl -n agent-researcher create secret generic researcher-email \
-          --from-literal=JMAP_URL=http://stalwart.link-system.svc.cluster.local:8080 \
-          --from-literal=JMAP_USERNAME=researcher@link.test \
-          --from-literal=JMAP_PASSWORD='researcher-dev-password-2026!' \
+          --from-literal=XIN_BASE_URL=http://stalwart.link-system.svc.cluster.local:8080 \
+          --from-literal=XIN_BASIC_USER=researcher@link.test \
+          --from-literal=XIN_BASIC_PASS='researcher-dev-password-2026!' \
           --dry-run=client -o yaml | kubectl apply -f -
         kubectl -n agent-researcher create configmap researcher-runtime \
-          --from-literal=LINK_MAIL_POLL_INTERVAL=2s \
+          --from-literal=LINK_AGENT_LOOP_INTERVAL=1m \
+          --from-literal=LINK_MAIL_PROCESSED=Processed \
           --dry-run=client -o yaml | kubectl apply -f -
         devenv tasks run agent:pi-sync
         kubectl -n agent-researcher rollout restart deployment/agent-runtime
         kubectl -n agent-researcher rollout status deployment/agent-runtime --timeout=3m
-        probe_token="$(date -u +%Y%m%dT%H%M%S)-$$"
-        probe_subject="Link mail loop probe $probe_token"
-        probe_message_id="link-mail-loop-$probe_token@link.test"
-        evidence=${clusterShare}/evidence/mail-loop
-        mkdir -p "$evidence"
-        JMAP_URL=http://127.0.0.1:${toString jmapPort} \
-          JMAP_USERNAME=demo-user@link.test \
-          JMAP_PASSWORD='demo-user-dev-password-2026!' \
-          go -C code/agent run ./cmd/link-agent send \
-            --to researcher@link.test \
-            --subject "$probe_subject" \
-            --message-id "$probe_message_id"
-        JMAP_URL=http://127.0.0.1:${toString jmapPort} \
-          JMAP_USERNAME=demo-user@link.test \
-          JMAP_PASSWORD='demo-user-dev-password-2026!' \
-          go -C code/agent run ./cmd/link-agent wait-reply \
-            --in-reply-to "$probe_message_id" \
-            --return-address researcher@link.test \
-            --to demo-user@link.test \
-            --timeout 2m > "$evidence/reply.json"
-        observed=false
-        for attempt in $(seq 1 60); do
-          if kubectl -n agent-researcher exec deployment/agent-runtime -- \
-            link-agent state --has-subject "$probe_subject" >/dev/null 2>&1; then
-            observed=true
+
+        # Let the immediate bootstrap survey finish before sending the probe.
+        # The probe must therefore be discovered by a later scheduled wakeup,
+        # proving the generic recurring loop rather than startup-only behavior.
+        initial_iteration_complete=0
+        for attempt in $(seq 1 150); do
+          if kubectl -n agent-researcher logs deployment/agent-runtime -c agent \
+            | grep -Fq '"type":"agent_end"'; then
+            initial_iteration_complete=1
             break
           fi
           sleep 2
         done
-        if [ "$observed" != true ]; then
-          kubectl -n agent-researcher logs deployment/agent-runtime --tail=200
-          exit 1
-        fi
+        test "$initial_iteration_complete" -eq 1
+        kubectl -n agent-researcher logs deployment/agent-runtime -c agent \
+          > "$evidence/initial-loop.jsonl"
+
+        stalwart_url=http://stalwart.link-system.svc.cluster.local:8080
+        # Drive the `xin` CLI inside the agent pod (it ships xin) as either
+        # mailbox account by overriding the XIN_* env for that one exec.
+        demo_user_xin() {
+          kubectl -n agent-researcher exec deployment/agent-runtime -- \
+            env XIN_BASE_URL="$stalwart_url" \
+                XIN_BASIC_USER=demo-user@link.test \
+                XIN_BASIC_PASS='demo-user-dev-password-2026!' \
+            xin "$@"
+        }
+        researcher_xin() {
+          kubectl -n agent-researcher exec deployment/agent-runtime -- \
+            env XIN_BASE_URL="$stalwart_url" \
+                XIN_BASIC_USER=researcher@link.test \
+                XIN_BASIC_PASS='researcher-dev-password-2026!' \
+            xin "$@"
+        }
+
+        # 1) demo-user sends a unique probe and records its generated Message-ID.
+        demo_user_xin send --to researcher@link.test \
+          --subject "$probe_subject" \
+          --text "Please process this M1 probe and reply." \
+          > "$evidence/send.json"
+        jq -e '.ok == true' "$evidence/send.json" >/dev/null
+        sent_email_id="$(jq -er '.data.draft.emailId' "$evidence/send.json")"
+        demo_user_xin get "$sent_email_id" \
+          --headers message-id,from,to,subject > "$evidence/original-sent.json"
+        probe_message_id="$(jq -er '.data.email.headers["message-id"]' \
+          "$evidence/original-sent.json")"
+        printf '%s\n' "$probe_message_id" > "$evidence/probe-message-id.txt"
+        printf '%s\n' "$probe_subject" > "$evidence/subject.txt"
+
+        # Capture the recipient-side starting state before the next loop wakeup.
+        researcher_xin messages search "in:inbox subject:$probe_token" --max 10 \
+          > "$evidence/inbox-before.json"
+
+        # 2) Wait for exactly one researcher reply in the demo-user INBOX.
+        reply_count=0
+        for attempt in $(seq 1 60); do
+          demo_user_xin messages search "in:inbox subject:$probe_token" --max 10 \
+            > "$evidence/reply-search.json"
+          reply_count="$(jq '[.data.items[] | select(
+            .from == [{"email":"researcher@link.test","name":"M1 researcher agent"}] and
+            .to == [{"email":"demo-user@link.test","name":null}]
+          )] | length' "$evidence/reply-search.json")"
+          if [ "$reply_count" -eq 1 ]; then break; fi
+          sleep 3
+        done
+        test "$reply_count" -eq 1
+        reply_email_id="$(jq -er '.data.items[] | select(
+          .from == [{"email":"researcher@link.test","name":"M1 researcher agent"}] and
+          .to == [{"email":"demo-user@link.test","name":null}]
+        ) | .emailId' "$evidence/reply-search.json")"
+        demo_user_xin get "$reply_email_id" \
+          --headers message-id,in-reply-to,references,from,to,subject \
+          > "$evidence/reply.json"
+        jq -e \
+          --arg subject "Re: $probe_subject" \
+          --arg message_id "$probe_message_id" '
+            .ok == true and
+            .data.email.headers.from == [{"email":"researcher@link.test","name":"M1 researcher agent"}] and
+            .data.email.headers.to == [{"email":"demo-user@link.test","name":null}] and
+            .data.email.headers.subject == $subject and
+            .data.email.headers["in-reply-to"] == $message_id and
+            .data.email.headers.references == [$message_id] and
+            (.data.email.headers["message-id"] | type == "string" and length > 0)
+          ' "$evidence/reply.json" >/dev/null
+
+        # 3) Server-side state: exactly one original left INBOX for Processed.
+        processed_count=0
+        inbox_count=1
+        for attempt in $(seq 1 30); do
+          researcher_xin messages search "in:Processed subject:$probe_token" --max 10 \
+            > "$evidence/processed-after.json"
+          researcher_xin messages search "in:inbox subject:$probe_token" --max 10 \
+            > "$evidence/inbox-after.json"
+          processed_count="$(jq --arg subject "$probe_subject" '[.data.items[] | select(
+            .subject == $subject and
+            .from == [{"email":"demo-user@link.test","name":"M1 demo sender"}] and
+            .to == [{"email":"researcher@link.test","name":null}]
+          )] | length' "$evidence/processed-after.json")"
+          inbox_count="$(jq '.data.items | length' "$evidence/inbox-after.json")"
+          if [ "$processed_count" -eq 1 ] && [ "$inbox_count" -eq 0 ]; then break; fi
+          sleep 2
+        done
+        jq -e \
+          --arg subject "$probe_subject" \
+          '[.data.items[] | select(
+            .subject == $subject and
+            .from == [{"email":"demo-user@link.test","name":"M1 demo sender"}] and
+            .to == [{"email":"researcher@link.test","name":null}]
+          )] | length == 1' "$evidence/processed-after.json" >/dev/null
+        jq -e '.data.items | length == 0' "$evidence/inbox-after.json" >/dev/null
+
+        # 4) pi auth was seeded into the workspace.
         kubectl -n agent-researcher exec deployment/agent-runtime -- \
           test -s /workspace/.pi/agent/auth.json
+
+        # 5) Statelessness: restart the pod; the message stays processed and is
+        #    NOT replied to a second time (dedup is server-side mailbox state).
         kubectl -n agent-researcher rollout restart deployment/agent-runtime
         kubectl -n agent-researcher rollout status deployment/agent-runtime --timeout=3m
-        kubectl -n agent-researcher exec deployment/agent-runtime -- \
-          link-agent state --has-subject "$probe_subject"
-        JMAP_URL=http://127.0.0.1:${toString jmapPort} \
-          JMAP_USERNAME=demo-user@link.test \
-          JMAP_PASSWORD='demo-user-dev-password-2026!' \
-          go -C code/agent run ./cmd/link-agent wait-reply \
-            --in-reply-to "$probe_message_id" \
-            --return-address researcher@link.test \
-            --to demo-user@link.test \
-            --timeout 10s > "$evidence/reply-after-restart.json"
-        kubectl -n agent-researcher exec deployment/agent-runtime -- link-agent state > "$evidence/state.json"
+        sleep 10
+        researcher_xin messages search "in:inbox subject:$probe_token" --max 10 \
+          > "$evidence/inbox-after-restart.json"
+        jq -e '.data.items | length == 0' "$evidence/inbox-after-restart.json" >/dev/null
+        demo_user_xin messages search "in:inbox subject:$probe_token" --max 10 \
+          > "$evidence/replies-after-restart.json"
+        jq -e '[.data.items[] | select(
+          .from == [{"email":"researcher@link.test","name":"M1 researcher agent"}] and
+          .to == [{"email":"demo-user@link.test","name":null}]
+        )] | length == 1' "$evidence/replies-after-restart.json" >/dev/null
+
         kubectl get agent researcher -o yaml > "$evidence/agent.yaml"
-        echo "$probe_subject" > "$evidence/subject.txt"
-        echo "$probe_message_id" > "$evidence/message-id.txt"
-        echo "mail reply verified from researcher@link.test after restart: $probe_subject"
+        echo "M1 email reply verified with exact threading headers; original moved to Processed and was not re-replied after restart: $probe_subject"
         echo "evidence: $evidence"
       '';
     };
@@ -461,7 +672,7 @@ in
     };
   };
 
-  enterShell = ''
+  enterShell = lib.mkIf (!config.container.isBuilding) ''
     echo "link-operator devenv: go $(go version | cut -d' ' -f3), kubebuilder $(kubebuilder version 2>/dev/null | head -n1)"
     echo "  cluster: devenv tasks run cluster:up"
     echo "  checks:  devenv tasks run operator:check"

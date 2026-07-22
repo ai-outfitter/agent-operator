@@ -16,6 +16,19 @@ spec:
     # The demo creates this only after ~/.pi has been copied into the PVC.
     - configMap: researcher-pi-ready
       as: env
+  setup:
+    - name: mail-bootstrap
+      script: |
+        set -eu
+        until xin messages search "in:inbox" --max 1 >/dev/null 2>&1; do
+          echo "mail-bootstrap: waiting for JMAP connectivity" >&2
+          sleep 2
+        done
+        until xin labels create "$LINK_MAIL_PROCESSED" >/dev/null 2>&1 || \
+          xin messages search "in:$LINK_MAIL_PROCESSED" --max 1 >/dev/null 2>&1; do
+          echo "mail-bootstrap: waiting to provision $LINK_MAIL_PROCESSED" >&2
+          sleep 2
+        done
   workspace:
     resourceQuota:
       hard:
@@ -23,7 +36,8 @@ spec:
         requests.memory: 4Gi
         limits.cpu: "4"
         limits.memory: 8Gi
-        requests.storage: 20Gi
+        # workspace (10Gi) + persistent Nix store (20Gi)
+        requests.storage: 40Gi
         persistentvolumeclaims: "4"
         count/pods: "10"
         count/jobs.batch: "20"

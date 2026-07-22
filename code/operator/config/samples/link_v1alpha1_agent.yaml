@@ -18,7 +18,8 @@ spec:
         requests.memory: 4Gi
         limits.cpu: "4"
         limits.memory: 8Gi
-        requests.storage: 20Gi
+        # workspace (10Gi) + persistent Nix store (20Gi) + headroom
+        requests.storage: 40Gi
         persistentvolumeclaims: "4"
         count/pods: "10"
         count/jobs.batch: "20"

@@ -1,7 +1,7 @@
 ---
 title: Local Development Environment
 type: concept
-status: draft
+status: active
 tags:
   - system/link-operator
   - system/kubernetes
@@ -9,22 +9,23 @@ tags:
   - method/integration-testing
   - process/email-processing
 created: 2026-07-19
-updated: 2026-07-19
+updated: 2026-07-21
 ---
 
 # Local Development Environment
 
-The intended local stack uses devenv v2 to expose developer tasks and a
-microVM containing single-node k3s. GreenMail supplies isolated IMAP and SMTP,
-and the environment also hosts the operator, agent image, and writable wiki
-fixture needed for the [[Email Paper Research Workflow]].
+The local stack uses devenv v2 to expose developer tasks and a microVM
+containing single-node k3s. Stalwart supplies isolated JMAP mailboxes, and the
+environment also hosts the operator and agent images. M1 uses this stack for a
+plain-message receive/reply round trip; the [[Email Paper Research Workflow]]
+adds the writable wiki fixture in M2.
 
-The developer interface is expected to provide tasks for cluster startup,
-operator installation, the M1 demo, verification, and normal shutdown. Normal
-shutdown preserves reusable images, model caches, and evidence; destructive
-reset operations must be named explicitly.
+The developer interface provides tasks for cluster startup, operator
+installation, the M1 email demo, and normal shutdown. Normal shutdown preserves
+reusable images, model caches, and evidence; destructive reset operations are
+named explicitly. M2 will add its paper-research and verification tasks.
 
-This is a specified target environment rather than a currently implemented
-facility. Its components and status are recorded in the
-[[sources/2026-07-19-link-operator-requirements/source|M1 requirements]].
-
+The implemented M1 contract is under `docs/milestones/M1-email-round-trip/`.
+The original target environment was recorded in the
+[[sources/2026-07-19-link-operator-requirements/source|initial requirements]],
+which used GreenMail before the JMAP/Stalwart revision.

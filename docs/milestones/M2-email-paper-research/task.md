@@ -1,31 +1,29 @@
-# M1: Email Paper Research
+# M2: Email Paper Research
 
 ## Summary
 
-Prove the operator's primitives end-to-end by running one real composition. A
-developer starts a local k3s cluster, applies one `Organization` and one `Agent`,
-emails a research paper to the agent, and receives a threaded reply after the
-agent creates a source-traceable local commit in the organization's wiki.
+Extend the graduated [M1 email round trip](../M1-email-round-trip/task.md) into a
+real research composition. A developer emails a research paper to the agent and
+receives a threaded result after the agent creates a source-traceable local
+commit in the organization's wiki.
 
 The requirements ([OPR-001](../../requirements/OPR-001-orgs.md)…
 [OPR-005](../../requirements/OPR-005-subagent-jobs.md)) describe the eventual
-system; this milestone decides which slice of them is built first. The composition
-this milestone builds is documented for users as the
+system. The composition this milestone builds is documented for users as the
 [researcher wiki maintainer use case](../../documentation/usecases.researcher-wiki-maintainer.md);
 the executable acceptance contract is [demo.md](demo.md).
 
 ## Motivation
 
-The operator's primitives are only worth building if they hold up under a real,
-useful agent. Email-paper-research is a self-contained composition — a channel
-plus tools — that exercises every primitive while needing none of the system's
-deferred parts. Passing it demonstrates the primitives-vs-composition split
-described in [architecture.md](../../architecture.md) is real, not cosmetic. The
-primitives it exercises, and the composition itself, are enumerated in Goals.
+M1 proves transport and workspace durability. M2 must prove those primitives
+hold up under a useful agent. Email-paper-research adds profile execution,
+untrusted attachment handling, source ingestion, wiki maintenance, Git, and a
+meaningful response while preserving the primitives-vs-composition split in
+[architecture.md](../../architecture.md).
 
 ## Goals
 
-In scope for M1:
+In scope for M2:
 
 - The two cluster-scoped CRDs and the controller for the **operator primitives**:
   agent namespace workspace (service account, `admin` binding, ResourceQuota,
@@ -40,29 +38,29 @@ In scope for M1:
 
 ## Non-Goals
 
-Out of scope for M1 — these are eventual goals of the requirements, deliberately
+Out of scope for M2 — these are eventual goals of the requirements, deliberately
 not built yet:
 
 - **Projects** ([OPR-002](../../requirements/OPR-002-projects.md)) and the public
   environment-launch API / run history / concurrency
-  ([OPR-005](../../requirements/OPR-005-subagent-jobs.md)). M1 uses no projects and
+  ([OPR-005](../../requirements/OPR-005-subagent-jobs.md)). M2 uses no projects and
   launches no subagent Jobs — the researcher ingests inline.
 - **Many-to-many membership routing** across multiple organizations
-  ([OPR-003](../../requirements/OPR-003-agents.md)); M1 exercises one membership.
+  ([OPR-003](../../requirements/OPR-003-agents.md)); M2 exercises one membership.
 - **Multi-catalog union + duplicate-slug rejection**
-  ([OPR-001](../../requirements/OPR-001-orgs.md)); M1 passes one pinned source to
+  ([OPR-001](../../requirements/OPR-001-orgs.md)); M2 passes one pinned source to
   Outfitter and delegates resolution entirely.
 - **Recursive research** beyond the emailed seed paper (the eventual hard maximum
   depth is five).
 - **Wiki publication** — pushing the commit, opening a branch or PR, or resolving
-  merge conflicts. M1 makes one local commit and stops.
+  merge conflicts. M2 makes one local commit and stops.
 - **Multi-tenant hardening** — NetworkPolicy/egress, per-tenant identity.
 - Concurrent mailbox work, parallel subagents, cancellation.
 - Production mail-server provisioning, spam handling, DKIM, SPF, DMARC.
 
 ## Proposal
 
-### 1. Repository and operator foundation
+### 1. Foundation inherited from M1
 
 - [x] Initialize the repository and scaffold `code/operator` with Go, Kubebuilder,
       controller-runtime, and envtest.
@@ -144,7 +142,7 @@ catalog, and delegation primitives.
 - [x] Add devenv v2 configuration and a microVM containing single-node k3s.
 - [x] Run Stalwart in the local cluster with deterministic JMAP test accounts and
       no Internet egress.
-- [ ] Provide `cluster:up`, `operator:install`, `demo:m1`, `demo:verify`, and
+- [ ] Provide `cluster:up`, `operator:install`, `demo:m2`, `demo:m2:verify`, and
       `cluster:down` tasks plus an explicitly named destructive reset task.
 - [ ] Cache large Docling models outside disposable agent Jobs so repeated demos
       are practical.
@@ -190,5 +188,6 @@ catalog, and delegation primitives.
   (GitHub, Signal) without CRD changes. See [architecture.md](../../architecture.md).
 - **A first-class channel `Trigger`/`EventSource` CRD.** Deferred — with a single
   channel, an in-runtime adapter is simpler; revisit once several channels exist.
-- **An M0 "primitive-only" demo before M1.** Rejected — a real composition proves
-  the primitives more convincingly than a trivial agent.
+- **Keep paper research in M1.** Rejected — graduating the transport and
+  durability seam independently makes failures easier to localize. M2 owns the
+  first model- and tool-driven composition.

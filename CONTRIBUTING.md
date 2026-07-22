@@ -5,7 +5,7 @@ cluster you already have, see the [quick start](docs/documentation/quick-start.m
 
 > **Implementation status:** the controller, local cluster, and persistent JMAP
 > receive/reply loop are implemented. PDF ingestion, wiki updates, and the final
-> research reply remain M1 work.
+> research reply are M2 work.
 
 ## Prerequisites
 
@@ -16,6 +16,13 @@ For the local development path you need:
 - credentials for the model selected by the Dotagents agent you test with.
 
 `kubectl` and the rest of the toolchain are provided by the devenv shell.
+
+### Auto-activation with direnv (optional)
+
+The repo ships an `.envrc` that loads the devenv shell automatically. Install
+[direnv](https://direnv.net/), hook it into your shell, then run `direnv allow`
+once in the repo root — entering the directory then activates the environment
+without a manual `devenv shell`.
 
 ## Start a local cluster
 
@@ -29,9 +36,11 @@ devenv tasks run operator:install
 
 `cluster:up` starts a microVM containing single-node k3s, Stalwart (an isolated
 JMAP server for compositions that need mail), and a local image path.
-`operator:install` builds and loads both the pinned Outfitter/Pi agent image and
-the Link Operator image, installs the operator idempotently, and waits until the
-controller is ready.
+`operator:install` uses Devenv's container builder to build and load both the
+locked Outfitter/Pi agent image and the Link Operator image, installs the
+operator idempotently, and waits until the controller is ready. To build a
+container specification without installing it, run `devenv container build
+agent` or `devenv container build operator`.
 
 Confirm the two CRDs are installed:
 
@@ -43,7 +52,7 @@ From here the [quick start](docs/documentation/quick-start.md) and the
 [use cases](docs/documentation/usecases.researcher-wiki-maintainer.md) work
 against your local cluster.
 
-## Verify the mail loop
+## Verify M1
 
 The mail-loop scenario applies a demo `Organization` and `Agent`, copies the
 local `$HOME/.pi` directory directly into the agent's durable volume, starts the
@@ -53,17 +62,18 @@ the return address `From: researcher@link.test`, `To: demo-user@link.test`, and
 the original Message-ID in `In-Reply-To`, including after a Deployment restart:
 
 ```sh
-devenv tasks run demo:mail-loop
+devenv tasks run demo:m1
 ```
 
 The task never stores the local `.pi` payload in a Kubernetes Secret or committed
 image. It streams the directory through a temporary pod into the researcher PVC,
-deletes the pod, and only then unblocks the agent Deployment. Redacted mail-loop
-evidence is retained under `.devenv/state/link-cluster/shared/evidence/mail-loop/`.
+deletes the pod, and only then unblocks the agent Deployment. Redacted M1
+evidence is retained under
+`.devenv/state/link-cluster/shared/evidence/m1-email-flow/`.
 
-This proves the persistent JMAP receive/reply transport slice of the agent
-runtime. The full PDF/wiki/research-response acceptance contract remains in the
-[email-research milestone](docs/milestones/M1-email-paper-reserach/demo.md).
+This is the complete [M1 acceptance demo](docs/milestones/M1-email-round-trip/demo.md).
+The PDF/wiki/research-response composition is the
+[M2 milestone](docs/milestones/M2-email-paper-research/demo.md).
 
 ## Teardown
 

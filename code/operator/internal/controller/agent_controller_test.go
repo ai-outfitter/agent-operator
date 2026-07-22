@@ -2,10 +2,14 @@ package controller
 
 import (
 	"context"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	. "github.com/onsi/gomega/gstruct"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
@@ -96,6 +100,10 @@ var _ = Describe("Agent Controller", func() {
 			{Secret: &secretName, As: linkv1alpha1.CredentialExposureEnv},
 			{ConfigMap: &configName, As: linkv1alpha1.CredentialExposureVolume},
 		}
+		agent.Spec.Setup = []linkv1alpha1.SetupStep{
+			{Name: "wait-for-mail", Script: "echo mail-ready"},
+			{Name: "mail-bootstrap", Script: "echo setup-ready"},
+		}
 		Expect(k8sClient.Create(ctx, agent)).To(Succeed())
 		DeferCleanup(removeAgent, ctx, agent.Name)
 
@@ -121,13 +129,15 @@ var _ = Describe("Agent Controller", func() {
 		deploymentKey := types.NamespacedName{Namespace: namespaceName, Name: RuntimeName}
 		Expect(k8sClient.Get(ctx, deploymentKey, deployment)).To(Succeed())
 		container := deployment.Spec.Template.Spec.Containers[0]
+		Expect(deployment.Spec.Template.Spec.SecurityContext.RunAsUser).To(PointTo(Equal(int64(1000))))
+		Expect(deployment.Spec.Template.Spec.SecurityContext.RunAsGroup).To(PointTo(Equal(int64(1000))))
 		Expect(container.Command).To(BeEmpty())
 		Expect(container.Args).To(BeEmpty())
 		Expect(container.Env).To(ContainElements(
 			corev1.EnvVar{Name: "LINK_AGENT_SLUG", Value: "researcher"},
 			corev1.EnvVar{Name: "LINK_AGENT_HARNESS", Value: "pi"},
 		))
-		Expect(container.ReadinessProbe.Exec.Command).To(Equal([]string{"test", "-s", "/workspace/.link/mail-loop-ready"}))
+		Expect(container.ReadinessProbe).To(BeNil())
 		Expect(container.EnvFrom).To(ContainElement(corev1.EnvFromSource{
 			SecretRef: &corev1.SecretEnvSource{LocalObjectReference: corev1.LocalObjectReference{Name: secretName}},
 		}))
@@ -137,6 +147,28 @@ var _ = Describe("Agent Controller", func() {
 		Expect(container.VolumeMounts).To(ContainElement(corev1.VolumeMount{
 			Name: SettingsName, MountPath: WorkspaceMount + "/.agents", ReadOnly: true,
 		}))
+		Expect(deployment.Spec.Template.Spec.InitContainers).To(HaveLen(3))
+		Expect(deployment.Spec.Template.Spec.InitContainers[1].Name).To(Equal("setup-wait-for-mail"))
+		Expect(deployment.Spec.Template.Spec.InitContainers[1].Command).To(Equal([]string{"sh", "-c", "echo mail-ready"}))
+		Expect(deployment.Spec.Template.Spec.InitContainers[2].Name).To(Equal("setup-mail-bootstrap"))
+		Expect(deployment.Spec.Template.Spec.InitContainers).To(ContainElement(MatchFields(IgnoreExtras, Fields{
+			"Name":    Equal("setup-mail-bootstrap"),
+			"Image":   Equal("link-agent:test"),
+			"Command": Equal([]string{"sh", "-c", "echo setup-ready"}),
+			"Env": ContainElement(corev1.EnvVar{
+				Name: HomeEnvName, Value: WorkspaceMount,
+			}),
+			"EnvFrom": ContainElement(corev1.EnvFromSource{
+				SecretRef: &corev1.SecretEnvSource{LocalObjectReference: corev1.LocalObjectReference{Name: secretName}},
+			}),
+			"VolumeMounts": ContainElements(
+				corev1.VolumeMount{Name: WorkspaceName, MountPath: WorkspaceMount},
+				corev1.VolumeMount{Name: NixStoreName, MountPath: NixMount},
+				corev1.VolumeMount{
+					Name: "config-runtime-config", MountPath: CredentialsRoot + "/configmaps/runtime-config", ReadOnly: true,
+				},
+			),
+		})))
 
 		actual := &linkv1alpha1.Agent{}
 		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: agent.Name}, actual)).To(Succeed())
@@ -153,6 +185,61 @@ var _ = Describe("Agent Controller", func() {
 		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: agent.Name}, actual)).To(Succeed())
 		Expect(apiMeta.IsStatusConditionTrue(actual.Status.Conditions, linkv1alpha1.AgentConditionOutfitterSettingsReady)).To(BeTrue())
 		Expect(apiMeta.IsStatusConditionTrue(actual.Status.Conditions, linkv1alpha1.AgentConditionReady)).To(BeTrue())
+	})
+
+	It("rejects storage budgets that cannot hold both persistent claims", func() {
+		organization := createAcceptedOrganization(ctx)
+		agent := validAgent(uniqueTestName("storage-budget"), organization.Name)
+		agent.Spec.Workspace.ResourceQuota.Hard[corev1.ResourceRequestsStorage] = resource.MustParse("29Gi")
+		Expect(k8sClient.Create(ctx, agent)).To(Succeed())
+		DeferCleanup(removeAgent, ctx, agent.Name)
+
+		reconciler := &AgentReconciler{Client: k8sClient, APIReader: k8sClient, Scheme: k8sClient.Scheme()}
+		_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: agent.Name}})
+		Expect(err).NotTo(HaveOccurred())
+
+		actual := &linkv1alpha1.Agent{}
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: agent.Name}, actual)).To(Succeed())
+		accepted := apiMeta.FindStatusCondition(actual.Status.Conditions, linkv1alpha1.AgentConditionAccepted)
+		Expect(accepted.Status).To(Equal(metav1.ConditionFalse))
+		Expect(accepted.Reason).To(Equal("InvalidSpecification"))
+		Expect(accepted.Message).To(ContainSubstring("workspace 10Gi + Nix store 20Gi"))
+		namespace := &corev1.Namespace{}
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: agentNamespace(agent.Name)}, namespace)).To(Satisfy(apierrors.IsNotFound))
+	})
+
+	It("merges a new image closure without overwriting persisted Nix paths", func() {
+		root := GinkgoT().TempDir()
+		imageOne := filepath.Join(root, "image-one")
+		imageTwo := filepath.Join(root, "image-two")
+		persistent := filepath.Join(root, "persistent")
+		for _, directory := range []string{
+			filepath.Join(imageOne, "store", "runtime-v1"),
+			filepath.Join(imageTwo, "store", "runtime-v2"),
+			filepath.Join(persistent, "store", "agent-installed"),
+		} {
+			Expect(os.MkdirAll(directory, 0o755)).To(Succeed())
+		}
+		Expect(os.WriteFile(filepath.Join(imageOne, "store", "runtime-v1", "version"), []byte("v1"), 0o644)).To(Succeed())
+		Expect(os.WriteFile(filepath.Join(imageTwo, "store", "runtime-v2", "version"), []byte("v2"), 0o644)).To(Succeed())
+		persistedPath := filepath.Join(persistent, "store", "agent-installed", "state")
+		Expect(os.WriteFile(persistedPath, []byte("keep-me"), 0o644)).To(Succeed())
+
+		seed := func(source string) {
+			command := exec.Command("sh", "-c", nixStoreSeedScript)
+			command.Env = append(os.Environ(), "SOURCE_NIX="+source, "DESTINATION_NIX="+persistent)
+			output, err := command.CombinedOutput()
+			Expect(err).NotTo(HaveOccurred(), string(output))
+		}
+		seed(imageOne)
+		Expect(os.WriteFile(filepath.Join(persistent, ".seeded"), []byte("old-image"), 0o644)).To(Succeed())
+		seed(imageTwo)
+
+		Expect(filepath.Join(persistent, "store", "runtime-v1", "version")).To(BeAnExistingFile())
+		Expect(filepath.Join(persistent, "store", "runtime-v2", "version")).To(BeAnExistingFile())
+		contents, err := os.ReadFile(persistedPath)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(string(contents)).To(Equal("keep-me"))
 	})
 
 	It("repairs an agent-weakened quota", func() {

@@ -119,6 +119,28 @@ spec:
                 required:
                 - agent
                 type: object
+              setup:
+                description: |-
+                  Setup steps run as ordered init containers before the agent starts, with
+                  the agent's credentials and workspace mounted. Use them for usecase
+                  bootstrap (e.g. provisioning a mailbox, waiting for a dependency).
+                items:
+                  description: SetupStep defines one initialization script that runs
+                    before the agent.
+                  properties:
+                    name:
+                      maxLength: 40
+                      pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                      type: string
+                    script:
+                      minLength: 1
+                      type: string
+                  required:
+                  - name
+                  - script
+                  type: object
+                type: array
+                x-kubernetes-list-type: atomic
               workspace:
                 description: WorkspaceSpec configures the bounded agent namespace
                   workspace.

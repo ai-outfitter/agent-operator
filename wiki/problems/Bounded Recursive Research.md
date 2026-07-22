@@ -8,7 +8,7 @@ tags:
   - method/graph-traversal
   - control/research-budget
 created: 2026-07-19
-updated: 2026-07-19
+updated: 2026-07-21
 ---
 
 # Bounded Recursive Research
@@ -24,7 +24,7 @@ non-terminating.
 
 [[Recursive Literature Exploration]] will enforce a hard depth ceiling of five,
 deduplicate candidates, and apply paper, byte, time, and model-cost budgets.
-M1 records verified depth-one candidates but fetches none of them.
+M2 records verified depth-one candidates but fetches none of them.
 
 ## Open questions
 
@@ -34,4 +34,3 @@ M1 records verified depth-one candidates but fetches none of them.
 
 The boundary is documented by the
 [[sources/2026-07-19-link-operator-requirements/source|current requirements]].
-

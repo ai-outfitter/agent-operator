@@ -8,7 +8,7 @@ tags:
   - method/graph-traversal
   - control/research-budget
 created: 2026-07-19
-updated: 2026-07-19
+updated: 2026-07-21
 ---
 
 # Recursive Literature Exploration
@@ -18,7 +18,7 @@ to candidate sources, ingests selected candidates, and repeats from the newly
 added evidence. The seed is depth zero and directly linked candidates are depth
 one.
 
-Link Operator defers downloading candidates beyond the seed during M1. The
+Link Operator defers downloading candidates beyond the seed during M2. The
 future workflow has a hard maximum depth of five and is expected to deduplicate
 by DOI, canonical URL, and content digest while enforcing paper, byte, time, and
 model-cost budgets.

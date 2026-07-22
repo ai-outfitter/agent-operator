@@ -2,4 +2,5 @@
 .deepwork/
 /TASKS.md
 .devenv*
+.direnv
 devenv.local.nix

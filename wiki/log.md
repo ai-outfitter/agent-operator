@@ -7,7 +7,7 @@ tags:
   - topic/knowledge-base
   - evidence/design
 created: 2026-07-19
-updated: 2026-07-19
+updated: 2026-07-21
 ---
 
 # Wiki Change Log
@@ -41,3 +41,18 @@ flow that turns a feature/fix/milestone request into merged code via separate
 implementer and reviewer agents — and the companion problem
 [[Multi-Agent Review Convergence]]. Introduced the `process/code-review`,
 `topic/pull-request`, and `method/multi-agent` tags.
+
+## [2026-07-21] update | Split email transport M1 from paper research M2
+
+Updated the living Link Operator, agent, local-environment, catalog-composition,
+email-research, and recursive-research notes after the milestone split. M1 now
+means the graduated Stalwart JMAP receive/reply round trip; the
+[[Email Paper Research Workflow]] and [[Researcher Agent]] profile execution are
+M2. Preserved the 2026-07-19 source claims as historical evidence and recorded
+the subsequent revision on both source notes.
+
+## [2026-07-21] update | Align secret containment with JMAP exposure
+
+Updated [[Secret Containment]] to use the JMAP credential contract and clarify
+that the operator checks only whether referenced Secret objects exist, never
+their key-level contents.

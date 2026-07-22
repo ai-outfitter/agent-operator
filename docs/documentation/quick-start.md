@@ -14,10 +14,9 @@ operator-owned ResourceQuota bounds its total consumption. This guide stands up
 the primitives with one example agent; what that agent *does* is a composition —
 see the [use cases](usecases.researcher-wiki-maintainer.md).
 
-> **Implementation status:** this is the target user experience. The CRDs,
-> controller, and runtime image are specified but not implemented yet. Until they
-> land, the commands below document the interface and will not complete
-> successfully.
+> **Implementation status:** the CRDs, controller, local runtime image, and M1
+> email round trip are implemented. A packaged non-development installation and
+> the M2 research composition remain future work.
 
 ## Prerequisites
 
@@ -37,8 +36,8 @@ requirements; a different composition (say a GitHub PR watcher) would need
 different inputs.
 
 The pinned Dotagents source must use a full commit SHA. Review every agent,
-skill, MCP server, plugin, and script in it before trusting it. M1 writes one
-source per organization to Outfitter settings; Outfitter performs fetching and
+skill, MCP server, plugin, and script in it before trusting it. M2 uses one source
+per organization in Outfitter settings; Outfitter performs fetching and
 resolution inside the runtime.
 
 ## 1. Install the operator

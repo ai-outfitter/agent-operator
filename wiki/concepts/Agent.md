@@ -8,7 +8,7 @@ tags:
   - topic/membership
   - control/access-control
 created: 2026-07-19
-updated: 2026-07-19
+updated: 2026-07-21
 ---
 
 # Agent
@@ -20,8 +20,8 @@ within each organization.
 
 The CRD selects a Dotagents agent slug instead of duplicating profile details.
 Identity, skills, subagents, model, thinking level, and tool policy live in the
-pinned catalog definition. The operator runs the selected profile through
-Outfitter with Pi as the M1 harness.
+pinned catalog definition. M2 runs the selected profile through Outfitter with
+Pi as the harness; M1 exercises only the agent-owned JMAP channel adapter.
 
 Every accepted agent receives its own [[Agent Namespace Workspace]] and
 references namespaced Kubernetes Secrets for email, model-provider, and
@@ -31,4 +31,3 @@ optional SSH credentials. The intended behavior is specified by the
 ## First profile
 
 The first concrete agent is [[Researcher Agent|`researcher`]].
-

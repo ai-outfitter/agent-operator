@@ -1,5 +1,8 @@
 # Use case: researcher wiki maintainer
 
+This is the target composition for
+[M2: Email Paper Research](../milestones/M2-email-paper-research/task.md).
+
 An example composition over the Link Operator [primitives](../architecture.md): an
 agent that watches an email inbox, ingests emailed research papers into an
 organization's wiki, and replies in-thread with a source-traceable commit. Email
@@ -30,13 +33,12 @@ Create these Secrets in the `agent-researcher` namespace — via your cluster's
 secret manager in production, or ignored `0600` files loaded with `kubectl` for
 local development.
 
-The email channel adapter's `email.env` must contain — this is the adapter's
-authoritative key contract:
+The mail skill and `xin` CLI use this `email.env` contract:
 
 ```dotenv
-JMAP_URL=http://stalwart.link-system.svc.cluster.local:8080
-JMAP_USERNAME=researcher@link.test
-JMAP_PASSWORD=REPLACE_ME
+XIN_BASE_URL=http://stalwart.link-system.svc.cluster.local:8080
+XIN_BASIC_USER=researcher@link.test
+XIN_BASIC_PASS=REPLACE_ME
 ```
 
 Cleartext HTTP is permitted only inside the isolated Stalwart demo. Use HTTPS for
@@ -87,7 +89,7 @@ of at most 25 MiB. The email maps to the agent's configured default organization
 
 The agent will:
 
-1. receive and deduplicate the message by Message-ID;
+1. receive the message while it is in `INBOX`;
 2. clone the organization's wiki into storage it manages in its namespace
    workspace;
 3. run the selected Dotagents agent through Outfitter and Pi;
@@ -96,7 +98,9 @@ The agent will:
 6. update concepts, the wiki index, and the append-only log;
 7. list linked papers to explore next without downloading them;
 8. create one local Git commit; and
-9. reply in the original email thread with its summary and commit SHA.
+9. reply in the original email thread with its summary and commit SHA; and
+10. move the original from `INBOX` to `Processed`, which is the server-side
+    reply-tracking state.
 
 Today the agent does not push the commit, and research traversal is limited to the
 emailed seed paper; future recursive research has a hard maximum depth of five.

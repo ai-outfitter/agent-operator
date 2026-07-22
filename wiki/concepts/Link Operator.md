@@ -1,14 +1,14 @@
 ---
 title: Link Operator
 type: concept
-status: draft
+status: active
 tags:
   - system/link-operator
   - system/kubernetes
   - topic/agent-runtime
   - control/resource-governance
 created: 2026-07-19
-updated: 2026-07-19
+updated: 2026-07-21
 ---
 
 # Link Operator
@@ -20,13 +20,14 @@ organizations. Its public API has exactly two cluster-scoped custom resources:
 additional CRDs.
 
 The operator reconciles each accepted agent into an
-[[Agent Namespace Workspace]], resolves its
-[[Dotagents Catalog Composition|Dotagents catalogs]], and runs its selected
-profile through Outfitter. The first profile is the [[Researcher Agent]], which
-implements the [[Email Paper Research Workflow]].
+[[Agent Namespace Workspace]] and renders pinned source declarations for
+[[Dotagents Catalog Composition]]. Outfitter, running inside the agent runtime,
+owns source fetching, profile resolution, composition, and launch. The first
+profile is the [[Researcher Agent]], whose paper workflow is M2.
 
-These statements describe the intended product interface, not implemented
-behavior. The implementation-status distinction comes from the
+The CRDs, controller primitives, local cluster, and M1 email round trip are
+implemented. The M2 [[Email Paper Research Workflow]] remains target behavior.
+The initial interface came from the
 [[sources/2026-07-19-link-operator-requirements/source|Link Operator M1 requirements and catalog]].
 
 ## Related problems

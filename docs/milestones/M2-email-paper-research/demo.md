@@ -1,9 +1,13 @@
-# M1 Demo: Email a Paper and Receive a Research Reply
+# M2 Demo: Email a Paper and Receive a Research Reply
 
-This is the acceptance contract for M1. The commands named here are the
+This is the acceptance contract for M2. The commands named here are the
 developer-facing interface the implementation must provide; until their tasks
 in [task.md](task.md) are complete, this document is a specification rather
 than a claim that the demo already runs.
+
+It builds on the graduated
+[M1 local email round trip](../M1-email-round-trip/demo.md); M2 reuses that JMAP
+transport and replaces the acknowledgement with a paper-research result.
 
 ## Demonstrated behavior
 
@@ -29,15 +33,15 @@ requirements:
 - Stalwart providing isolated JMAP mailboxes; its pod has no Internet egress.
 - A bare writable wiki fixture with the `wiki/` layout, Git LFS enabled, and a
   clean default branch.
-- A known research PDF at `fixtures/m1/seed-paper.pdf`, no larger than 25 MiB.
+- A known research PDF at `fixtures/m2/seed-paper.pdf`, no larger than 25 MiB.
 - An agent mailbox `researcher@link.test` and sender mailbox
   `demo-user@link.test`.
 - A model-provider test Secret suitable for the selected Pi model.
-- The M1 organization and agent examples derived from OPR-001 and OPR-003.
+- The M2 organization and agent examples derived from OPR-001 and OPR-003.
 
 The runtime image is built from Outfitter commit
 `c44205ef35265c893ad9f088772c35c71753bfb7` and uses Dotagents protocol revision
-`502a9d5`. The only M1 catalog is the commit-pinned Link Operator repository,
+`502a9d5`. The only M2 catalog is the commit-pinned Link Operator repository,
 payload path `.agents`. That payload defines `researcher` and vendors both
 required skills. Its provenance is recorded in `.agents/README.md`.
 
@@ -70,7 +74,7 @@ The demo task MUST apply:
    controller creates that namespace.
 
 Secret values come from a demo-only SecretSpec/devenv profile and MUST not be
-committed or printed. The SSH key may authenticate the wiki clone; M1 will not
+committed or printed. The SSH key may authenticate the wiki clone; M2 will not
 use it to push.
 
 The task MUST wait for:
@@ -95,7 +99,7 @@ consumption.
 Run:
 
 ```sh
-devenv tasks run demo:m1
+devenv tasks run demo:m2
 ```
 
 The task creates a standards-compliant message and submits it through Stalwart's
@@ -105,13 +109,13 @@ JMAP API:
 From: demo-user@link.test
 To: researcher@link.test
 Subject: Research this paper for the AI Outfitter wiki
-Message-ID: <m1-seed-paper@link.test>
+Message-ID: <m2-seed-paper@link.test>
 
 Please ingest the attached paper, update the organization wiki, and tell me
 which papers should be explored next.
 ```
 
-It attaches `fixtures/m1/seed-paper.pdf` as `application/pdf` and records the
+It attaches `fixtures/m2/seed-paper.pdf` as `application/pdf` and records the
 original message headers and attachment SHA-256 in the evidence directory.
 
 ## 4. Observe processing
@@ -121,7 +125,7 @@ The agent MUST:
 1. receive the message through JMAP mailbox changes and persist `received`;
 2. validate the request and persist `running`;
 3. clone or reset a clean organization wiki working tree without discarding a
-   prior completed M1 commit;
+   prior completed M2 commit;
 4. run `outfitter run researcher --harness pi` with the composed catalogs;
 5. treat the email and PDF as untrusted research material, not system
    instructions;
@@ -143,12 +147,12 @@ after the commit.
 Run:
 
 ```sh
-devenv tasks run demo:verify
+devenv tasks run demo:m2:verify
 ```
 
 The verifier MUST query the sender mailbox through JMAP and prove:
 
-- exactly one reply exists for `<m1-seed-paper@link.test>`;
+- exactly one reply exists for `<m2-seed-paper@link.test>`;
 - `In-Reply-To` equals that Message-ID and `References` contains it;
 - the body reports success, source title, concise summary, organization, local
   commit SHA, changed paths, candidate papers, and warnings if any;
@@ -168,7 +172,7 @@ It MUST inspect the agent workspace and prove:
 - there are candidate links but no depth-one paper source directories.
 
 The verifier then submits the identical message again. After the agent becomes
-idle, the commit count and reply count MUST remain unchanged. This is the M1
+idle, the commit count and reply count MUST remain unchanged. This is the M2
 idempotency proof.
 
 ## Evidence and failure behavior
@@ -188,7 +192,7 @@ directory:
 - wiki validation output; and
 - duplicate-delivery commit/reply counts.
 
-A failed assertion MUST make `demo:verify` non-zero and print the relevant
+A failed assertion MUST make `demo:m2:verify` non-zero and print the relevant
 artifact path. It MUST distinguish validation failure, catalog/profile failure,
 Docling failure, model failure, Git failure, and JMAP submission failure.
 

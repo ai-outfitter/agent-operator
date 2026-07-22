@@ -36,7 +36,7 @@ stringData:
   plan.ndjson: |
     {"@type":"upsert","object":"NetworkListener","matchOn":["name"],"value":{"jmap":{"name":"jmap","bind":{"[::]:8081":true},"protocol":"http","useTls":false}}}
     {"@type":"upsert","object":"Domain","matchOn":["name"],"value":{"link-domain":{"name":"link.test","description":"Link Operator development mail"}}}
-    {"@type":"upsert","object":"Account","matchOn":["name","domainId"],"value":{"researcher":{"@type":"User","name":"researcher","domainId":"#link-domain","description":"M1 researcher agent","credentials":{"0":{"@type":"Password","secret":"researcher-dev-password-2026!"}}},"demo-user":{"@type":"User","name":"demo-user","domainId":"#link-domain","description":"M1 demo sender","credentials":{"0":{"@type":"Password","secret":"demo-user-dev-password-2026!"}}}}}
+    {"@type":"upsert","object":"Account","matchOn":["name","domainId"],"value":{"researcher":{"@type":"User","name":"researcher","domainId":"#link-domain","description":"M1 email agent","credentials":{"0":{"@type":"Password","secret":"researcher-dev-password-2026!"}}},"demo-user":{"@type":"User","name":"demo-user","domainId":"#link-domain","description":"M1 email demo sender","credentials":{"0":{"@type":"Password","secret":"demo-user-dev-password-2026!"}}}}}
     {"@type":"update","object":"SystemSettings","value":{"defaultDomainId":"#link-domain","defaultHostname":"mail.link.test"}}
 ---
 apiVersion: v1

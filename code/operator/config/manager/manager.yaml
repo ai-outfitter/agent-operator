@@ -55,11 +55,15 @@ spec:
         # This ensures that deployments meet the highest security requirements for Kubernetes.
         # For more details, see: https://kubernetes.io/docs/concepts/security/pod-security-standards/#restricted
         runAsNonRoot: true
+        # Devenv containers name uid 1000 "user"; make the numeric identity
+        # explicit so kubelet can enforce runAsNonRoot without image lookup.
+        runAsUser: 1000
+        runAsGroup: 1000
         seccompProfile:
           type: RuntimeDefault
       containers:
       - command:
-        - /manager
+        - /bin/manager
         args:
           - --leader-elect
           - --health-probe-bind-address=:8081
