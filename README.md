@@ -15,6 +15,9 @@ operator.
   an agent.
 - [Use case: researcher wiki maintainer](docs/documentation/usecases.researcher-wiki-maintainer.md)
   — an end-to-end example composition (email a paper, get a wiki commit).
+- [Use case: Grafana alert investigator](docs/documentation/usecases.grafana-alert-investigator.md)
+  — an event-driven composition (an alert fires, an agent investigates and
+  comments its diagnosis on the tracking issue).
 - [Architecture](docs/architecture.md) — the primitives-vs-composition design.
 - [Contributing](CONTRIBUTING.md) — local development (Nix, devenv, a local
   cluster).
