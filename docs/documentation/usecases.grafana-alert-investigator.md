@@ -125,8 +125,24 @@ namespace workspace and cannot access Secrets in another namespace.
 ## How it is triggered
 
 This composition is **event-driven** — the alert wakes it — rather than the
-resident poll loop the researcher composition runs. Supporting an Alertmanager
-webhook that materializes one investigation per alert is a design that builds on
+resident poll loop the researcher composition runs. A firing alert is delivered
+to a webhook receiver in the agent's namespace, which materializes one
+investigation per alert. There are two ways to send it, and both deliver an
+Alertmanager-compatible webhook payload, so the receiver and the agent's
+`trigger_context` are identical either way:
+
+- **Grafana-managed alerting (preferred).** Grafana's own unified alerting
+  evaluates the rule and routes it through a **notification policy** to a
+  **webhook contact point** pointed at the receiver. This is the more cohesive
+  path: the same Grafana the agent already investigates through owns the rule,
+  so the alert, its rule definition, and the evidence live in one place — and the
+  agent can read the rule back through the Grafana MCP.
+- **Alertmanager.** The `kube-prometheus-stack` Alertmanager routes the alert to
+  a webhook receiver alongside the receivers that page humans (`continue: true`).
+  Use this when the alerts are Prometheus-evaluated rules you already run through
+  Alertmanager.
+
+Supporting the receiver that materializes one investigation per alert builds on
 the operator's existing **Channel** and **Subagent = Job** primitives; see
 [Webhook-driven agents](../design/webhook-driven-agents.md). The receiver plumbing
 does not exist yet, so this page describes the composition; the design note

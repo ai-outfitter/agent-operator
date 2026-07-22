@@ -9,10 +9,16 @@ use case; the receiver plumbing described here is not yet implemented.
 Today an agent runs a **resident poll loop**: a persistent Deployment that, on
 each tick, surveys a prioritized set of input sources and works or delegates them
 (see [architecture.md](../architecture.md), "The main-agent loop"). That fits a
-mailbox — poll for unprocessed messages — but not an alert. An Alertmanager alert
-is a **push**: it arrives once, when it fires, and wants a bounded investigation
-for that specific alert. Polling Grafana on a timer would be both laggy and
-redundant against a system whose whole job is to notify.
+mailbox — poll for unprocessed messages — but not an alert. An observability
+alert is a **push**: it arrives once, when it fires, and wants a bounded
+investigation for that specific alert. Polling Grafana on a timer would be both
+laggy and redundant against a system whose whole job is to notify.
+
+The alert can be pushed by either **Grafana-managed alerting** (a webhook
+contact point on a notification policy — the preferred, more cohesive path since
+the agent already works through Grafana) or **Alertmanager** (a webhook receiver
+in `kube-prometheus-stack`). Both send an Alertmanager-compatible webhook
+payload, so the receiver below is the same for either.
 
 We want the alert to **wake** the agent, run one investigation scoped to that
 alert, and stop — without a resident loop per alert stream and without the
@@ -37,9 +43,11 @@ An investigation *is* a subagent: one alert in, one bounded read-only run out.
 ## Sketch
 
 ```
-Alertmanager (kube-prometheus-stack)
-    │  webhook receiver route
-    ▼
+Grafana-managed alerting              Alertmanager
+(webhook contact point)      —or—     (kube-prometheus-stack webhook receiver)
+    │                                     │
+    └──────────────┬──────────────────────┘
+                   ▼  Alertmanager-compatible webhook payload
 Receiver Service  (in the agent's namespace workspace)
     │  validates + normalizes the alert into a trigger_context
     ▼
@@ -50,13 +58,13 @@ Subagent Job  (OPR-005)   ── one per firing alert ──▶  grafana-alert-i
 ```
 
 1. **Receiver.** A small webhook receiver runs as a Service in the agent's
-   namespace and is registered as an Alertmanager webhook receiver. It
-   authenticates the request, deduplicates by alert fingerprint + `startsAt`, and
-   normalizes the payload into the same `trigger_context` shape the profile
-   expects (alertname, namespace, workload, severity, start time). It treats the
-   payload strictly as data.
-2. **Materialize a Job.** Per firing alert (grouped/throttled by Alertmanager),
-   the receiver launches one subagent Job selecting the
+   namespace, registered as a Grafana webhook contact point or an Alertmanager
+   webhook receiver. It authenticates the request, deduplicates by alert
+   fingerprint + `startsAt`, and normalizes the payload into the same
+   `trigger_context` shape the profile expects (alertname, namespace, workload,
+   severity, start time). It treats the payload strictly as data.
+2. **Materialize a Job.** Per firing alert (grouped/throttled by the alerting
+   source), the receiver launches one subagent Job selecting the
    `grafana-alert-investigator` profile, exactly as OPR-005 describes: same
    namespace, same service account, quota-bounded, timeout-enforced,
    collision-resistant run suffix, labeled with the parent run. Cancellation
@@ -89,5 +97,6 @@ way.
   operator-managed component per agent namespace?
 - Should "launch a Job from an inbound event" become a first-class operator
   affordance, or stay entirely in the composition layer like other channels?
-- How is the receiver's Alertmanager registration expressed — a `setup:` step, a
+- How is the receiver's registration expressed — a Grafana contact point /
+  notification policy or an Alertmanager receiver — via a `setup:` step, a
   composition-owned manifest, or out of band?
