@@ -8,8 +8,11 @@ is the channel: the agent watches the channels its bot is invited to, replies in
 the message's thread, and marks each message handled with a reaction.
 
 Because the operator is channel-agnostic (see [architecture](../architecture.md)),
-this composition adds **no operator, controller, or CRD changes** — only a `slack`
-skill that drives the Slack Web API, and a scoped credential Secret.
+this composition adds **no operator, controller, or CRD changes** — only the
+`slack-responder` skill (from the
+[`ai-outfitter/community-profiles`](https://github.com/ai-outfitter/community-profiles)
+catalog your `Organization` pins) that drives the Slack Web API, and a scoped
+credential Secret.
 
 Follow the [quick start](quick-start.md) first to stand up the cluster, an
 organization, and the agent's workspace.
@@ -55,7 +58,7 @@ messages or edits others' content, so nothing it holds should permit that.
 Then **invite the bot to the specific channels** it should watch
 (`/invite @your-bot` in each), and note their channel ids.
 
-The `slack` skill reads this `slack.env` contract:
+The `slack-responder` skill reads this `slack.env` contract:
 
 ```dotenv
 SLACK_BOT_TOKEN=xoxb-REPLACE_ME
