@@ -37,7 +37,11 @@ move, no local state, state lives server-side) and the same downstream behavior 
 | Backend | Protocol / CLI | Skill | When to use |
 | --- | --- | --- | --- |
 | **Stalwart (JMAP)** | JMAP via `xin` | `mail` | The self-contained local demo; any JMAP mailbox. Offline, no internet egress. |
-| **Google Workspace (Gmail)** | Gmail API via GAMADV-XTD3 (`gam`) | `mail-gmail` | Your organization already runs Google Workspace. |
+| **Google Workspace (Gmail)** | Gmail API via GAMADV-XTD3 (`gam`) | `gmail` | Your organization already runs Google Workspace. |
+
+Both skills ship in the [`ai-outfitter/community-profiles`](https://github.com/ai-outfitter/community-profiles)
+catalog your `Organization` pins — the agent resolves them by slug; nothing is
+baked into this repo.
 
 Pick one; the two are parallel, not layered. The rest of this page covers each
 backend's credential contract in turn.
@@ -76,7 +80,7 @@ kubectl -n agent-researcher create secret generic \
 
 #### Google Workspace (Gmail) mailbox
 
-For a Google Workspace organization the `mail-gmail` skill drives GAMADV-XTD3
+For a Google Workspace organization the `gmail` skill drives GAMADV-XTD3
 (`gam`) against the Gmail API. The agent authenticates as **exactly one mailbox**
 using a **per-mailbox OAuth 2.0 token** that the researcher mailbox consents to
 once. There is **no service account and no domain-wide delegation**, so the
@@ -115,7 +119,7 @@ super-admin domain settings are changed:
    `gmail.modify` is the narrowest scope that still lets the agent read a message
    and move it `INBOX`→`Processed`; it explicitly **cannot delete** mail.
 
-The `mail-gmail` skill reads this `email.env` contract:
+The `gmail` skill reads this `email.env` contract:
 
 ```dotenv
 GMAIL_USER=researcher@yourcompany.com
@@ -135,7 +139,7 @@ kubectl -n agent-researcher create secret generic \
 
 Reference it from the Agent's `credentials` with `as: volume` (so both files land
 in `$GAMCFGDIR`) — the operator projects it unchanged. Then swap the agent's skill
-from `mail` to `mail-gmail` and replace the `mail-bootstrap` setup step's `xin`
+from `mail` to `gmail` and replace the `mail-bootstrap` setup step's `xin`
 commands with their `gam` equivalents (verify the token works, then `gam user
 "$GMAIL_USER" create label "$LINK_MAIL_PROCESSED"`, tolerating "already exists").
 
