@@ -26,11 +26,15 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: cachix/install-nix-action@v31
+      - name: Install Nix
+        uses: DeterminateSystems/determinate-nix-action@v3
 
-      - uses: cachix/cachix-action@v17
+      - name: Restore and save Nix store
+        uses: nix-community/cache-nix-action@v7
         with:
-          name: devenv
+          primary-key: nix-${{ runner.os }}-${{ hashFiles('flake.lock', 'flake.nix', 'devenv.lock', 'devenv.nix', 'devenv.yaml', 'code/operator/go.sum') }}
+          restore-prefixes-first-match: nix-${{ runner.os }}-
+          gc-max-store-size-linux: 2G
 
       - name: Install devenv
         run: nix profile add github:cachix/devenv/ea3d94ac9d6bf6a1313773170122ca4e2ef5a0be
