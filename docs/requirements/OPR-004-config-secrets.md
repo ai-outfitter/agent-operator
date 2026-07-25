@@ -35,9 +35,11 @@ An agent references as many objects as its composition needs.
 
 ## OPR-004.2: Existence-only contract
 
-Referenced objects hold their own values; the operator creates the agent
-namespace first and then waits with `CredentialsReady=False` until every
-referenced Secret and ConfigMap **exists**. The controller MUST NOT:
+Referenced objects hold their own values. The operator creates the agent
+namespace and workload even when referenced objects are absent, while reporting
+`CredentialsReady=False` until every referenced Secret and ConfigMap **exists**.
+Non-optional native Kubernetes projections keep the Pod's containers from
+starting until the objects exist. The controller MUST NOT:
 
 - read, log, copy, or emit the contents of any referenced object;
 - validate that a Secret contains particular keys (for example `JMAP_URL`); or
@@ -64,5 +66,6 @@ agent consumes; anything it must keep private is a Secret.
 
 The `CredentialsReady` condition MUST report which referenced objects are still
 missing, by name only. It MUST NOT reference any key or value. Once every
-referenced object exists, `CredentialsReady=True` and the operator may proceed to
-`WorkloadReady`.
+referenced object exists, `CredentialsReady=True`. Workload reconciliation is
+independent: `WorkloadReady` reflects Deployment availability, and aggregate
+`Ready` remains false while either credentials or workload are not ready.

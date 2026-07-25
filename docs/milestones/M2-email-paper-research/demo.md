@@ -86,7 +86,8 @@ Agent/researcher: Accepted, NamespaceReady, WorkspaceReady,
 ```
 
 Before credentials are created, the observable intermediate state MUST be
-`CredentialsReady=False` rather than a crashing Deployment.
+`CredentialsReady=False` while the Deployment exists and Kubernetes reports the
+missing non-optional references through the Pod's standard container status.
 
 The namespace MUST also contain `ResourceQuota/agent-workspace`,
 `LimitRange/agent-workspace-defaults`, a durable per-agent workspace volume, and

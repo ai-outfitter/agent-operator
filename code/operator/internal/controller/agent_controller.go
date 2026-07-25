@@ -145,11 +145,6 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	}}
 	setAgentCondition(agent, linkv1alpha1.AgentConditionOutfitterSettingsReady, metav1.ConditionTrue, "Ready", "Outfitter settings contain the pinned source; runtime resolution is delegated to Outfitter")
 
-	if len(missingCredentials) > 0 {
-		blockAgentConditions(agent, linkv1alpha1.AgentConditionWorkloadReady, "CredentialsNotReady", "Agent workload waits for referenced objects")
-		return r.finishAgent(ctx, statusBase, agent, ctrl.Result{RequeueAfter: credentialPollInterval}, nil)
-	}
-
 	deployment, err := r.ensureAgentDeployment(ctx, agent, organization)
 	if err != nil {
 		setAgentCondition(agent, linkv1alpha1.AgentConditionWorkloadReady, metav1.ConditionFalse, "WorkloadReconcileFailed", "Agent Deployment could not be reconciled")
@@ -162,6 +157,10 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		return r.finishAgent(ctx, statusBase, agent, ctrl.Result{RequeueAfter: credentialPollInterval}, nil)
 	}
 	setAgentCondition(agent, linkv1alpha1.AgentConditionWorkloadReady, metav1.ConditionTrue, "Ready", "Agent Deployment is available")
+	if len(missingCredentials) > 0 {
+		setAgentCondition(agent, linkv1alpha1.AgentConditionReady, metav1.ConditionFalse, "CredentialsNotReady", "Agent references missing objects")
+		return r.finishAgent(ctx, statusBase, agent, ctrl.Result{RequeueAfter: credentialPollInterval}, nil)
+	}
 	setAgentCondition(agent, linkv1alpha1.AgentConditionReady, metav1.ConditionTrue, "Ready", "Agent is ready")
 
 	return r.finishAgent(ctx, statusBase, agent, ctrl.Result{RequeueAfter: steadyStateInterval}, nil)

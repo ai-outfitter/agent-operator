@@ -121,10 +121,12 @@ quota-violating request indefinitely.
 
 `Agent.spec.credentials` references Secrets and ConfigMaps in the agent namespace
 **by name only** and declares how each is exposed to the runtime. The operator
-waits for them to exist (`CredentialsReady`) and never inspects their contents;
-key-level contracts (for example the email channel adapter's JMAP keys)
-belong to the composed agent, not here. This is the generic primitive defined in
-[OPR-004](OPR-004-config-secrets.md) — see it for the full contract.
+reports whether they exist (`CredentialsReady`) but always reconciles the
+Deployment, leaving missing non-optional projections to standard Kubernetes
+Pod status. It never inspects object contents; key-level contracts (for example
+the email channel adapter's JMAP keys) belong to the composed agent, not here.
+This is the generic primitive defined in [OPR-004](OPR-004-config-secrets.md) —
+see it for the full contract.
 
 ## OPR-003.6: Runtime execution and delegation
 

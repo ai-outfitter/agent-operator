@@ -96,7 +96,9 @@ The controller creates `agent-researcher`, its service account, a
 namespaced binding to the built-in `admin` ClusterRole, an operator-owned
 ResourceQuota and LimitRange, a durable workspace volume, and the runtime
 workload. The agent is not ready yet: it should report `CredentialsReady=False`
-until you supply its Secrets.
+until you supply its Secrets. The Deployment and Pod still exist; Kubernetes
+reports the missing non-optional Secret references in the Pod's container
+status until you create them.
 
 Inspect the workspace boundary and budget:
 

@@ -26,7 +26,7 @@ import (
 var _ = Describe("Agent Controller", func() {
 	ctx := context.Background()
 
-	It("reconciles a bounded workspace and waits for referenced objects", func() {
+	It("reconciles the workload while reporting missing referenced objects", func() {
 		organization := createAcceptedOrganization(ctx)
 		agent := validAgent(uniqueTestName("researcher"), organization.Name)
 		secretName := "model-credentials"
@@ -86,9 +86,29 @@ var _ = Describe("Agent Controller", func() {
 		Expect(credentialsReady.Status).To(Equal(metav1.ConditionFalse))
 		Expect(credentialsReady.Message).To(ContainSubstring(credentialKindSecret + "/model-credentials"))
 		Expect(credentialsReady.Message).To(ContainSubstring(credentialKindConfig + "/runtime-config"))
-		Expect(apiMeta.IsStatusConditionFalse(actual.Status.Conditions, linkv1alpha1.AgentConditionWorkloadReady)).To(BeTrue())
+		workloadReady := apiMeta.FindStatusCondition(actual.Status.Conditions, linkv1alpha1.AgentConditionWorkloadReady)
+		Expect(workloadReady.Status).To(Equal(metav1.ConditionFalse))
+		Expect(workloadReady.Reason).To(Equal("DeploymentUnavailable"))
+		Expect(apiMeta.IsStatusConditionFalse(actual.Status.Conditions, linkv1alpha1.AgentConditionReady)).To(BeTrue())
+
 		deployment := &appsv1.Deployment{}
-		Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: namespaceName, Name: RuntimeName}, deployment)).To(Satisfy(apierrors.IsNotFound))
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: namespaceName, Name: RuntimeName}, deployment)).To(Succeed())
+		Expect(deployment.Spec.Template.Spec.Containers[0].EnvFrom).To(ContainElement(corev1.EnvFromSource{
+			SecretRef: &corev1.SecretEnvSource{
+				LocalObjectReference: corev1.LocalObjectReference{Name: secretName},
+			},
+		}))
+		var configVolume *corev1.Volume
+		for index := range deployment.Spec.Template.Spec.Volumes {
+			if deployment.Spec.Template.Spec.Volumes[index].Name == credentialVolumeName(credentialKindConfig, configName) {
+				configVolume = &deployment.Spec.Template.Spec.Volumes[index]
+				break
+			}
+		}
+		Expect(configVolume).NotTo(BeNil())
+		Expect(configVolume.ConfigMap).NotTo(BeNil())
+		Expect(configVolume.ConfigMap.Name).To(Equal(configName))
+		Expect(configVolume.ConfigMap.Optional).To(BeNil())
 	})
 
 	It("projects references and becomes ready after the agent runtime starts", func() {
