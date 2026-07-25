@@ -1,0 +1,41 @@
+apiVersion: link.aioutfitter.com/v1alpha1
+kind: Agent
+metadata:
+  name: nonprod-bot
+spec:
+  memberships:
+    - organization: nonprod-channels
+  profile:
+    agent: researcher
+    harness: pi
+  credentials:
+    - secret: nonprod-bot-slack
+      as: env
+    - configMap: nonprod-bot-runtime
+      as: env
+    - configMap: nonprod-bot-pi-ready
+      as: env
+  workspace:
+    resourceQuota:
+      hard:
+        requests.cpu: "1"
+        requests.memory: 2Gi
+        limits.cpu: "2"
+        limits.memory: 4Gi
+        requests.storage: 40Gi
+        persistentvolumeclaims: "4"
+        count/pods: "8"
+        count/jobs.batch: "4"
+        count/services: "2"
+        count/configmaps: "10"
+        count/secrets: "4"
+    limitRange:
+      container:
+        defaultRequest:
+          cpu: 100m
+          memory: 256Mi
+        default:
+          cpu: "1"
+          memory: 2Gi
+    volume:
+      size: 10Gi

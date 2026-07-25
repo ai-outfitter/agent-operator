@@ -1,0 +1,11 @@
+apiVersion: link.aioutfitter.com/v1alpha1
+kind: Organization
+metadata:
+  name: nonprod-channels
+spec:
+  displayName: Nonprod channel agents
+  agentCatalogs:
+    - name: link-operator-agents
+      github: ai-outfitter/link-operator
+      revision: d5ffe5dd05c10796f6793493aab06740d0fc32ff
+      path: code/agent/agents-catalog

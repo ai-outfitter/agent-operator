@@ -1,0 +1,28 @@
+# syntax=docker/dockerfile:1.7
+FROM node:24.18.0-alpine3.23
+
+ARG CHANNELS_REVISION
+ARG OUTFITTER_VERSION=1.0.2
+
+RUN npm install --global "@ai-outfitter/outfitter@${OUTFITTER_VERSION}" \
+    && ln -s \
+      /usr/local/lib/node_modules/@ai-outfitter/outfitter/node_modules/.bin/pi \
+      /usr/local/bin/pi
+
+WORKDIR /opt/channels
+COPY --from=channels package.json package-lock.json ./
+RUN npm ci --omit=dev --omit=peer --ignore-scripts \
+    && npm cache clean --force
+COPY --from=channels extensions ./extensions
+COPY --from=channels dev/slack-responder/SKILL.md ./slack-responder/SKILL.md
+COPY --from=channels dev/slack-system-prompt.md ./slack-system-prompt.md
+COPY dev/nonprod/agent-entrypoint.mjs /opt/link/agent-entrypoint.mjs
+
+RUN test -n "$CHANNELS_REVISION" \
+    && printf '%s\n' "$CHANNELS_REVISION" > /opt/channels/REVISION \
+    && mkdir -p /nix/store /workspace/.pi/agent \
+    && chown -R 1000:1000 /workspace
+
+USER 1000:1000
+WORKDIR /workspace
+ENTRYPOINT ["node", "/opt/link/agent-entrypoint.mjs"]

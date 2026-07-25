@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nonprod-bot-runtime
+  namespace: agent-nonprod-bot
+data:
+  SLACK_CHANNEL_IDS: joined
+  LINK_SLACK_DONE_EMOJI: white_check_mark
+  LINK_SLACK_MODEL: openai-codex/gpt-5.4-mini
