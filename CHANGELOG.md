@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1](https://github.com/ai-outfitter/link-operator/compare/link-operator-v0.2.0...link-operator-v0.2.1) (2026-07-25)
+
+
+### Bug Fixes
+
+* publish release images reliably ([d5fb5a9](https://github.com/ai-outfitter/link-operator/commit/d5fb5a93df28a7c29f98343fbf4b84a95fc50714))
+
 ## [0.2.0](https://github.com/ai-outfitter/link-operator/compare/link-operator-v0.1.0...link-operator-v0.2.0) (2026-07-25)
 
 
