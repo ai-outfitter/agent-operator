@@ -20,6 +20,9 @@ jobs:
       - id: release
         uses: googleapis/release-please-action@v4
         with:
+          # The org blocks the default GITHUB_TOKEN from creating PRs, so use
+          # the established organization-scoped release token.
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
