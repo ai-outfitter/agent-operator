@@ -28,8 +28,12 @@ jobs:
 
       - uses: cachix/install-nix-action@v31
 
+      - uses: cachix/cachix-action@v17
+        with:
+          name: devenv
+
       - name: Install devenv
-        run: nix profile install github:cachix/devenv/ea3d94ac9d6bf6a1313773170122ca4e2ef5a0be
+        run: nix profile add github:cachix/devenv/ea3d94ac9d6bf6a1313773170122ca4e2ef5a0be
 
       - name: Authenticate to GHCR
         env:
