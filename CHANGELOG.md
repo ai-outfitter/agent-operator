@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.2](https://github.com/ai-outfitter/link-operator/compare/link-operator-v0.2.1...link-operator-v0.2.2) (2026-07-25)
+
+
+### Bug Fixes
+
+* update the operator module hash ([4dc2abc](https://github.com/ai-outfitter/link-operator/commit/4dc2abc858013b470d90fe232d3af9ac977922e1))
+
 ## [0.2.1](https://github.com/ai-outfitter/link-operator/compare/link-operator-v0.2.0...link-operator-v0.2.1) (2026-07-25)
 
 
