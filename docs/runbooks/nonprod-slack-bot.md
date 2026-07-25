@@ -31,7 +31,7 @@ You need:
 - the `channels` and `link-operator` repositories checked out as sibling
   directories;
 - the `nonprod-bot` Slack CLI app configured by following the
-  [Channels local Slack runbook](../../../channels/docs/runbooks/slack-local.md);
+  [Channels local Slack runbook](https://github.com/ai-outfitter/channels/blob/main/docs/runbooks/slack-local.md);
 - local Pi authentication in `$HOME/.pi/agent/auth.json`.
 
 Preflight without reading any secret values:
@@ -185,36 +185,39 @@ npm run setup:slack
 ```
 
 Set `SLACK_CLI_TEAM_ID` to the workspace containing `nonprod-bot`. Replace the
-ignored Slack CLI launcher with the credential-sync helper and run it. The trap
-restores the launcher whether the sync succeeds or fails:
+ignored Slack CLI launcher with the credential-sync helper and run it:
 
 ```sh
 export SLACK_CLI_TEAM_ID=T7GCW93AA
-backup="$(mktemp)"
-cp dev/nonprod-bot/app.js "$backup"
-trap 'cp "$backup" dev/nonprod-bot/app.js; rm -f "$backup"' EXIT
 cp ../link-operator/dev/nonprod/slack-secret-sync.mjs \
   dev/nonprod-bot/app.js
-LINK_KUBE_CONTEXT=unsup-nonprod-engineer \
-LINK_AGENT_NAMESPACE=agent-nonprod-bot \
-  "$HOME/.local/bin/slack" run \
+(
+  cd dev/nonprod-bot
+  LINK_KUBE_CONTEXT=unsup-nonprod-engineer \
+  LINK_AGENT_NAMESPACE=agent-nonprod-bot \
+    "$HOME/.local/bin/slack" run \
     --app local \
     --team "$SLACK_CLI_TEAM_ID" \
     --force
-cp "$backup" dev/nonprod-bot/app.js
-rm -f "$backup"
-trap - EXIT
+)
 ```
 
-The helper passes a Secret manifest to `kubectl` on stdin. It does not place
+After Slack CLI prints `secret/nonprod-bot-slack created` or `configured`,
+press Ctrl-C. Slack CLI remains open after the one-shot helper exits. Restore
+the ignored launcher immediately:
+
+```sh
+npm run setup:slack
+```
+
+The helper passes a Secret manifest to `kubectl` on stdin and does not place
 tokens in command arguments. List the Secret's key names without reading their
-values. The command must print exactly `SLACK_APP_TOKEN` and
-`SLACK_BOT_TOKEN`:
+values. The command must print exactly `SLACK_APP_TOKEN` and `SLACK_BOT_TOKEN`:
 
 ```sh
 kubectl --context unsup-nonprod-engineer \
   -n agent-nonprod-bot get secret/nonprod-bot-slack \
-  -o jsonpath='{range $k,$v := .data}{$k}{"\n"}{end}'
+  -o go-template='{{range $key, $value := .data}}{{printf "%s\n" $key}}{{end}}'
 ```
 
 ## Verify persistent operation
@@ -249,19 +252,19 @@ reply plus the handled reaction:
 ```sh
 cd ../channels
 export SLACK_VERIFY_CHANNEL_IDS="<channel-id>"
-backup="$(mktemp)"
-cp dev/nonprod-bot/app.js "$backup"
-trap 'cp "$backup" dev/nonprod-bot/app.js; rm -f "$backup"' EXIT
 cp ../link-operator/dev/nonprod/slack-verify-app.mjs \
   dev/nonprod-bot/app.js
-"$HOME/.local/bin/slack" run \
-  --app local \
-  --team "$SLACK_CLI_TEAM_ID" \
-  --force
-cp "$backup" dev/nonprod-bot/app.js
-rm -f "$backup"
-trap - EXIT
+(
+  cd dev/nonprod-bot
+  "$HOME/.local/bin/slack" run \
+    --app local \
+    --team "$SLACK_CLI_TEAM_ID" \
+    --force
+)
 ```
+
+After the verifier reports success, press Ctrl-C and run
+`npm run setup:slack` to restore the normal ignored launcher.
 
 Verify restart recovery:
 
@@ -313,3 +316,21 @@ kubectl --context unsup-nonprod-engineer delete \
 Removing Link Operator itself is a separate cluster-wide decision because
 future agents may share it. Do not delete its CRDs or namespace as part of bot
 rotation or ordinary bot teardown.
+
+## Current nonprod deployment
+
+The deployment established on 2026-07-25 uses:
+
+- deployment-manifest source: `20320e1`;
+- operator binary source: `d5ffe5dd05c10796f6793493aab06740d0fc32ff`;
+- Channels source: `4139900df418f013c18412247fa530043391eb9b`;
+- operator image:
+  `216577824627.dkr.ecr.us-east-1.amazonaws.com/ai-outfitter/link-operator@sha256:9a86250b8e59f188e077c0f0077dd48ea9b3ae2ee25f9f9fb2601a250def01df`;
+- agent image:
+  `216577824627.dkr.ecr.us-east-1.amazonaws.com/ai-outfitter/link-agent@sha256:551b2340bbc83da580d2362c2e8a384882a842bdd36a605f4a4c732d1d4a24be`.
+
+Both ECR scans completed with no findings before deployment. Link Operator
+reported `Agent/nonprod-bot` Ready, both encrypted CSI volumes bound, and the
+replacement pod established a new Socket Mode connection after a Deployment
+restart. Record the Slack round-trip verifier result here after the first
+human mention passes.
