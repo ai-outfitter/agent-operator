@@ -19,7 +19,7 @@
       packages = forAllSystems (pkgs: rec {
         # Component packages (also useful for `nix build .#xin` etc.)
         xin = pkgs.callPackage ./nix/xin.nix { };
-        pi-loop = pkgs.callPackage ./nix/pi-loop.nix { };
+        channels = pkgs.callPackage ./nix/channels.nix { };
         outfitter = inputs.outfitter.packages.${pkgs.stdenv.hostPlatform.system}.outfitter;
         operator = pkgs.callPackage ./nix/operator.nix { };
 

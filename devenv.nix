@@ -14,7 +14,7 @@ let
   registryAuth = pkgs.writeText "link-registry-auth.json" "{}";
   outfitter = inputs.outfitter.packages.${system}.outfitter;
   xin = pkgs.callPackage ./nix/xin.nix { };
-  piLoop = pkgs.callPackage ./nix/pi-loop.nix { };
+  channels = pkgs.callPackage ./nix/channels.nix { };
   operator = pkgs.callPackage ./nix/operator.nix { };
 
   emptyContainerHome = pkgs.runCommand "link-container-empty-home" { } ''
@@ -28,8 +28,7 @@ let
       "$out/workspace/.link" \
       "$out/workspace/.pi/agent"
     cp -r ${./code/agent/agents-catalog}/. "$out/opt/link/.agents/"
-    cp -r ${piLoop}/. "$out/opt/link/.cache/"
-    cp ${./code/agent/pi-loop.config.json} "$out/opt/link/.pi-loop.config.json"
+    cp -r ${channels}/. "$out/opt/link/.cache/"
     cp ${./code/agent/entrypoint.sh} "$out/opt/link/entrypoint"
     chmod +x "$out/opt/link/entrypoint"
   '';
@@ -306,15 +305,16 @@ in
       showOutput = true;
       exec = ''
         set -euo pipefail
-        # The agent is a shell entrypoint plus a generic, prebuilt Pi loop. Its
-        # selected skills own channel behavior such as mail through `xin`.
+        # The agent is a shell entrypoint plus a pinned, prebuilt Channels
+        # extension. Agent profiles select channels and own their behavior.
         bash -n entrypoint.sh
         test -f agents-catalog/skills/mail/SKILL.md
         test ! -d agents-catalog/extensions
         grep -Fq 'outfitter run --strict "''${LINK_AGENT_SLUG:-researcher}" --' entrypoint.sh
-        grep -Fq 'LINK_AGENT_LOOP_INTERVAL:-10m' entrypoint.sh
         grep -Fq 'export PI_OFFLINE=1' entrypoint.sh
-        test "$(jq -r .version ${piLoop}/outfitter/pi-extensions/npm/node_modules/@pi-agents/loop/package.json)" = "0.3.1"
+        channels_dir=${channels}/outfitter/pi-extensions/git/github.com/ai-outfitter/channels
+        test "$(tr -d '\n' < "$channels_dir/REVISION")" = "cac964724f149208a4d0fe2aca39e3e0a234045d"
+        test "$(jq -r .name "$channels_dir/package.json")" = "@ai-outfitter/channels"
         validation_home="$(mktemp -d)"
         trap 'rm -rf "$validation_home"' EXIT
         (
@@ -332,7 +332,10 @@ in
             ${outfitter}/bin/outfitter run --strict researcher -- \
               --mode rpc --no-session --offline
         ) >"$validation_home/runtime.jsonl" 2>&1
-        grep -Fq '"name":"loop"' "$validation_home/runtime.jsonl"
+        if ! grep -Fq '[channels] no channels started' "$validation_home/runtime.jsonl"; then
+          cat "$validation_home/runtime.jsonl" >&2
+          exit 1
+        fi
       '';
     };
 
@@ -488,28 +491,27 @@ in
           --from-literal=XIN_BASIC_PASS='researcher-dev-password-2026!' \
           --dry-run=client -o yaml | kubectl apply -f -
         kubectl -n agent-researcher create configmap researcher-runtime \
-          --from-literal=LINK_AGENT_LOOP_INTERVAL=1m \
+          --from-literal=OUTFITTER_CHANNELS=jmap \
           --from-literal=LINK_MAIL_PROCESSED=Processed \
           --dry-run=client -o yaml | kubectl apply -f -
         devenv tasks run agent:pi-sync
         kubectl -n agent-researcher rollout restart deployment/agent-runtime
         kubectl -n agent-researcher rollout status deployment/agent-runtime --timeout=3m
 
-        # Let the immediate bootstrap survey finish before sending the probe.
-        # The probe must therefore be discovered by a later scheduled wakeup,
-        # proving the generic recurring loop rather than startup-only behavior.
-        initial_iteration_complete=0
+        # Wait for the inference-free JMAP stream before sending the probe. The
+        # first model turn must be caused by the subsequent mailbox state event.
+        channel_ready=0
         for attempt in $(seq 1 150); do
           if kubectl -n agent-researcher logs deployment/agent-runtime -c agent \
-            | grep -Fq '"type":"agent_end"'; then
-            initial_iteration_complete=1
+            | grep -Fq '[channels] started channel "jmap"'; then
+            channel_ready=1
             break
           fi
           sleep 2
         done
-        test "$initial_iteration_complete" -eq 1
+        test "$channel_ready" -eq 1
         kubectl -n agent-researcher logs deployment/agent-runtime -c agent \
-          > "$evidence/initial-loop.jsonl"
+          > "$evidence/channel-ready.jsonl"
 
         stalwart_url=http://stalwart.link-system.svc.cluster.local:8080
         # Drive the `xin` CLI inside the agent pod (it ships xin) as either
@@ -543,7 +545,7 @@ in
         printf '%s\n' "$probe_message_id" > "$evidence/probe-message-id.txt"
         printf '%s\n' "$probe_subject" > "$evidence/subject.txt"
 
-        # Capture the recipient-side starting state before the next loop wakeup.
+        # Capture recipient-side state before the JMAP event wakes the agent.
         researcher_xin messages search "in:inbox subject:$probe_token" --max 10 \
           > "$evidence/inbox-before.json"
 

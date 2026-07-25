@@ -1,0 +1,61 @@
+name: release images
+
+on:
+  release:
+    types: [published]
+  workflow_call:
+    inputs:
+      release_tag:
+        description: Immutable release tag created by Release Please
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing immutable release tag to publish
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: cachix/install-nix-action@v31
+
+      - name: Install devenv
+        run: nix profile install github:cachix/devenv/ea3d94ac9d6bf6a1313773170122ca4e2ef5a0be
+
+      - name: Authenticate to GHCR
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          devenv shell -- skopeo login \
+            --authfile "$RUNNER_TEMP/containers-auth.json" \
+            --username "${GITHUB_ACTOR}" \
+            --password-stdin ghcr.io <<<"$GHCR_TOKEN"
+
+      - name: Publish immutable controller and agent images
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag || github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          authfile="$RUNNER_TEMP/containers-auth.json"
+          sha_tag="sha-${GITHUB_SHA}"
+          for image in operator agent; do
+            case "$image" in
+              operator) repository=link-operator ;;
+              agent) repository=link-agent ;;
+            esac
+            for tag in "$RELEASE_TAG" "$sha_tag"; do
+              devenv container copy --no-tui \
+                --copy-args "--authfile=$authfile" \
+                --registry "docker://ghcr.io/ai-outfitter/$repository:$tag" \
+                "$image"
+            done
+          done

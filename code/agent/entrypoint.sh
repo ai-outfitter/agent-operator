@@ -1,15 +1,14 @@
 #!/usr/bin/env bash
 #
-# link-agent entrypoint — generic resident Pi loop.
+# link-agent entrypoint — generic resident Outfitter/Pi session.
 #
-# JMAP setup (Processed mailbox, connectivity, readiness) runs in an init
-# container and the researcher uses its `mail` skill to drive `xin`. The runtime
-# itself knows nothing about mail: it starts the selected agent and asks the
-# generic loop extension to survey whatever inputs its identity and skills own.
+# Channel setup and credentials are supplied by the Agent CR. The selected
+# Outfitter profile chooses the Channels extension and its channel-facing skills;
+# the runtime itself contains no email, Slack, or identity-specific policy.
 #
-# pi's headless resident mode is `--mode rpc` (it stays alive on stdin while the
-# loop drives turns). We run it from /opt/link so Outfitter resolves the baked
-# loadout, send one RPC bootstrap command, and hold stdin open afterward.
+# Pi's headless resident mode is `--mode rpc`. Channels opens push connections
+# during session_start and wakes the agent only for real work. Holding stdin open
+# keeps the resident session alive without polling or an initial model turn.
 #
 set -euo pipefail
 export HOME="/workspace"
@@ -18,18 +17,9 @@ export NIX_CONFIG="${NIX_CONFIG:-experimental-features = nix-command flakes}"
 export XDG_CACHE_HOME="/opt/link/.cache"
 export PI_OFFLINE=1
 
-loop_interval="${LINK_AGENT_LOOP_INTERVAL:-10m}"
-if [[ ! "$loop_interval" =~ ^[1-9][0-9]*[mhd]$ ]]; then
-  echo "link-agent: LINK_AGENT_LOOP_INTERVAL must be a positive minute/hour/day interval (for example 10m)" >&2
-  exit 1
-fi
-
-loop_prompt="Survey your available inputs using your identity and active skills. Process all actionable work to completion; if none exists, end this iteration."
-rpc_bootstrap="$(jq -cn \
-  --arg message "/loop $loop_interval $loop_prompt" \
-  '{type: "prompt", message: $message}')"
-
 cd /opt/link
 exec outfitter run --strict "${LINK_AGENT_SLUG:-researcher}" -- \
   --mode rpc \
-  < <(printf '%s\n' "$rpc_bootstrap"; tail -f /dev/null)
+  --no-session \
+  --offline \
+  < <(tail -f /dev/null)

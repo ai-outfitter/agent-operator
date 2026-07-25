@@ -63,15 +63,14 @@ These are the operator's contract. They are domain-agnostic.
 None of this is in the operator's contract. It is delivered by the agent's
 Dotagents resources and its runtime image.
 
-- **The main-agent loop.** Each agent runs a persistent process that, on each
-  tick (a stop-hook / agentic loop), surveys a prioritized set of input sources,
-  turns them into tasks, and works or delegates them. Staying responsive is a
-  goal: heavy work is pushed to background subagents.
-- **Channels.** Adapters for external event and message sources — email first,
-  then GitHub notifications, Signal, Telegram, WhatsApp. Each is a Dotagents
-  skill / MCP server / Pi extension inside the runtime. Task and notification
-  handling may become dedicated MCP tooling over time. The operator models none
-  of this.
+- **The resident session.** Each agent runs one persistent Outfitter/Pi process.
+  Its selected extensions open inference-free event connections and initiate a
+  model turn only when matching work arrives. Staying responsive is a goal:
+  heavy work is pushed to background subagents.
+- **Channels.** The commit-pinned Channels Pi extension adapts external event
+  and message sources such as JMAP email, Slack mentions, GitHub notifications,
+  and Signal. Channel-specific skills and tools live in Dotagents resources
+  inside the runtime. The operator models none of this.
 - **Tools.** Capabilities such as the `wiki` and `source-ingest` skills.
 - **Subagent delegation.** A running agent may launch subagents as Kubernetes
   Jobs in its own namespace, using its `admin` rights and bounded by the shared
@@ -83,12 +82,12 @@ Dotagents resources and its runtime image.
 
 ## Execution model
 
-- **Agent = persistent Deployment.** One long-running pod per agent runs the main
-  loop.
+- **Agent = persistent Deployment.** One long-running pod per agent runs the
+  resident session and its configured channel connections.
 - **Subagent = ephemeral Job.** Delegated work runs as a Job in the same
   namespace, sharing the agent's service account and quota. A simple composition
   may ingest inline instead; the seam exists for those that delegate.
-- **Restart safety.** The loop is resumable because durable state lives in the
+- **Restart safety.** The session is resumable because durable state lives in the
   per-agent volume and, more importantly, in the external systems of record.
   Idempotency leans on external read-state (a seen/flagged message, a read
   notification) plus a small local dedup cache, not on the operator being a

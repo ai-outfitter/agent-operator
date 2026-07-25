@@ -20,22 +20,21 @@ the two simply reprocesses the message.
 
 ## How it runs
 
-The container is **an agent**: a resident Pi session with a generic recurring
-prompt loop. Three pieces:
+The container is **an agent**: a resident Pi session with push-driven Channels.
+Three pieces:
 
 - **`entrypoint.sh` is tiny** — it starts `outfitter run` in pi's headless RPC
-  mode, bootstraps `/loop`, and keeps stdin open. `outfitter run` composes the
-  selected loadout and projects its pinned extensions to Pi.
+  mode and keeps stdin open. `outfitter run` composes the selected loadout and
+  projects its pinned extensions to Pi.
 - **JMAP setup is a user-declared setup step** (`mail-bootstrap` in the Agent
   CR): it ensures the `Processed` mailbox exists and waits for JMAP connectivity
   using the image's `xin`. The agent starts after the setup init container
   completes, so init completion is the readiness gate.
-- **Scheduling is generic; behavior comes from the loadout.** The researcher
-  selects the prebuilt `@pi-agents/loop` extension and the
-  [`mail` skill](agents-catalog/skills/mail/SKILL.md). Each wakeup asks the agent
-  to survey its inputs; the researcher identity and mail skill determine that
-  this means read → reply → move-to-Processed. Neither the entrypoint nor the
-  loop extension contains JMAP or mailbox logic.
+- **Wake transport is generic; behavior comes from the loadout.** The researcher
+  selects the commit-pinned Channels extension and the
+  [`mail` skill](agents-catalog/skills/mail/SKILL.md). JMAP state changes wake
+  the agent; its identity and mail skill determine that the work is read → reply
+  → move-to-Processed. The entrypoint contains no JMAP or mailbox logic.
 
 pi generates the actual reply content (the M2 "real research result"); the old
 canned acknowledgement is gone. The `agents-catalog/` tree is baked into the
@@ -47,7 +46,7 @@ Outfitter catalog once runtime egress allows.)
 
 Component packages are exposed by `flake.nix`; Outfitter and its bundled pi come
 from the locked `ai-outfitter/outfitter` `main` flake, while `xin` and the pinned
-generic loop extension are built by `nix/xin.nix` and `nix/pi-loop.nix`.
+Channels extension are built by `nix/xin.nix` and `nix/channels.nix`.
 Devenv assembles those packages into the `agent` and `operator` OCI containers
 (`devenv container build agent`) and the image tasks copy OCI archives into the
 local cluster.
@@ -70,16 +69,16 @@ init and agent containers):
 
 Optional runtime configuration:
 
-- `LINK_AGENT_LOOP_INTERVAL` (default `10m`) — fixed recurring wakeup cadence.
-  The Pi loop uses minute-granularity cron scheduling; the M1 demo overrides it
-  to `1m`.
+- `OUTFITTER_CHANNELS` — explicit comma-separated channel selection. The mail
+  demo sets `jmap`; composed resident agents can set `jmap,slack`.
 - `LINK_MAIL_PROCESSED` (default `Processed`) — target mailbox for processed mail
   (supplied by the demo runtime ConfigMap to both containers).
 
-The loop package is built by Nix into Outfitter's extension-cache layout. The
+Channels is built by Nix into Outfitter's extension-cache layout. The
 runtime sets `PI_OFFLINE=1` and launches Outfitter in strict mode, so it never
-installs npm packages during startup and fails if the selected extension is not
-present in the image.
+installs extensions during startup and fails if the selected extension is not
+present in the image. Channel connections are opened without inference; only a
+matching event initiates a model turn.
 
 For local development, `devenv tasks run demo:m1` copies the developer's entire
 `$HOME/.pi` directory directly into `/workspace/.pi` on the agent PVC before it
