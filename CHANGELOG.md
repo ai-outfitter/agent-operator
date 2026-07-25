@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.3](https://github.com/ai-outfitter/link-operator/compare/link-operator-v0.2.2...link-operator-v0.2.3) (2026-07-25)
+
+
+### Bug Fixes
+
+* compose release image destinations ([0f07cfc](https://github.com/ai-outfitter/link-operator/commit/0f07cfc5445edd15a20dd7f41a3da09b76b63343))
+* reconcile agents with missing credentials ([ed7b43e](https://github.com/ai-outfitter/link-operator/commit/ed7b43e5e6055b9bf83fa66cd20e29a2a0b7f698))
+
 ## [0.2.2](https://github.com/ai-outfitter/link-operator/compare/link-operator-v0.2.1...link-operator-v0.2.2) (2026-07-25)
 
 
