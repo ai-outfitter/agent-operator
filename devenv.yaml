@@ -1,6 +1,8 @@
 inputs:
   nixpkgs:
-    url: github:cachix/devenv-nixpkgs/rolling
+    # Use the full nixpkgs source. devenv-nixpkgs/rolling filters non-Nix
+    # files and can omit patches referenced by package expressions.
+    url: github:NixOS/nixpkgs/nixos-unstable
   nixos:
     url: github:NixOS/nixpkgs/nixos-unstable
   microvm:
