@@ -35,11 +35,6 @@ export function buildPiArguments(model = DEFAULT_MODEL) {
 }
 
 export function installMcpConfig(env = process.env) {
-	const authorization = env.MCP_GRAFANA_BASIC_AUTH_HEADER?.trim();
-	if (!authorization) {
-		throw new Error("MCP_GRAFANA_BASIC_AUTH_HEADER must be configured");
-	}
-
 	const home = env.HOME?.trim() || "/workspace";
 	const source =
 		env.LINK_MCP_CONFIG_SOURCE?.trim() || DEFAULT_MCP_CONFIG_SOURCE;

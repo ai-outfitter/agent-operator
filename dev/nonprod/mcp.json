@@ -7,10 +7,7 @@
   },
   "mcpServers": {
     "grafana": {
-      "url": "https://grafana-mcp.unsupervised.com/mcp",
-      "headers": {
-        "Authorization": "${MCP_GRAFANA_BASIC_AUTH_HEADER}"
-      },
+      "url": "http://mcp-grafana.unsupervised-singleton.svc.cluster.local:8000/mcp",
       "lifecycle": "keep-alive",
       "requestTimeoutMs": 30000,
       "includeTools": [

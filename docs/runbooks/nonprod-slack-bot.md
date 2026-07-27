@@ -155,8 +155,7 @@ kubectl --context unsup-nonprod-engineer \
 Apply the organization and agent first. The controller creates
 `agent-nonprod-bot`, its service account, and its persistent volume claims. It
 does not create the runtime Deployment until `secret/nonprod-bot-slack`,
-`secret/nonprod-bot-grafana`, `configmap/nonprod-bot-runtime`, and
-`configmap/nonprod-bot-pi-ready` exist.
+`configmap/nonprod-bot-runtime`, and `configmap/nonprod-bot-pi-ready` exist.
 
 ```sh
 kubectl --context unsup-nonprod-engineer apply \
@@ -197,32 +196,6 @@ kubectl --context unsup-nonprod-engineer \
   --dry-run=client -o yaml | \
   kubectl --context unsup-nonprod-engineer apply -f -
 ```
-
-## Transfer Grafana MCP credentials without printing them
-
-Pipe the dedicated bot authorization header from the Grafana MCP gateway Secret
-directly into the scoped sync helper. The credential is distinct from Grafana
-admin and developer credentials. Keep shell tracing disabled:
-
-```sh
-kubectl --context unsup-prod-admin \
-  -n unsupervised-singleton get secret/mcp-grafana-auth \
-  -o go-template='{{index .data "nonprod-bot-authorization" | base64decode}}' |
-  LINK_KUBE_CONTEXT=unsup-nonprod-engineer \
-  LINK_AGENT_NAMESPACE=agent-nonprod-bot \
-    node dev/nonprod/grafana-secret-sync.mjs
-```
-
-The helper passes a Secret manifest to `kubectl` on stdin and never places the
-header in command arguments. Confirm only the key name:
-
-```sh
-kubectl --context unsup-nonprod-engineer \
-  -n agent-nonprod-bot get secret/nonprod-bot-grafana \
-  -o go-template='{{range $key, $value := .data}}{{printf "%s\n" $key}}{{end}}'
-```
-
-The command must print exactly `MCP_GRAFANA_BASIC_AUTH_HEADER`.
 
 ## Transfer Slack CLI credentials without printing them
 

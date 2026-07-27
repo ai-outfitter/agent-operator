@@ -6,7 +6,6 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { buildPiArguments, installMcpConfig } from "./agent-entrypoint.mjs";
-import { buildGrafanaSecretManifest } from "./grafana-secret-sync.mjs";
 
 const nonprodDirectory = fileURLToPath(new URL(".", import.meta.url));
 
@@ -27,13 +26,6 @@ test("loads the channel and MCP extensions with only bounded tools active", () =
 	assert.equal(args[args.indexOf("--model") + 1], "provider/model");
 });
 
-test("fails closed when Grafana authorization is absent", () => {
-	assert.throws(
-		() => installMcpConfig({ HOME: "/workspace" }),
-		/MCP_GRAFANA_BASIC_AUTH_HEADER must be configured/,
-	);
-});
-
 test("copies managed MCP configuration into the persistent Pi agent directory", () => {
 	const home = mkdtempSync(join(tmpdir(), "nonprod-bot-home-"));
 	const source = join(home, "source-mcp.json");
@@ -42,14 +34,13 @@ test("copies managed MCP configuration into the persistent Pi agent directory", 
 	const target = installMcpConfig({
 		HOME: home,
 		LINK_MCP_CONFIG_SOURCE: source,
-		MCP_GRAFANA_BASIC_AUTH_HEADER: "Basic redacted",
 	});
 
 	assert.equal(target, join(home, ".pi", "agent", "mcp.json"));
 	assert.equal(readFileSync(target, "utf8"), '{"mcpServers":{"grafana":{}}}\n');
 });
 
-test("Grafana MCP is authenticated, read-only, and bounded to investigation tools", () => {
+test("Grafana MCP is internal, read-only, and bounded to investigation tools", () => {
 	const config = JSON.parse(
 		readFileSync(join(nonprodDirectory, "mcp.json"), "utf8"),
 	);
@@ -57,9 +48,10 @@ test("Grafana MCP is authenticated, read-only, and bounded to investigation tool
 
 	assert.deepEqual(Object.keys(config.mcpServers), ["grafana"]);
 	assert.equal(
-		grafana.headers.Authorization,
-		"$" + "{MCP_GRAFANA_BASIC_AUTH_HEADER}",
+		grafana.url,
+		"http://mcp-grafana.unsupervised-singleton.svc.cluster.local:8000/mcp",
 	);
+	assert.equal(grafana.headers, undefined);
 	assert.equal(grafana.lifecycle, "keep-alive");
 	assert.deepEqual(grafana.includeTools, [
 		"list_datasources",
@@ -77,29 +69,4 @@ test("Grafana MCP is authenticated, read-only, and bounded to investigation tool
 	assert.equal(config.settings.elicitation, false);
 	assert.equal(config.settings.outputGuard, true);
 	assert.equal(config.settings.sampling, false);
-});
-
-test("Grafana credential sync is scoped to the bot namespace and expected key", () => {
-	const manifest = JSON.parse(
-		buildGrafanaSecretManifest({
-			context: "unsup-nonprod-engineer",
-			namespace: "agent-nonprod-bot",
-			authorization: "Basic test-only",
-		}),
-	);
-
-	assert.equal(manifest.metadata.name, "nonprod-bot-grafana");
-	assert.equal(manifest.metadata.namespace, "agent-nonprod-bot");
-	assert.deepEqual(Object.keys(manifest.stringData), [
-		"MCP_GRAFANA_BASIC_AUTH_HEADER",
-	]);
-	assert.throws(
-		() =>
-			buildGrafanaSecretManifest({
-				context: "another-context",
-				namespace: "agent-nonprod-bot",
-				authorization: "Basic test-only",
-			}),
-		/LINK_KUBE_CONTEXT must be unsup-nonprod-engineer/,
-	);
 });
