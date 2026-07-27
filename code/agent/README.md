@@ -81,8 +81,9 @@ Optional runtime configuration:
 The operator projects three non-secret native-channel defaults into every
 resident runtime:
 
-- `AGENT_ENDPOINT_ID=link:<organization>/<agent>` and the matching
-  `AGENT_PRINCIPAL_ID`, which remain stable across pod replacement;
+- `AGENT_ENDPOINT_ID=link:<agent>` and the matching `AGENT_PRINCIPAL_ID`.
+  `Agent` names are cluster-scoped, so this remains unique and within the
+  channel protocol's identifier bound across pod replacement;
 - `AGENT_SPOOL_PATH=/workspace/.channels/agent`, on the persistent workspace
   volume, for durable local delivery;
 - `AGENT_RELAY_CURSOR_PATH=/workspace/.channels/relay-cursor.json`, so replay

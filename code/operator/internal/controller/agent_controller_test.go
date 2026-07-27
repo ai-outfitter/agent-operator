@@ -158,11 +158,11 @@ var _ = Describe("Agent Controller", func() {
 			corev1.EnvVar{Name: "LINK_AGENT_HARNESS", Value: "pi"},
 			corev1.EnvVar{
 				Name:  "AGENT_ENDPOINT_ID",
-				Value: "link:" + organization.Name + "/" + agent.Name,
+				Value: "link:" + agent.Name,
 			},
 			corev1.EnvVar{
 				Name:  "AGENT_PRINCIPAL_ID",
-				Value: "link:" + organization.Name + "/" + agent.Name,
+				Value: "link:" + agent.Name,
 			},
 			corev1.EnvVar{
 				Name:  "AGENT_SPOOL_PATH",

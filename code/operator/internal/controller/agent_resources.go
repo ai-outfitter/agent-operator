@@ -238,11 +238,11 @@ func (r *AgentReconciler) ensureAgentDeployment(
 				{Name: "LINK_ORGANIZATION", Value: organization.Name},
 				{
 					Name:  "AGENT_ENDPOINT_ID",
-					Value: "link:" + organization.Name + "/" + agent.Name,
+					Value: "link:" + agent.Name,
 				},
 				{
 					Name:  "AGENT_PRINCIPAL_ID",
-					Value: "link:" + organization.Name + "/" + agent.Name,
+					Value: "link:" + agent.Name,
 				},
 				{
 					Name:  "AGENT_SPOOL_PATH",
