@@ -78,20 +78,20 @@ Optional runtime configuration:
 - `LINK_MAIL_PROCESSED` (default `Processed`) — target mailbox for processed mail
   (supplied by the demo runtime ConfigMap to both containers).
 
-The operator projects three non-secret native-channel defaults into every
+The operator projects native-channel defaults into every
 resident runtime:
 
 - `AGENT_ENDPOINT_ID=link:<agent>` and the matching `AGENT_PRINCIPAL_ID`.
   `Agent` names are cluster-scoped, so this remains unique and within the
   channel protocol's identifier bound across pod replacement;
 - `AGENT_SPOOL_PATH=/workspace/.channels/agent`, on the persistent workspace
-  volume, for durable local delivery;
-- `AGENT_RELAY_CURSOR_PATH=/workspace/.channels/relay-cursor.json`, so replay
-  resumes from the last acknowledged relay cursor after pod replacement.
+  volume, for unacknowledged local delivery only.
 
 Pi sessions are stored under `/workspace/.pi/agent/sessions` and the entrypoint
 uses `--continue`, so a restarted pod resumes the durable session instead of
-minting an unrelated ephemeral session. The relay token remains independently
+minting an unrelated ephemeral session. Native agent-channel messages and replay
+state are recorded as Pi session entries, making this session on the workspace
+PVC the conversation source of truth. The relay token remains independently
 revocable and is never derived from the endpoint ID.
 
 Channels is built by Nix into Outfitter's extension-cache layout. The

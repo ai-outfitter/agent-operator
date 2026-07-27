@@ -248,10 +248,6 @@ func (r *AgentReconciler) ensureAgentDeployment(
 					Name:  "AGENT_SPOOL_PATH",
 					Value: path.Join(WorkspaceMount, ".channels", "agent"),
 				},
-				{
-					Name:  "AGENT_RELAY_CURSOR_PATH",
-					Value: path.Join(WorkspaceMount, ".channels", "relay-cursor.json"),
-				},
 			},
 			VolumeMounts: []corev1.VolumeMount{
 				{Name: WorkspaceName, MountPath: WorkspaceMount},

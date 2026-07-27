@@ -168,10 +168,6 @@ var _ = Describe("Agent Controller", func() {
 				Name:  "AGENT_SPOOL_PATH",
 				Value: WorkspaceMount + "/.channels/agent",
 			},
-			corev1.EnvVar{
-				Name:  "AGENT_RELAY_CURSOR_PATH",
-				Value: WorkspaceMount + "/.channels/relay-cursor.json",
-			},
 		))
 		Expect(container.ReadinessProbe).To(BeNil())
 		Expect(container.EnvFrom).To(ContainElement(corev1.EnvFromSource{
