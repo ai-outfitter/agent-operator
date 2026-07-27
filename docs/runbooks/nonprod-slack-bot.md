@@ -85,6 +85,24 @@ docker buildx build \
   --push .
 ```
 
+Before pushing or deploying the agent image, exercise the exact pinned MCP
+adapter in that image against a local authenticated Streamable HTTP MCP fixture.
+The test proves environment expansion in the authorization header, tool
+discovery, tool invocation, and rejection of an invalid credential:
+
+```sh
+docker buildx build \
+  --platform linux/amd64 \
+  --build-context channels=../channels \
+  --build-arg "CHANNELS_REVISION=$CHANNELS_REVISION" \
+  --file dev/nonprod/Dockerfile.agent \
+  --tag link-agent:nonprod-mcp-test \
+  --load .
+dev/nonprod/test-mcp-adapter.sh link-agent:nonprod-mcp-test
+```
+
+The final command must print a JSON object with `"result":"passed"`.
+
 Resolve both pushed images to registry digests. The resulting values must
 contain `@sha256:`:
 
