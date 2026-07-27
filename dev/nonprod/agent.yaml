@@ -6,10 +6,12 @@ spec:
   memberships:
     - organization: nonprod-channels
   profile:
-    agent: researcher
+    agent: nonprod-bot
     harness: pi
   credentials:
     - secret: nonprod-bot-slack
+      as: env
+    - secret: nonprod-bot-grafana
       as: env
     - configMap: nonprod-bot-runtime
       as: env

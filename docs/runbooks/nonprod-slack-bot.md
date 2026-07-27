@@ -5,7 +5,7 @@ Link Operator `Agent` in the Unsupervised nonprod Kubernetes cluster. Link
 Operator recreates its single runtime pod after failure or restart; this
 runbook does not provide an availability SLO. Slack Socket Mode requires
 outbound TLS and no inbound ingress. The runtime also needs DNS and outbound
-access to the configured model provider.
+access to the configured model provider and the read-only Grafana MCP endpoint.
 
 This runbook is limited to the following resources:
 
@@ -15,8 +15,9 @@ This runbook is limited to the following resources:
 - Slack channel scope: every channel the bot has joined
   (`SLACK_CHANNEL_IDS=joined`). Inviting it to another channel expands that
   scope without a Kubernetes change.
-- Credentials: the commands pass Slack tokens to `kubectl` over stdin and do
-  not intentionally print them. Keep shell tracing disabled.
+- Credentials: the commands pass Slack tokens and the Grafana MCP authorization
+  header to `kubectl` over stdin and do not intentionally print them. Keep
+  shell tracing disabled.
 - Deployment images: linux/amd64 and pinned by immutable digest.
 
 The manifests and build inputs live in [`dev/nonprod`](../../dev/nonprod).
@@ -32,6 +33,8 @@ You need:
   directories;
 - the `nonprod-bot` Slack CLI app configured by following the
   [Channels local Slack runbook](https://github.com/ai-outfitter/channels/blob/main/docs/runbooks/slack-local.md);
+- read access to key `nonprod-bot-authorization` in
+  `secret/mcp-grafana-auth` through context `unsup-prod-admin`;
 - local Pi authentication in `$HOME/.pi/agent/auth.json`.
 
 Preflight without reading any secret values:
@@ -41,14 +44,16 @@ kubectl --context unsup-nonprod-engineer get --raw=/readyz
 kubectl --context unsup-nonprod-engineer auth can-i create \
   customresourcedefinitions.apiextensions.k8s.io
 kubectl --context unsup-nonprod-engineer auth can-i create namespaces
+kubectl --context unsup-prod-admin -n unsupervised-singleton auth can-i get \
+  secret/mcp-grafana-auth
 docker buildx inspect --bootstrap
 test -s "$HOME/.pi/agent/auth.json"
 ```
 
-Confirm that both `kubectl` commands above target
-`unsup-nonprod-engineer`. Do not substitute another context. The Pi check
-confirms only that the auth file exists; successful authentication is verified
-when the agent starts.
+Confirm that deployment commands target `unsup-nonprod-engineer` and only the
+gateway Secret read targets `unsup-prod-admin`. Do not substitute other
+contexts. The Pi check confirms only that the auth file exists; successful
+authentication is verified when the agent starts.
 
 ## Build and publish immutable images
 
@@ -132,7 +137,8 @@ kubectl --context unsup-nonprod-engineer \
 Apply the organization and agent first. The controller creates
 `agent-nonprod-bot`, its service account, and its persistent volume claims. It
 does not create the runtime Deployment until `secret/nonprod-bot-slack`,
-`configmap/nonprod-bot-runtime`, and `configmap/nonprod-bot-pi-ready` exist.
+`secret/nonprod-bot-grafana`, `configmap/nonprod-bot-runtime`, and
+`configmap/nonprod-bot-pi-ready` exist.
 
 ```sh
 kubectl --context unsup-nonprod-engineer apply \
@@ -173,6 +179,32 @@ kubectl --context unsup-nonprod-engineer \
   --dry-run=client -o yaml | \
   kubectl --context unsup-nonprod-engineer apply -f -
 ```
+
+## Transfer Grafana MCP credentials without printing them
+
+Pipe the dedicated bot authorization header from the Grafana MCP gateway Secret
+directly into the scoped sync helper. The credential is distinct from Grafana
+admin and developer credentials. Keep shell tracing disabled:
+
+```sh
+kubectl --context unsup-prod-admin \
+  -n unsupervised-singleton get secret/mcp-grafana-auth \
+  -o go-template='{{index .data "nonprod-bot-authorization" | base64decode}}' |
+  LINK_KUBE_CONTEXT=unsup-nonprod-engineer \
+  LINK_AGENT_NAMESPACE=agent-nonprod-bot \
+    node dev/nonprod/grafana-secret-sync.mjs
+```
+
+The helper passes a Secret manifest to `kubectl` on stdin and never places the
+header in command arguments. Confirm only the key name:
+
+```sh
+kubectl --context unsup-nonprod-engineer \
+  -n agent-nonprod-bot get secret/nonprod-bot-grafana \
+  -o go-template='{{range $key, $value := .data}}{{printf "%s\n" $key}}{{end}}'
+```
+
+The command must print exactly `MCP_GRAFANA_BASIC_AUTH_HEADER`.
 
 ## Transfer Slack CLI credentials without printing them
 
@@ -234,8 +266,8 @@ kubectl --context unsup-nonprod-engineer \
   -n agent-nonprod-bot logs deployment/agent-runtime --tail=100
 ```
 
-The logs must show Slack bot authentication and a Socket Mode connection
-without printing token values.
+The logs must show Slack bot authentication, a Socket Mode connection, and the
+Grafana MCP server connected without printing credential values.
 
 Mention the bot in a channel it has joined:
 
@@ -295,6 +327,8 @@ credentials and Slack Secret and established a new Socket Mode connection.
 
 - Slack: rotate the app or bot token in Slack, rerun the credential-transfer
   step, then restart `deployment/agent-runtime`.
+- Grafana MCP: rotate the dedicated `nonprod-bot` gateway credential, rerun the
+  Grafana credential-transfer step, then restart the Deployment.
 - Pi: rerun the seeder flow and restart the Deployment.
 - Images: repeat the immutable-image render and server-side dry-run procedure
   above with the new digests, apply the rendered manifest, and wait for the

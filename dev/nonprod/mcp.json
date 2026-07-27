@@ -1,0 +1,30 @@
+{
+  "settings": {
+    "directTools": false,
+    "elicitation": false,
+    "outputGuard": true,
+    "sampling": false
+  },
+  "mcpServers": {
+    "grafana": {
+      "url": "https://grafana-mcp.unsupervised.com/mcp",
+      "headers": {
+        "Authorization": "${MCP_GRAFANA_BASIC_AUTH_HEADER}"
+      },
+      "lifecycle": "keep-alive",
+      "requestTimeoutMs": 30000,
+      "includeTools": [
+        "list_datasources",
+        "get_datasource",
+        "query_prometheus",
+        "list_prometheus_metric_names",
+        "list_prometheus_label_names",
+        "list_prometheus_label_values",
+        "query_loki_logs",
+        "list_loki_label_names",
+        "list_loki_label_values",
+        "query_loki_stats"
+      ]
+    }
+  }
+}
