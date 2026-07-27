@@ -46,6 +46,13 @@ let
       pkgs.gnutar
       pkgs.cacert
       pkgs.nix
+      # Forge CLIs: agents authenticate from deployment-provided env
+      # (GITHUB_TOKEN/GH_TOKEN for gh) or a profile/setup-written config
+      # (tea, fj). Deployments can override the agent image entirely, so
+      # this is the convenient default set, not a contract.
+      pkgs.gh
+      pkgs.tea
+      pkgs.forgejo-cli
       pkgs.dockerTools.usrBinEnv
       pkgs.dockerTools.binSh
     ];
