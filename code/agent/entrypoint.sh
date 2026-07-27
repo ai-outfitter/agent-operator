@@ -15,11 +15,14 @@ export HOME="/workspace"
 export PATH="/bin:/usr/bin:/usr/local/bin${PATH:+:$PATH}"
 export NIX_CONFIG="${NIX_CONFIG:-experimental-features = nix-command flakes}"
 export XDG_CACHE_HOME="/opt/link/.cache"
+export PI_CODING_AGENT_SESSION_DIR="${PI_CODING_AGENT_SESSION_DIR:-/workspace/.pi/agent/sessions}"
 export PI_OFFLINE=1
+
+install -d -m 0700 "$PI_CODING_AGENT_SESSION_DIR"
 
 cd /opt/link
 exec outfitter run --strict "${LINK_AGENT_SLUG:-researcher}" -- \
   --mode rpc \
-  --no-session \
+  --continue \
   --offline \
   < <(tail -f /dev/null)

@@ -156,6 +156,22 @@ var _ = Describe("Agent Controller", func() {
 		Expect(container.Env).To(ContainElements(
 			corev1.EnvVar{Name: "LINK_AGENT_SLUG", Value: "researcher"},
 			corev1.EnvVar{Name: "LINK_AGENT_HARNESS", Value: "pi"},
+			corev1.EnvVar{
+				Name:  "AGENT_ENDPOINT_ID",
+				Value: "link:" + organization.Name + "/" + agent.Name,
+			},
+			corev1.EnvVar{
+				Name:  "AGENT_PRINCIPAL_ID",
+				Value: "link:" + organization.Name + "/" + agent.Name,
+			},
+			corev1.EnvVar{
+				Name:  "AGENT_SPOOL_PATH",
+				Value: WorkspaceMount + "/.channels/agent",
+			},
+			corev1.EnvVar{
+				Name:  "AGENT_RELAY_CURSOR_PATH",
+				Value: WorkspaceMount + "/.channels/relay-cursor.json",
+			},
 		))
 		Expect(container.ReadinessProbe).To(BeNil())
 		Expect(container.EnvFrom).To(ContainElement(corev1.EnvFromSource{

@@ -236,6 +236,22 @@ func (r *AgentReconciler) ensureAgentDeployment(
 				{Name: "LINK_AGENT_SLUG", Value: agent.Spec.Profile.Agent},
 				{Name: "LINK_AGENT_HARNESS", Value: agent.Spec.Profile.Harness},
 				{Name: "LINK_ORGANIZATION", Value: organization.Name},
+				{
+					Name:  "AGENT_ENDPOINT_ID",
+					Value: "link:" + organization.Name + "/" + agent.Name,
+				},
+				{
+					Name:  "AGENT_PRINCIPAL_ID",
+					Value: "link:" + organization.Name + "/" + agent.Name,
+				},
+				{
+					Name:  "AGENT_SPOOL_PATH",
+					Value: path.Join(WorkspaceMount, ".channels", "agent"),
+				},
+				{
+					Name:  "AGENT_RELAY_CURSOR_PATH",
+					Value: path.Join(WorkspaceMount, ".channels", "relay-cursor.json"),
+				},
 			},
 			VolumeMounts: []corev1.VolumeMount{
 				{Name: WorkspaceName, MountPath: WorkspaceMount},
