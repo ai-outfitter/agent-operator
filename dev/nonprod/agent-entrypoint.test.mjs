@@ -24,6 +24,10 @@ test("loads the channel and MCP extensions with only bounded tools active", () =
 		"channel_read,channel_respond,mcp",
 	);
 	assert.equal(args[args.indexOf("--model") + 1], "provider/model");
+	assert.equal(
+		args[args.indexOf("--append-system-prompt") + 1],
+		"/opt/link/slack-grafana-system-prompt.md",
+	);
 });
 
 test("copies managed MCP configuration into the persistent Pi agent directory", () => {
@@ -69,4 +73,17 @@ test("Grafana MCP is internal, read-only, and bounded to investigation tools", (
 	assert.equal(config.settings.elicitation, false);
 	assert.equal(config.settings.outputGuard, true);
 	assert.equal(config.settings.sampling, false);
+});
+
+test("nonprod prompt requires fresh MCP evidence before reporting authorization errors", () => {
+	const prompt = readFileSync(
+		join(nonprodDirectory, "slack-grafana-system-prompt.md"),
+		"utf8",
+	);
+
+	assert.match(prompt, /Make a fresh MCP call for every request/);
+	assert.match(
+		prompt,
+		/never claim that Grafana is\s+unauthorized unless the current MCP tool result/i,
+	);
 });

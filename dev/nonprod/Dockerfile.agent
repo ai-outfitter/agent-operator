@@ -18,9 +18,9 @@ RUN npm ci --omit=dev --omit=peer --ignore-scripts \
     && npm cache clean --force
 COPY --from=channels extensions ./extensions
 COPY --from=channels dev/slack-responder/SKILL.md ./slack-responder/SKILL.md
-COPY --from=channels dev/slack-system-prompt.md ./slack-system-prompt.md
 COPY dev/nonprod/agent-entrypoint.mjs /opt/link/agent-entrypoint.mjs
 COPY dev/nonprod/mcp.json /opt/link/mcp.json
+COPY dev/nonprod/slack-grafana-system-prompt.md /opt/link/slack-grafana-system-prompt.md
 
 RUN test -n "$CHANNELS_REVISION" \
     && printf '%s\n' "$CHANNELS_REVISION" > /opt/channels/REVISION \

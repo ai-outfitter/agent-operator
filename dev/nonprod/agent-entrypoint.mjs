@@ -30,7 +30,7 @@ export function buildPiArguments(model = DEFAULT_MODEL) {
 		"--skill",
 		"/opt/channels/slack-responder/SKILL.md",
 		"--append-system-prompt",
-		"/opt/channels/slack-system-prompt.md",
+		"/opt/link/slack-grafana-system-prompt.md",
 	];
 }
 
