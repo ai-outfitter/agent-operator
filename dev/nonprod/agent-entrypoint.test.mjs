@@ -1,11 +1,21 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import {
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	statSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { buildPiArguments, installMcpConfig } from "./agent-entrypoint.mjs";
+import {
+	buildPiArguments,
+	installMcpConfig,
+	installRelayCredentials,
+} from "./agent-entrypoint.mjs";
 
 const nonprodDirectory = fileURLToPath(new URL(".", import.meta.url));
 
@@ -15,13 +25,16 @@ test("loads the channel and MCP extensions with only bounded tools active", () =
 	assert.deepEqual(
 		args.filter((_value, index) => args[index - 1] === "--extension"),
 		[
+			"/opt/channels/extensions/relay-extension.ts",
 			"/opt/channels/extensions/index.ts",
 			"/usr/local/lib/node_modules/pi-mcp-adapter/index.ts",
 		],
 	);
+	assert.equal(args[args.indexOf("--session-id") + 1], "nonprod-bot");
+	assert.equal(args.includes("--no-session"), false);
 	assert.equal(
 		args[args.indexOf("--tools") + 1],
-		"channel_read,channel_respond,mcp",
+		"channel_read,channel_respond,mcp,grafana_list_datasources,grafana_get_datasource,grafana_query_prometheus,grafana_list_prometheus_metric_names,grafana_list_prometheus_label_names,grafana_list_prometheus_label_values,grafana_query_loki_logs,grafana_list_loki_label_names,grafana_list_loki_label_values,grafana_query_loki_stats",
 	);
 	assert.equal(args[args.indexOf("--model") + 1], "provider/model");
 	assert.equal(
@@ -46,6 +59,53 @@ test("copies managed MCP configuration into the persistent Pi agent directory", 
 
 	assert.equal(target, join(home, ".pi", "agent", "mcp.json"));
 	assert.equal(readFileSync(target, "utf8"), '{"mcpServers":{"grafana":{}}}\n');
+	rmSync(home, { recursive: true, force: true });
+});
+
+test("writes a permission-restricted relay credential document", () => {
+	const home = mkdtempSync(join(tmpdir(), "nonprod-bot-relay-"));
+	const target = join(home, ".channels", "relay", "credentials.json");
+	try {
+		assert.equal(
+			installRelayCredentials({
+				AGENT_RELAY_SERVER: "1",
+				AGENT_RELAY_TOKEN: "agent-secret",
+				LINK_AGENT_RELAY_OPERATOR_TOKEN: "operator-secret",
+				AGENT_ENDPOINT_ID: "nonprod-bot",
+				AGENT_PRINCIPAL_ID: "agent:nonprod-bot",
+				LINK_AGENT_RELAY_OPERATOR_ENDPOINT: "operator-local",
+				LINK_AGENT_RELAY_OPERATOR_PRINCIPAL: "operator:nicholas",
+				AGENT_RELAY_CREDENTIALS_PATH: target,
+			}),
+			target,
+		);
+		assert.deepEqual(JSON.parse(readFileSync(target, "utf8")), {
+			credentials: [
+				{
+					token: "agent-secret",
+					principal: "agent:nonprod-bot",
+					register: ["nonprod-bot"],
+					send: ["operator-local"],
+					list: ["operator-local"],
+				},
+				{
+					token: "operator-secret",
+					principal: "operator:nicholas",
+					register: ["operator-local"],
+					send: ["nonprod-bot"],
+					list: ["nonprod-bot"],
+				},
+			],
+		});
+		assert.equal(statSync(dirname(target)).mode & 0o077, 0);
+		assert.equal(statSync(target).mode & 0o077, 0);
+	} finally {
+		rmSync(home, { recursive: true, force: true });
+	}
+});
+
+test("does not require relay secrets when the relay server is disabled", () => {
+	assert.equal(installRelayCredentials({ AGENT_RELAY_SERVER: "0" }), undefined);
 });
 
 test("Grafana MCP is internal, read-only, and bounded to investigation tools", () => {
@@ -73,7 +133,7 @@ test("Grafana MCP is internal, read-only, and bounded to investigation tools", (
 		"list_loki_label_values",
 		"query_loki_stats",
 	]);
-	assert.equal(config.settings.directTools, false);
+	assert.equal(config.settings.directTools, true);
 	assert.equal(config.settings.elicitation, false);
 	assert.equal(config.settings.outputGuard, true);
 	assert.equal(config.settings.sampling, false);
@@ -100,8 +160,8 @@ test("nonprod responder requires the exact Grafana MCP probe before replying", (
 
 	assert.match(
 		skill,
-		/mcp\(\{ server: "grafana", tool: "list_datasources", args: \{\} \}\)/,
+		/grafana_list_datasources\(\{\}\)/,
 	);
-	assert.match(skill, /call `mcp` before drafting the response/);
+	assert.match(skill, /call a direct `grafana_\*` MCP tool before drafting/);
 	assert.match(skill, /never reuse an error stated in an earlier Slack reply/);
 });

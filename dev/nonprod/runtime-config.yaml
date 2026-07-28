@@ -4,6 +4,18 @@ metadata:
   name: nonprod-bot-runtime
   namespace: agent-nonprod-bot
 data:
+  OUTFITTER_CHANNELS: slack,agent
   SLACK_CHANNEL_IDS: joined
   LINK_SLACK_DONE_EMOJI: white_check_mark
   LINK_SLACK_MODEL: openai-codex/gpt-5.4-mini
+  AGENT_ENDPOINT_ID: nonprod-bot
+  AGENT_PRINCIPAL_ID: agent:nonprod-bot
+  AGENT_RELAY_URL: ws://127.0.0.1:8787/v1/connect
+  AGENT_RELAY_SERVER: "1"
+  AGENT_RELAY_HOST: 127.0.0.1
+  AGENT_RELAY_PORT: "8787"
+  AGENT_RELAY_STORE_PATH: /workspace/.channels/relay/store.json
+  AGENT_RELAY_CREDENTIALS_PATH: /workspace/.channels/relay/credentials.json
+  AGENT_RELAY_ALLOW_INSECURE: "1"
+  LINK_AGENT_RELAY_OPERATOR_ENDPOINT: operator-local
+  LINK_AGENT_RELAY_OPERATOR_PRINCIPAL: operator:nicholas

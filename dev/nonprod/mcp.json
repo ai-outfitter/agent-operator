@@ -1,6 +1,6 @@
 {
   "settings": {
-    "directTools": false,
+    "directTools": true,
     "elicitation": false,
     "outputGuard": true,
     "sampling": false

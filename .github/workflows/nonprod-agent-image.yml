@@ -1,0 +1,56 @@
+name: nonprod agent image
+
+on:
+  push:
+    branches:
+      - main
+      - feat/nonprod-grafana-mcp
+    paths:
+      - .github/workflows/nonprod-agent-image.yml
+      - dev/nonprod/Dockerfile.agent
+      - dev/nonprod/agent-entrypoint.mjs
+      - dev/nonprod/mcp.json
+      - dev/nonprod/slack-grafana-responder/**
+      - dev/nonprod/slack-grafana-system-prompt.md
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  CHANNELS_REVISION: b8131eb83cdb1777f4bdf5d3aec5def18d1f6938
+  IMAGE: ghcr.io/ai-outfitter/link-agent:nonprod-sha-${{ github.sha }}
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Check out the pinned Channels release
+        uses: actions/checkout@v6
+        with:
+          repository: ai-outfitter/channels
+          ref: ${{ env.CHANNELS_REVISION }}
+          path: channels
+
+      - name: Authenticate to GHCR
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          docker login \
+            --username "${GITHUB_ACTOR}" \
+            --password-stdin ghcr.io <<<"$GHCR_TOKEN"
+
+      - name: Build and publish the immutable nonprod agent image
+        run: |
+          docker buildx build \
+            --platform linux/amd64 \
+            --build-context channels=./channels \
+            --build-arg "CHANNELS_REVISION=$CHANNELS_REVISION" \
+            --file dev/nonprod/Dockerfile.agent \
+            --tag "$IMAGE" \
+            --push .
+
+      - name: Record the published digest
+        run: docker buildx imagetools inspect "$IMAGE"

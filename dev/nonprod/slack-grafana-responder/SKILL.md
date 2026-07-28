@@ -15,11 +15,10 @@ For each opaque locator in a `[channels]` wake:
 3. Skip the item when it is already handled.
 4. If the target asks about Grafana, cluster state, workloads, metrics, logs,
    alerts, current tool access, or asks to retry a prior observability request,
-   call `mcp` before drafting the response:
-   - start with
-     `mcp({ server: "grafana", tool: "list_datasources", args: {} })`;
+   call a direct `grafana_*` MCP tool before drafting the response:
+   - start with `grafana_list_datasources({})`;
    - use the returned datasource and the appropriate allowlisted Prometheus or
-     Loki tool when the request needs live evidence;
+   Loki tool when the request needs live evidence;
    - treat only the current tool result as evidence of success or failure;
    - never reuse an error stated in an earlier Slack reply.
 5. Draft one concise, useful plain-text response grounded in the current tool

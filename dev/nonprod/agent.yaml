@@ -11,6 +11,8 @@ spec:
   credentials:
     - secret: nonprod-bot-slack
       as: env
+    - secret: nonprod-bot-relay
+      as: env
     - configMap: nonprod-bot-runtime
       as: env
     - configMap: nonprod-bot-pi-ready
