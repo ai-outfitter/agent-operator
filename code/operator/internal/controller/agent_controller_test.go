@@ -109,11 +109,44 @@ var _ = Describe("Agent Controller", func() {
 		Expect(configVolume.ConfigMap).NotTo(BeNil())
 		Expect(configVolume.ConfigMap.Name).To(Equal(configName))
 		Expect(configVolume.ConfigMap.Optional).To(BeNil())
+		Expect(deployment.Spec.Template.Spec.Containers[0].Image).To(Equal(reconciler.AgentImage))
+	})
+
+	It("rolls out a new user-owned runtime image", func() {
+		organization := createAcceptedOrganization(ctx)
+		agent := validAgent(uniqueTestName("runtime-image"), organization.Name)
+		agent.Spec.Image = "example.test/user-owned-agent:v1"
+		Expect(k8sClient.Create(ctx, agent)).To(Succeed())
+		DeferCleanup(removeAgent, ctx, agent.Name)
+
+		reconciler := &AgentReconciler{
+			Client: k8sClient, APIReader: k8sClient, Scheme: k8sClient.Scheme(), AgentImage: "link-agent:default",
+		}
+		request := reconcile.Request{NamespacedName: types.NamespacedName{Name: agent.Name}}
+		_, err := reconciler.Reconcile(ctx, request)
+		Expect(err).NotTo(HaveOccurred())
+
+		deployment := &appsv1.Deployment{}
+		deploymentKey := types.NamespacedName{Namespace: agentNamespace(agent.Name), Name: RuntimeName}
+		Expect(k8sClient.Get(ctx, deploymentKey, deployment)).To(Succeed())
+		Expect(deployment.Spec.Template.Spec.Containers[0].Image).To(Equal(agent.Spec.Image))
+
+		current := &linkv1alpha1.Agent{}
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: agent.Name}, current)).To(Succeed())
+		current.Spec.Image = "example.test/user-owned-agent:v2"
+		Expect(k8sClient.Update(ctx, current)).To(Succeed())
+		_, err = reconciler.Reconcile(ctx, request)
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(k8sClient.Get(ctx, deploymentKey, deployment)).To(Succeed())
+		Expect(deployment.Spec.Template.Spec.Containers[0].Image).To(Equal(current.Spec.Image))
+		Expect(deployment.Spec.Template.Spec.InitContainers[0].Image).To(Equal(current.Spec.Image))
 	})
 
 	It("projects references and becomes ready after the agent runtime starts", func() {
 		organization := createAcceptedOrganization(ctx)
 		agent := validAgent(uniqueTestName("researcher"), organization.Name)
+		agent.Spec.Image = "example.test/user-owned-agent:v1"
 		secretName := "model-credentials"
 		configName := "runtime-config"
 		agent.Spec.Credentials = []linkv1alpha1.CredentialReference{
@@ -149,6 +182,7 @@ var _ = Describe("Agent Controller", func() {
 		deploymentKey := types.NamespacedName{Namespace: namespaceName, Name: RuntimeName}
 		Expect(k8sClient.Get(ctx, deploymentKey, deployment)).To(Succeed())
 		container := deployment.Spec.Template.Spec.Containers[0]
+		Expect(container.Image).To(Equal(agent.Spec.Image))
 		Expect(deployment.Spec.Template.Spec.SecurityContext.RunAsUser).To(PointTo(Equal(int64(1000))))
 		Expect(deployment.Spec.Template.Spec.SecurityContext.RunAsGroup).To(PointTo(Equal(int64(1000))))
 		Expect(container.Command).To(BeEmpty())
@@ -168,12 +202,15 @@ var _ = Describe("Agent Controller", func() {
 			Name: SettingsName, MountPath: WorkspaceMount + "/.agents", ReadOnly: true,
 		}))
 		Expect(deployment.Spec.Template.Spec.InitContainers).To(HaveLen(3))
+		for _, initContainer := range deployment.Spec.Template.Spec.InitContainers {
+			Expect(initContainer.Image).To(Equal(agent.Spec.Image))
+		}
 		Expect(deployment.Spec.Template.Spec.InitContainers[1].Name).To(Equal("setup-wait-for-mail"))
 		Expect(deployment.Spec.Template.Spec.InitContainers[1].Command).To(Equal([]string{"sh", "-c", "echo mail-ready"}))
 		Expect(deployment.Spec.Template.Spec.InitContainers[2].Name).To(Equal("setup-mail-bootstrap"))
 		Expect(deployment.Spec.Template.Spec.InitContainers).To(ContainElement(MatchFields(IgnoreExtras, Fields{
 			"Name":    Equal("setup-mail-bootstrap"),
-			"Image":   Equal("link-agent:test"),
+			"Image":   Equal(agent.Spec.Image),
 			"Command": Equal([]string{"sh", "-c", "echo setup-ready"}),
 			"Env": ContainElement(corev1.EnvVar{
 				Name: HomeEnvName, Value: WorkspaceMount,

@@ -123,6 +123,12 @@ type AgentSpec struct {
 	// +listMapKey=organization
 	Memberships []Membership `json:"memberships"`
 
+	// Image selects the user-owned runtime image. When omitted, the operator's
+	// configured default image is used.
+	// +optional
+	// +kubebuilder:validation:MinLength=1
+	Image string `json:"image,omitempty"`
+
 	Profile AgentProfile `json:"profile"`
 
 	// +listType=atomic
