@@ -25,6 +25,10 @@ test("loads the channel and MCP extensions with only bounded tools active", () =
 	);
 	assert.equal(args[args.indexOf("--model") + 1], "provider/model");
 	assert.equal(
+		args[args.indexOf("--skill") + 1],
+		"/opt/link/slack-grafana-responder/SKILL.md",
+	);
+	assert.equal(
 		args[args.indexOf("--append-system-prompt") + 1],
 		"/opt/link/slack-grafana-system-prompt.md",
 	);
@@ -86,4 +90,18 @@ test("nonprod prompt requires fresh MCP evidence before reporting authorization 
 		prompt,
 		/never claim that Grafana is\s+unauthorized unless the current MCP tool result/i,
 	);
+});
+
+test("nonprod responder requires the exact Grafana MCP probe before replying", () => {
+	const skill = readFileSync(
+		join(nonprodDirectory, "slack-grafana-responder", "SKILL.md"),
+		"utf8",
+	);
+
+	assert.match(
+		skill,
+		/mcp\(\{ server: "grafana", tool: "list_datasources", args: \{\} \}\)/,
+	);
+	assert.match(skill, /call `mcp` before drafting the response/);
+	assert.match(skill, /never reuse an error stated in an earlier Slack reply/);
 });

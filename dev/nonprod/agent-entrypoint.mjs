@@ -28,7 +28,7 @@ export function buildPiArguments(model = DEFAULT_MODEL) {
 		"--extension",
 		MCP_EXTENSION,
 		"--skill",
-		"/opt/channels/slack-responder/SKILL.md",
+		"/opt/link/slack-grafana-responder/SKILL.md",
 		"--append-system-prompt",
 		"/opt/link/slack-grafana-system-prompt.md",
 	];
