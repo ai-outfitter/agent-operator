@@ -6,6 +6,8 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
   name: agent-sample
 spec:
+  # Optional. When omitted, the operator's configured default image is used.
+  image: ghcr.io/ai-outfitter/outfitter:1.0.2
   memberships:
     - organization: organization-sample
   profile:

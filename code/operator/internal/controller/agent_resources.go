@@ -203,6 +203,7 @@ func (r *AgentReconciler) ensureAgentDeployment(
 ) (*appsv1.Deployment, error) {
 	namespace := agentNamespace(agent.Name)
 	labels := ownershipLabels(agent)
+	runtimeImage := r.agentImage(agent)
 	selectorLabels := map[string]string{
 		"app.kubernetes.io/name":     "link-agent",
 		"app.kubernetes.io/instance": agent.Name,
@@ -227,7 +228,7 @@ func (r *AgentReconciler) ensureAgentDeployment(
 
 		container := corev1.Container{
 			Name:            "agent",
-			Image:           r.agentImage(),
+			Image:           runtimeImage,
 			ImagePullPolicy: corev1.PullIfNotPresent,
 			WorkingDir:      WorkspaceMount,
 			Env: []corev1.EnvVar{
@@ -258,7 +259,7 @@ func (r *AgentReconciler) ensureAgentDeployment(
 		// while --no-clobber preserves paths and Nix state already on the PVC.
 		seedInit := corev1.Container{
 			Name:            "seed-nix-store",
-			Image:           r.agentImage(),
+			Image:           runtimeImage,
 			ImagePullPolicy: corev1.PullIfNotPresent,
 			Command:         []string{"sh", "-c", nixStoreSeedScript},
 			VolumeMounts:    []corev1.VolumeMount{{Name: NixStoreName, MountPath: "/mnt/nix"}},
@@ -278,7 +279,7 @@ func (r *AgentReconciler) ensureAgentDeployment(
 			)
 			initContainers = append(initContainers, corev1.Container{
 				Name:            "setup-" + step.Name,
-				Image:           r.agentImage(),
+				Image:           runtimeImage,
 				ImagePullPolicy: corev1.PullIfNotPresent,
 				Command:         []string{"sh", "-c", step.Script},
 				EnvFrom:         credentialEnvFrom,
@@ -390,7 +391,10 @@ func credentialVolumeName(kind, name string) string {
 	return value
 }
 
-func (r *AgentReconciler) agentImage() string {
+func (r *AgentReconciler) agentImage(agent *linkv1alpha1.Agent) string {
+	if agent.Spec.Image != "" {
+		return agent.Spec.Image
+	}
 	if r.AgentImage != "" {
 		return r.AgentImage
 	}

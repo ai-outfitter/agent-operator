@@ -76,6 +76,12 @@ spec:
                     rule: has(self.secret) != has(self.configMap)
                 type: array
                 x-kubernetes-list-type: atomic
+              image:
+                description: |-
+                  Image selects the user-owned runtime image. When omitted, the operator's
+                  configured default image is used.
+                minLength: 1
+                type: string
               memberships:
                 description: M1 exercises one membership while retaining the eventual
                   list shape.
