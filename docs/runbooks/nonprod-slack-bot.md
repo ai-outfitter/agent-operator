@@ -283,8 +283,8 @@ kubectl --context unsup-nonprod-engineer \
 ```
 
 The logs must show both `slack` and `agent` Channels sources, the relay profile,
-Slack bot authentication, a Socket Mode connection, and ten direct Grafana MCP
-tools connected without printing credential values.
+Slack bot authentication, a Socket Mode connection, and the Grafana MCP server
+connected without printing credential values.
 
 To debug the same Slack-based agent directly, keep the relay port-forward open:
 
