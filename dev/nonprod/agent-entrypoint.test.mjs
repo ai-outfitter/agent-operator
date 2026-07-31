@@ -34,7 +34,7 @@ test("loads the channel and MCP extensions with only bounded tools active", () =
 	assert.equal(args.includes("--no-session"), false);
 	assert.equal(
 		args[args.indexOf("--tools") + 1],
-		"channel_read,channel_respond,mcp,grafana_list_datasources,grafana_get_datasource,grafana_query_prometheus,grafana_list_prometheus_metric_names,grafana_list_prometheus_label_names,grafana_list_prometheus_label_values,grafana_query_loki_logs,grafana_list_loki_label_names,grafana_list_loki_label_values,grafana_query_loki_stats",
+		"channel_read,channel_respond,mcp",
 	);
 	assert.equal(args[args.indexOf("--model") + 1], "provider/model");
 	assert.equal(
@@ -108,7 +108,7 @@ test("does not require relay secrets when the relay server is disabled", () => {
 	assert.equal(installRelayCredentials({ AGENT_RELAY_SERVER: "0" }), undefined);
 });
 
-test("Grafana MCP is internal, read-only, and bounded to investigation tools", () => {
+test("Grafana MCP is internal and exposed only through the mcp passthrough tool", () => {
 	const config = JSON.parse(
 		readFileSync(join(nonprodDirectory, "mcp.json"), "utf8"),
 	);
@@ -121,19 +121,8 @@ test("Grafana MCP is internal, read-only, and bounded to investigation tools", (
 	);
 	assert.equal(grafana.headers, undefined);
 	assert.equal(grafana.lifecycle, "keep-alive");
-	assert.deepEqual(grafana.includeTools, [
-		"list_datasources",
-		"get_datasource",
-		"query_prometheus",
-		"list_prometheus_metric_names",
-		"list_prometheus_label_names",
-		"list_prometheus_label_values",
-		"query_loki_logs",
-		"list_loki_label_names",
-		"list_loki_label_values",
-		"query_loki_stats",
-	]);
-	assert.equal(config.settings.directTools, true);
+	assert.equal(grafana.includeTools, undefined);
+	assert.equal(config.settings.directTools, false);
 	assert.equal(config.settings.elicitation, false);
 	assert.equal(config.settings.outputGuard, true);
 	assert.equal(config.settings.sampling, false);
@@ -158,10 +147,7 @@ test("nonprod responder requires the exact Grafana MCP probe before replying", (
 		"utf8",
 	);
 
-	assert.match(
-		skill,
-		/grafana_list_datasources\(\{\}\)/,
-	);
-	assert.match(skill, /call a direct `grafana_\*` MCP tool before drafting/);
+	assert.match(skill, /`mcp` tool[\s\S]*?`list_datasources`/);
+	assert.match(skill, /call a Grafana MCP tool before drafting/);
 	assert.match(skill, /never reuse an error stated in an earlier Slack reply/);
 });

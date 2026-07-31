@@ -29,7 +29,7 @@ export function buildPiArguments(model = DEFAULT_MODEL) {
 		"--no-prompt-templates",
 		"--no-builtin-tools",
 		"--tools",
-		"channel_read,channel_respond,mcp,grafana_list_datasources,grafana_get_datasource,grafana_query_prometheus,grafana_list_prometheus_metric_names,grafana_list_prometheus_label_names,grafana_list_prometheus_label_values,grafana_query_loki_logs,grafana_list_loki_label_names,grafana_list_loki_label_values,grafana_query_loki_stats",
+		"channel_read,channel_respond,mcp",
 		"--model",
 		model,
 		"--extension",

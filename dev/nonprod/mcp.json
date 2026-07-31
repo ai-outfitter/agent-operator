@@ -1,6 +1,6 @@
 {
   "settings": {
-    "directTools": true,
+    "directTools": false,
     "elicitation": false,
     "outputGuard": true,
     "sampling": false
@@ -9,19 +9,7 @@
     "grafana": {
       "url": "http://mcp-grafana.unsupervised-singleton.svc.cluster.local:8000/mcp",
       "lifecycle": "keep-alive",
-      "requestTimeoutMs": 30000,
-      "includeTools": [
-        "list_datasources",
-        "get_datasource",
-        "query_prometheus",
-        "list_prometheus_metric_names",
-        "list_prometheus_label_names",
-        "list_prometheus_label_values",
-        "query_loki_logs",
-        "list_loki_label_names",
-        "list_loki_label_values",
-        "query_loki_stats"
-      ]
+      "requestTimeoutMs": 30000
     }
   }
 }
