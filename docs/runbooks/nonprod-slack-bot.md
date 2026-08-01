@@ -72,9 +72,10 @@ authentication is verified when the agent starts.
 Images are published only by GitHub Actions. Do not publish Link images to ECR
 and do not deploy `latest`, `main`, or another mutable reference.
 
-This repository publishes only the operator image, through
-[release-images.yml](../../.github/workflows/release-images.yml). The nonprod
-agent image is owned by the consuming deployment: it is built from the
+This repository's release workflow,
+[release-images.yml](../../.github/workflows/release-images.yml), publishes the
+operator image and the generic agent runtime image. The nonprod bot's agent
+image is owned by the consuming deployment: it is built from the
 `Unsupervisedcom/.agents` catalog and published by that pipeline, then selected
 on the `Agent` resource via `spec.image` (added in
 [PR #14](https://github.com/ai-outfitter/agent-operator/pull/14)). Follow the build,
@@ -376,7 +377,7 @@ Read the exact deployed digest from the cluster rather than from this document:
 ```sh
 kubectl --context unsup-nonprod-engineer -n agent-nonprod-bot \
   get deployment/agent-runtime \
-  -o jsonpath='{.spec.template.spec.containers[0].image}'
+  -o jsonpath='{.spec.template.spec.containers[?(@.name=="agent")].image}'
 ```
 
 The operator remains on the deployment established 2026-07-25 from commit
