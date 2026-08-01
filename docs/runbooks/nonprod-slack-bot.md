@@ -73,7 +73,7 @@ authentication is verified when the agent starts.
 
 ## Build and publish immutable images through GitHub
 
-Images are published only by GitHub Actions. Do not publish Link images to ECR
+Images are published only by GitHub Actions. Do not publish operator or agent images to ECR
 and do not deploy `latest`, `main`, or another mutable reference.
 
 This repository's release workflow,

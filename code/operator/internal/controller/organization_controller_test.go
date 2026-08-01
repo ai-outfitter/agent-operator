@@ -20,7 +20,7 @@ var testNameCounter atomic.Uint64
 
 const (
 	testCatalogRevision = "0123456789abcdef0123456789abcdef01234567"
-	testCatalogGitHub   = "ncrmro/agent-operator"
+	testCatalogGitHub   = "ai-outfitter/agent-operator"
 	testCatalogName     = "agents"
 	testRepositoryName  = "wiki"
 )

@@ -90,7 +90,7 @@ spec:
       defaultBranch: main
   agentCatalogs:
     - name: agent-operator-agents
-      github: ncrmro/agent-operator
+      github: ai-outfitter/agent-operator
       # Replace with the commit containing the reviewed .agents payload.
       revision: 0123456789abcdef0123456789abcdef01234567
       path: .agents

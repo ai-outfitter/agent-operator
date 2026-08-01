@@ -6,6 +6,6 @@ spec:
   displayName: Mail loop demo
   agentCatalogs:
     - name: agent-operator-agents
-      github: ncrmro/agent-operator
+      github: ai-outfitter/agent-operator
       revision: f69338a4b1e7c3db0dcb4d0383beb22cd95448aa
       path: .agents
