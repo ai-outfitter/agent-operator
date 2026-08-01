@@ -1,4 +1,4 @@
-# Link Operator
+# Agent Operator
 
 A Kubernetes operator that provides **primitives** for a fleet of autonomous
 agents — a bounded namespace workspace, generic secret/config exposure, catalog

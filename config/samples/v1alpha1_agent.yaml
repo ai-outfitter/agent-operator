@@ -1,4 +1,4 @@
-apiVersion: link.aioutfitter.com/v1alpha1
+apiVersion: aioutfitter.com/v1alpha1
 kind: Agent
 metadata:
   name: researcher

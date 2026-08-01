@@ -2,7 +2,7 @@
 # The MVP exercises a single membership entry; many-to-many routing (and the
 # per-membership projects field) is deferred behavior, not deferred schema.
 # Apply matching Organization resources before applying this Agent.
-apiVersion: link.aioutfitter.com/v1alpha1
+apiVersion: aioutfitter.com/v1alpha1
 kind: Agent
 metadata:
   name: shared-engineer

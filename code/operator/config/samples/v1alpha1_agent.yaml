@@ -1,8 +1,8 @@
-apiVersion: link.aioutfitter.com/v1alpha1
+apiVersion: aioutfitter.com/v1alpha1
 kind: Agent
 metadata:
   labels:
-    app.kubernetes.io/name: link-operator
+    app.kubernetes.io/name: agent-operator
     app.kubernetes.io/managed-by: kustomize
   name: agent-sample
 spec:

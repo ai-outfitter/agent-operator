@@ -6,7 +6,7 @@ import (
 )
 
 const (
-	OrganizationFinalizer = "organizations.link.aioutfitter.com/finalizer"
+	OrganizationFinalizer = "organizations.aioutfitter.com/finalizer"
 
 	OrganizationConditionAccepted            = "Accepted"
 	OrganizationConditionCatalogSourcesReady = "CatalogSourcesReady"

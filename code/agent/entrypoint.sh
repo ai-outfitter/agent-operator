@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# link-agent entrypoint — generic resident Outfitter/Pi session.
+# agent-runtime entrypoint — generic resident Outfitter/Pi session.
 #
 # Channel setup and credentials are supplied by the Agent CR. The selected
 # Outfitter profile chooses the Channels extension and its channel-facing skills;
@@ -18,7 +18,7 @@ export XDG_CACHE_HOME="/opt/link/.cache"
 export PI_OFFLINE=1
 
 cd /opt/link
-exec outfitter run --strict "${LINK_AGENT_SLUG:-researcher}" -- \
+exec outfitter run --strict "${AGENT_SLUG:-researcher}" -- \
   --mode rpc \
   --no-session \
   --offline \

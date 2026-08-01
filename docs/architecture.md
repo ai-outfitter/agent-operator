@@ -1,6 +1,6 @@
 # Architecture
 
-Link Operator is a Kubernetes operator for running a **single owner's fleet of
+Agent Operator is a Kubernetes operator for running a **single owner's fleet of
 autonomous agents**. Its job is to provide **primitives** — an isolated,
 quota-bounded workspace for each agent, a generic way to expose secrets and
 configuration, and resolution of the agent's capability catalog — and then run

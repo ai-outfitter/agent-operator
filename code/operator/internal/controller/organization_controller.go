@@ -17,7 +17,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
-	linkv1alpha1 "github.com/ncrmro/link-operator/code/operator/api/v1alpha1"
+	aioutfitterv1alpha1 "github.com/ai-outfitter/agent-operator/code/operator/api/v1alpha1"
 )
 
 // OrganizationReconciler reconciles an Organization object.
@@ -26,13 +26,13 @@ type OrganizationReconciler struct {
 	Scheme *runtime.Scheme
 }
 
-// +kubebuilder:rbac:groups=link.aioutfitter.com,resources=organizations,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=link.aioutfitter.com,resources=organizations/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=link.aioutfitter.com,resources=organizations/finalizers,verbs=update
+// +kubebuilder:rbac:groups=aioutfitter.com,resources=organizations,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=aioutfitter.com,resources=organizations/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=aioutfitter.com,resources=organizations/finalizers,verbs=update
 
 // Reconcile validates the organization source declaration without resolving it.
 func (r *OrganizationReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	organization := &linkv1alpha1.Organization{}
+	organization := &aioutfitterv1alpha1.Organization{}
 	if err := r.Get(ctx, req.NamespacedName, organization); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
@@ -40,9 +40,9 @@ func (r *OrganizationReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	if !organization.DeletionTimestamp.IsZero() {
 		return r.finalize(ctx, organization)
 	}
-	if !controllerutil.ContainsFinalizer(organization, linkv1alpha1.OrganizationFinalizer) {
+	if !controllerutil.ContainsFinalizer(organization, aioutfitterv1alpha1.OrganizationFinalizer) {
 		base := organization.DeepCopy()
-		controllerutil.AddFinalizer(organization, linkv1alpha1.OrganizationFinalizer)
+		controllerutil.AddFinalizer(organization, aioutfitterv1alpha1.OrganizationFinalizer)
 		if err := r.Patch(ctx, organization, client.MergeFrom(base)); err != nil {
 			return ctrl.Result{}, err
 		}
@@ -53,41 +53,41 @@ func (r *OrganizationReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	organization.Status.ResolvedRepositories = resolvedRepositories(organization.Spec.Repositories)
 
 	if validationMessage := validateOrganization(organization); validationMessage != "" {
-		setOrganizationCondition(organization, linkv1alpha1.OrganizationConditionAccepted, metav1.ConditionFalse, "InvalidSpecification", validationMessage)
-		setOrganizationCondition(organization, linkv1alpha1.OrganizationConditionCatalogSourcesReady, metav1.ConditionFalse, "Blocked", "Catalog source delegation is blocked by an invalid specification")
-		setOrganizationCondition(organization, linkv1alpha1.OrganizationConditionReady, metav1.ConditionFalse, "NotAccepted", "Organization is not accepted")
+		setOrganizationCondition(organization, aioutfitterv1alpha1.OrganizationConditionAccepted, metav1.ConditionFalse, "InvalidSpecification", validationMessage)
+		setOrganizationCondition(organization, aioutfitterv1alpha1.OrganizationConditionCatalogSourcesReady, metav1.ConditionFalse, "Blocked", "Catalog source delegation is blocked by an invalid specification")
+		setOrganizationCondition(organization, aioutfitterv1alpha1.OrganizationConditionReady, metav1.ConditionFalse, "NotAccepted", "Organization is not accepted")
 		return ctrl.Result{}, r.patchOrganizationStatus(ctx, statusBase, organization)
 	}
-	setOrganizationCondition(organization, linkv1alpha1.OrganizationConditionAccepted, metav1.ConditionTrue, "Accepted", "Organization specification is valid")
+	setOrganizationCondition(organization, aioutfitterv1alpha1.OrganizationConditionAccepted, metav1.ConditionTrue, "Accepted", "Organization specification is valid")
 
 	catalogSource := organization.Spec.AgentCatalogs[0]
 	revision := ""
 	if catalogSource.Revision != nil {
 		revision = strings.ToLower(*catalogSource.Revision)
 	}
-	organization.Status.CatalogSources = []linkv1alpha1.CatalogSourceStatus{{
+	organization.Status.CatalogSources = []aioutfitterv1alpha1.CatalogSourceStatus{{
 		Name:     catalogSource.Name,
 		Revision: revision,
 	}}
-	setOrganizationCondition(organization, linkv1alpha1.OrganizationConditionCatalogSourcesReady, metav1.ConditionTrue, "DelegatedToOutfitter", "Catalog source is pinned and ready for Outfitter settings")
-	setOrganizationCondition(organization, linkv1alpha1.OrganizationConditionReady, metav1.ConditionTrue, "Ready", "Organization is ready for agents")
+	setOrganizationCondition(organization, aioutfitterv1alpha1.OrganizationConditionCatalogSourcesReady, metav1.ConditionTrue, "DelegatedToOutfitter", "Catalog source is pinned and ready for Outfitter settings")
+	setOrganizationCondition(organization, aioutfitterv1alpha1.OrganizationConditionReady, metav1.ConditionTrue, "Ready", "Organization is ready for agents")
 
 	return ctrl.Result{}, r.patchOrganizationStatus(ctx, statusBase, organization)
 }
 
 func (r *OrganizationReconciler) finalize(
 	ctx context.Context,
-	organization *linkv1alpha1.Organization,
+	organization *aioutfitterv1alpha1.Organization,
 ) (ctrl.Result, error) {
-	if !controllerutil.ContainsFinalizer(organization, linkv1alpha1.OrganizationFinalizer) {
+	if !controllerutil.ContainsFinalizer(organization, aioutfitterv1alpha1.OrganizationFinalizer) {
 		return ctrl.Result{}, nil
 	}
 	base := organization.DeepCopy()
-	controllerutil.RemoveFinalizer(organization, linkv1alpha1.OrganizationFinalizer)
+	controllerutil.RemoveFinalizer(organization, aioutfitterv1alpha1.OrganizationFinalizer)
 	return ctrl.Result{}, r.Patch(ctx, organization, client.MergeFrom(base))
 }
 
-func validateOrganization(organization *linkv1alpha1.Organization) string {
+func validateOrganization(organization *aioutfitterv1alpha1.Organization) string {
 	if len(organization.Spec.AgentCatalogs) != 1 {
 		return "M1 organizations must declare exactly one agent catalog"
 	}
@@ -119,15 +119,15 @@ func validateOrganization(organization *linkv1alpha1.Organization) string {
 	return ""
 }
 
-func resolvedRepositories(repositories []linkv1alpha1.Repository) []linkv1alpha1.ResolvedRepositoryStatus {
-	resolved := make([]linkv1alpha1.ResolvedRepositoryStatus, 0, len(repositories))
+func resolvedRepositories(repositories []aioutfitterv1alpha1.Repository) []aioutfitterv1alpha1.ResolvedRepositoryStatus {
+	resolved := make([]aioutfitterv1alpha1.ResolvedRepositoryStatus, 0, len(repositories))
 	for _, repository := range repositories {
-		resolved = append(resolved, linkv1alpha1.ResolvedRepositoryStatus{
+		resolved = append(resolved, aioutfitterv1alpha1.ResolvedRepositoryStatus{
 			Name:     repository.Name,
 			Revision: repository.Revision,
 		})
 	}
-	slices.SortFunc(resolved, func(a, b linkv1alpha1.ResolvedRepositoryStatus) int {
+	slices.SortFunc(resolved, func(a, b aioutfitterv1alpha1.ResolvedRepositoryStatus) int {
 		return stringCompare(a.Name, b.Name)
 	})
 	return resolved
@@ -144,7 +144,7 @@ func stringCompare(a, b string) int {
 }
 
 func setOrganizationCondition(
-	organization *linkv1alpha1.Organization,
+	organization *aioutfitterv1alpha1.Organization,
 	conditionType string,
 	status metav1.ConditionStatus,
 	reason string,
@@ -161,8 +161,8 @@ func setOrganizationCondition(
 
 func (r *OrganizationReconciler) patchOrganizationStatus(
 	ctx context.Context,
-	base *linkv1alpha1.Organization,
-	organization *linkv1alpha1.Organization,
+	base *aioutfitterv1alpha1.Organization,
+	organization *aioutfitterv1alpha1.Organization,
 ) error {
 	if apiequality.Semantic.DeepEqual(base.Status, organization.Status) {
 		return nil
@@ -176,7 +176,7 @@ func (r *OrganizationReconciler) patchOrganizationStatus(
 // SetupWithManager sets up the controller with the Manager.
 func (r *OrganizationReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&linkv1alpha1.Organization{}).
+		For(&aioutfitterv1alpha1.Organization{}).
 		Named("organization").
 		Complete(r)
 }

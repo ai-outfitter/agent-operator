@@ -55,11 +55,11 @@ membership `projects` list) operate without any project.
 ```yaml
 spec:
   projects:
-    - name: link-operator
-      displayName: Link Operator
+    - name: agent-operator
+      displayName: Agent Operator
       repositories:
         - name: source
-          uri: ssh://git@example.test/ai-outfitter/link-operator.git
+          uri: ssh://git@example.test/ai-outfitter/agent-operator.git
           defaultBranch: main
       environments:
         - name: default

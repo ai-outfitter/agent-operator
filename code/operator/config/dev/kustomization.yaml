@@ -4,7 +4,7 @@ resources:
   - ../default
 images:
   - name: controller
-    newName: localhost/link-operator
+    newName: localhost/agent-operator
     newTag: dev
 patches:
   - target:
@@ -15,4 +15,4 @@ patches:
     patch: |-
       - op: add
         path: /spec/template/spec/containers/0/args/-
-        value: --agent-image=localhost/link-agent:dev
+        value: --agent-image=localhost/agent-runtime:dev

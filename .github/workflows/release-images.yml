@@ -58,8 +58,8 @@ jobs:
           sha_tag="sha-${GITHUB_SHA}"
           for image in operator agent; do
             case "$image" in
-              operator) repository=link-operator ;;
-              agent) repository=link-agent ;;
+              operator) repository=agent-operator ;;
+              agent) repository=agent-runtime ;;
             esac
             for tag in "$RELEASE_TAG" "$sha_tag"; do
               devenv container copy --no-tui \

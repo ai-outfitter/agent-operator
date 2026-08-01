@@ -1,18 +1,18 @@
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: link-system
+  name: agent-system
   labels:
-    app.kubernetes.io/part-of: link-operator
+    app.kubernetes.io/part-of: agent-operator
 ---
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: stalwart-config
-  namespace: link-system
+  namespace: agent-system
   labels:
     app.kubernetes.io/name: stalwart
-    app.kubernetes.io/part-of: link-operator
+    app.kubernetes.io/part-of: agent-operator
 data:
   config.json: |
     {
@@ -24,29 +24,29 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: stalwart-bootstrap
-  namespace: link-system
+  namespace: agent-system
   labels:
     app.kubernetes.io/name: stalwart
-    app.kubernetes.io/part-of: link-operator
+    app.kubernetes.io/part-of: agent-operator
 type: Opaque
 stringData:
-  STALWART_RECOVERY_ADMIN: admin:link-dev-admin
+  STALWART_RECOVERY_ADMIN: admin:agent-dev-admin
   STALWART_USER: admin
-  STALWART_PASSWORD: link-dev-admin
+  STALWART_PASSWORD: agent-dev-admin
   plan.ndjson: |
     {"@type":"upsert","object":"NetworkListener","matchOn":["name"],"value":{"jmap":{"name":"jmap","bind":{"[::]:8081":true},"protocol":"http","useTls":false}}}
-    {"@type":"upsert","object":"Domain","matchOn":["name"],"value":{"link-domain":{"name":"link.test","description":"Link Operator development mail"}}}
-    {"@type":"upsert","object":"Account","matchOn":["name","domainId"],"value":{"researcher":{"@type":"User","name":"researcher","domainId":"#link-domain","description":"M1 email agent","credentials":{"0":{"@type":"Password","secret":"researcher-dev-password-2026!"}}},"demo-user":{"@type":"User","name":"demo-user","domainId":"#link-domain","description":"M1 email demo sender","credentials":{"0":{"@type":"Password","secret":"demo-user-dev-password-2026!"}}}}}
-    {"@type":"update","object":"SystemSettings","value":{"defaultDomainId":"#link-domain","defaultHostname":"mail.link.test"}}
+    {"@type":"upsert","object":"Domain","matchOn":["name"],"value":{"mail-domain":{"name":"outfitter.test","description":"Agent Operator development mail"}}}
+    {"@type":"upsert","object":"Account","matchOn":["name","domainId"],"value":{"researcher":{"@type":"User","name":"researcher","domainId":"#mail-domain","description":"M1 email agent","credentials":{"0":{"@type":"Password","secret":"researcher-dev-password-2026!"}}},"demo-user":{"@type":"User","name":"demo-user","domainId":"#mail-domain","description":"M1 email demo sender","credentials":{"0":{"@type":"Password","secret":"demo-user-dev-password-2026!"}}}}}
+    {"@type":"update","object":"SystemSettings","value":{"defaultDomainId":"#mail-domain","defaultHostname":"mail.outfitter.test"}}
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: stalwart-headless
-  namespace: link-system
+  namespace: agent-system
   labels:
     app.kubernetes.io/name: stalwart
-    app.kubernetes.io/part-of: link-operator
+    app.kubernetes.io/part-of: agent-operator
 spec:
   clusterIP: None
   selector:
@@ -60,10 +60,10 @@ apiVersion: v1
 kind: Service
 metadata:
   name: stalwart
-  namespace: link-system
+  namespace: agent-system
   labels:
     app.kubernetes.io/name: stalwart
-    app.kubernetes.io/part-of: link-operator
+    app.kubernetes.io/part-of: agent-operator
 spec:
   selector:
     app.kubernetes.io/name: stalwart
@@ -76,10 +76,10 @@ apiVersion: v1
 kind: Service
 metadata:
   name: stalwart-bootstrap
-  namespace: link-system
+  namespace: agent-system
   labels:
     app.kubernetes.io/name: stalwart
-    app.kubernetes.io/part-of: link-operator
+    app.kubernetes.io/part-of: agent-operator
 spec:
   publishNotReadyAddresses: true
   selector:
@@ -93,10 +93,10 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: stalwart
-  namespace: link-system
+  namespace: agent-system
   labels:
     app.kubernetes.io/name: stalwart
-    app.kubernetes.io/part-of: link-operator
+    app.kubernetes.io/part-of: agent-operator
 spec:
   serviceName: stalwart-headless
   replicas: 1
@@ -107,7 +107,7 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/name: stalwart
-        app.kubernetes.io/part-of: link-operator
+        app.kubernetes.io/part-of: agent-operator
     spec:
       securityContext:
         fsGroup: 2000
@@ -122,7 +122,7 @@ spec:
             - /etc/stalwart/config.json
           env:
             - name: STALWART_PUBLIC_URL
-              value: http://stalwart.link-system.svc.cluster.local:8080
+              value: http://stalwart.agent-system.svc.cluster.local:8080
             - name: STALWART_RECOVERY_ADMIN
               valueFrom:
                 secretKeyRef:
@@ -170,7 +170,7 @@ spec:
         name: data
         labels:
           app.kubernetes.io/name: stalwart
-          app.kubernetes.io/part-of: link-operator
+          app.kubernetes.io/part-of: agent-operator
       spec:
         accessModes:
           - ReadWriteOnce
@@ -182,10 +182,10 @@ apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: stalwart-no-internet-egress
-  namespace: link-system
+  namespace: agent-system
   labels:
     app.kubernetes.io/name: stalwart
-    app.kubernetes.io/part-of: link-operator
+    app.kubernetes.io/part-of: agent-operator
 spec:
   podSelector:
     matchLabels:

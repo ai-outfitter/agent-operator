@@ -1,4 +1,4 @@
-# link-operator — the Kubernetes controller manager.
+# agent-operator — the Kubernetes controller manager.
 #
 # NOTE (in-env): replace `vendorHash` with the value reported by the first
 # `nix build .#operator`. Requires a nixpkgs pin that ships Go 1.26 (the module
@@ -6,7 +6,7 @@
 { lib, buildGoModule }:
 
 buildGoModule {
-  pname = "link-operator";
+  pname = "agent-operator";
   version = "0.1.0";
 
   # Kubernetes manifests and local build artifacts do not affect the Go
@@ -31,7 +31,7 @@ buildGoModule {
   '';
 
   meta = {
-    description = "Link Operator Kubernetes controller";
+    description = "Agent Operator Kubernetes controller";
     mainProgram = "manager";
   };
 }

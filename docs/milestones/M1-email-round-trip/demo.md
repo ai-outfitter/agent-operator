@@ -6,8 +6,8 @@ restart durability. It does not claim that the M2 paper-research workflow runs.
 
 ## Demonstrated behavior
 
-The sender `demo-user@link.test` submits one plain-text message to
-`researcher@link.test` through Stalwart JMAP. The agent observes the message,
+The sender `demo-user@outfitter.test` submits one plain-text message to
+`researcher@outfitter.test` through Stalwart JMAP. The agent observes the message,
 the generic loop wakes the resident Pi session, and the `mail` skill uses `xin`
 to submit a threaded reply before moving the original from `INBOX` to
 `Processed`. The verifier checks the reply and mailbox state again after
@@ -20,8 +20,8 @@ restarting the agent Deployment.
 - The developer's `$HOME/.pi` directory. Copying this directory into the agent
   PVC is a required part of the scenario.
 - The deterministic local-only Stalwart accounts:
-  - `researcher@link.test`
-  - `demo-user@link.test`
+  - `researcher@outfitter.test`
+  - `demo-user@outfitter.test`
 
 The demo uses local development credentials declared by the isolated cluster
 fixture. It does not send mail to the Internet.
@@ -46,15 +46,15 @@ devenv tasks run demo:m1
    then unblock the agent Deployment.
 5. Restart the Deployment so the current locally imported image is running.
 6. Wait for the initial empty work survey to settle, then submit a
-   uniquely-subjected plain-text probe from `demo-user@link.test` to
-   `researcher@link.test` and record Stalwart's generated Message-ID.
+   uniquely-subjected plain-text probe from `demo-user@outfitter.test` to
+   `researcher@outfitter.test` and record Stalwart's generated Message-ID.
 7. Let a later one-minute scheduled wakeup discover the probe, then authenticate
    to the sender's JMAP account and require exactly one matching
    reply with:
 
    ```text
-   From: M1 researcher agent <researcher@link.test>
-   To: demo-user@link.test
+   From: M1 researcher agent <researcher@outfitter.test>
+   To: demo-user@outfitter.test
    Subject: Re: <probe subject>
    In-Reply-To: <probe Message-ID>
    References: <probe Message-ID>
@@ -71,7 +71,7 @@ devenv tasks run demo:m1
 ## Evidence
 
 The task MUST retain these ignored artifacts under
-`.devenv/state/link-cluster/shared/evidence/m1-email-flow/`:
+`.devenv/state/agent-cluster/shared/evidence/m1-email-flow/`:
 
 - `subject.txt` and `probe-message-id.txt` for the unique probe;
 - `initial-loop.jsonl`, proving the startup survey settled before the probe;

@@ -40,7 +40,7 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
 }
 
 child.on("error", (error) => {
-	console.error(`link-agent: failed to start Pi: ${error.message}`);
+	console.error(`agent-runtime: failed to start Pi: ${error.message}`);
 	process.exit(1);
 });
 child.on("exit", (code, signal) => {

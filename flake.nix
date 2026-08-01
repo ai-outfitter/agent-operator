@@ -1,5 +1,5 @@
 {
-  description = "Link Operator — operator and agent-runtime packages";
+  description = "Agent Operator — operator and agent-runtime packages";
 
   # Pinned to the same nixos-unstable rev already locked in devenv.lock so the
   # flake and the dev cluster share one nixpkgs.

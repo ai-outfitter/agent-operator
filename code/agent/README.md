@@ -71,7 +71,7 @@ Optional runtime configuration:
 
 - `OUTFITTER_CHANNELS` — explicit comma-separated channel selection. The mail
   demo sets `jmap`; composed resident agents can set `jmap,slack`.
-- `LINK_MAIL_PROCESSED` (default `Processed`) — target mailbox for processed mail
+- `AGENT_MAIL_PROCESSED` (default `Processed`) — target mailbox for processed mail
   (supplied by the demo runtime ConfigMap to both containers).
 
 Channels is built by Nix into Outfitter's extension-cache layout. The

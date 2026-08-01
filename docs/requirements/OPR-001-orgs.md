@@ -10,7 +10,7 @@ tool. `Organization` and `Agent` are the only top-level CRDs in this system. See
 ## OPR-001.1: API identity and scope
 
 `Organization` MUST be a cluster-scoped resource served as
-`link.aioutfitter.com/v1alpha1`, kind `Organization`. Its Kubernetes object name
+`aioutfitter.com/v1alpha1`, kind `Organization`. Its Kubernetes object name
 MUST be a DNS label and is the stable identifier referenced by agents.
 
 Deletion MUST use a finalizer while operator-owned resources still require
@@ -77,7 +77,7 @@ reconciliation.
 ## Example
 
 ```yaml
-apiVersion: link.aioutfitter.com/v1alpha1
+apiVersion: aioutfitter.com/v1alpha1
 kind: Organization
 metadata:
   name: ai-outfitter
@@ -89,8 +89,8 @@ spec:
       uri: ssh://git@example.test/ai-outfitter/wiki.git
       defaultBranch: main
   agentCatalogs:
-    - name: link-operator-agents
-      github: ncrmro/link-operator
+    - name: agent-operator-agents
+      github: ncrmro/agent-operator
       # Replace with the commit containing the reviewed .agents payload.
       revision: 0123456789abcdef0123456789abcdef01234567
       path: .agents

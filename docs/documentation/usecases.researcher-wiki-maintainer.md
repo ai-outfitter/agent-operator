@@ -3,7 +3,7 @@
 This is the target composition for
 [M2: Email Paper Research](../milestones/M2-email-paper-research/task.md).
 
-An example composition over the Link Operator [primitives](../architecture.md): an
+An example composition over the Agent Operator [primitives](../architecture.md): an
 agent that watches an email inbox, ingests emailed research papers into an
 organization's wiki, and replies in-thread with a source-traceable commit. Email
 is its **channel**; the `wiki` and `source-ingest` skills are its **tools**. A
@@ -36,8 +36,8 @@ local development.
 The mail skill and `xin` CLI use this `email.env` contract:
 
 ```dotenv
-XIN_BASE_URL=http://stalwart.link-system.svc.cluster.local:8080
-XIN_BASIC_USER=researcher@link.test
+XIN_BASE_URL=http://stalwart.agent-system.svc.cluster.local:8080
+XIN_BASIC_USER=researcher@outfitter.test
 XIN_BASIC_PASS=REPLACE_ME
 ```
 

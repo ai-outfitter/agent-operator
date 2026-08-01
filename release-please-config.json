@@ -2,7 +2,7 @@
   "packages": {
     ".": {
       "release-type": "simple",
-      "package-name": "link-operator",
+      "package-name": "agent-operator",
       "include-v-in-tag": true,
       "bump-minor-pre-major": true,
       "changelog-path": "CHANGELOG.md"

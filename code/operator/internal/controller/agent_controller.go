@@ -23,7 +23,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	linkv1alpha1 "github.com/ncrmro/link-operator/code/operator/api/v1alpha1"
+	aioutfitterv1alpha1 "github.com/ai-outfitter/agent-operator/code/operator/api/v1alpha1"
 )
 
 const (
@@ -34,13 +34,13 @@ const (
 )
 
 var agentConditionOrder = []string{
-	linkv1alpha1.AgentConditionAccepted,
-	linkv1alpha1.AgentConditionNamespaceReady,
-	linkv1alpha1.AgentConditionWorkspaceReady,
-	linkv1alpha1.AgentConditionCredentialsReady,
-	linkv1alpha1.AgentConditionOutfitterSettingsReady,
-	linkv1alpha1.AgentConditionWorkloadReady,
-	linkv1alpha1.AgentConditionReady,
+	aioutfitterv1alpha1.AgentConditionAccepted,
+	aioutfitterv1alpha1.AgentConditionNamespaceReady,
+	aioutfitterv1alpha1.AgentConditionWorkspaceReady,
+	aioutfitterv1alpha1.AgentConditionCredentialsReady,
+	aioutfitterv1alpha1.AgentConditionOutfitterSettingsReady,
+	aioutfitterv1alpha1.AgentConditionWorkloadReady,
+	aioutfitterv1alpha1.AgentConditionReady,
 }
 
 // AgentReconciler reconciles an Agent object.
@@ -52,10 +52,10 @@ type AgentReconciler struct {
 	OutfitterRevision string
 }
 
-// +kubebuilder:rbac:groups=link.aioutfitter.com,resources=agents,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=link.aioutfitter.com,resources=agents/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=link.aioutfitter.com,resources=agents/finalizers,verbs=update
-// +kubebuilder:rbac:groups=link.aioutfitter.com,resources=organizations,verbs=get;list;watch
+// +kubebuilder:rbac:groups=aioutfitter.com,resources=agents,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=aioutfitter.com,resources=agents/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=aioutfitter.com,resources=agents/finalizers,verbs=update
+// +kubebuilder:rbac:groups=aioutfitter.com,resources=organizations,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=serviceaccounts;resourcequotas;limitranges;persistentvolumeclaims,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get
@@ -66,16 +66,16 @@ type AgentReconciler struct {
 
 // Reconcile materializes the agent's namespace workspace and runtime.
 func (r *AgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	agent := &linkv1alpha1.Agent{}
+	agent := &aioutfitterv1alpha1.Agent{}
 	if err := r.Get(ctx, req.NamespacedName, agent); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	if !agent.DeletionTimestamp.IsZero() {
 		return r.finalizeAgent(ctx, agent)
 	}
-	if !controllerutil.ContainsFinalizer(agent, linkv1alpha1.AgentFinalizer) {
+	if !controllerutil.ContainsFinalizer(agent, aioutfitterv1alpha1.AgentFinalizer) {
 		base := agent.DeepCopy()
-		controllerutil.AddFinalizer(agent, linkv1alpha1.AgentFinalizer)
+		controllerutil.AddFinalizer(agent, aioutfitterv1alpha1.AgentFinalizer)
 		if err := r.Patch(ctx, agent, client.MergeFrom(base)); err != nil {
 			return ctrl.Result{}, err
 		}
@@ -91,23 +91,23 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		return r.finishAgent(ctx, statusBase, agent, ctrl.Result{}, err)
 	}
 	if validationMessage != "" {
-		setAgentCondition(agent, linkv1alpha1.AgentConditionAccepted, metav1.ConditionFalse, "InvalidSpecification", validationMessage)
-		blockAgentConditions(agent, linkv1alpha1.AgentConditionNamespaceReady, "NotAccepted", "Agent is not accepted")
+		setAgentCondition(agent, aioutfitterv1alpha1.AgentConditionAccepted, metav1.ConditionFalse, "InvalidSpecification", validationMessage)
+		blockAgentConditions(agent, aioutfitterv1alpha1.AgentConditionNamespaceReady, "NotAccepted", "Agent is not accepted")
 		return r.finishAgent(ctx, statusBase, agent, ctrl.Result{}, nil)
 	}
-	setAgentCondition(agent, linkv1alpha1.AgentConditionAccepted, metav1.ConditionTrue, "Accepted", "Agent specification and membership are valid")
+	setAgentCondition(agent, aioutfitterv1alpha1.AgentConditionAccepted, metav1.ConditionTrue, "Accepted", "Agent specification and membership are valid")
 
 	if err := r.ensureAgentNamespace(ctx, agent); err != nil {
-		setAgentCondition(agent, linkv1alpha1.AgentConditionNamespaceReady, metav1.ConditionFalse, "NamespaceReconcileFailed", "Agent namespace could not be reconciled")
-		blockAgentConditions(agent, linkv1alpha1.AgentConditionWorkspaceReady, "NamespaceNotReady", "Agent namespace is not ready")
+		setAgentCondition(agent, aioutfitterv1alpha1.AgentConditionNamespaceReady, metav1.ConditionFalse, "NamespaceReconcileFailed", "Agent namespace could not be reconciled")
+		blockAgentConditions(agent, aioutfitterv1alpha1.AgentConditionWorkspaceReady, "NamespaceNotReady", "Agent namespace is not ready")
 		return r.finishAgent(ctx, statusBase, agent, ctrl.Result{}, err)
 	}
-	setAgentCondition(agent, linkv1alpha1.AgentConditionNamespaceReady, metav1.ConditionTrue, "Ready", "Agent namespace is ready")
+	setAgentCondition(agent, aioutfitterv1alpha1.AgentConditionNamespaceReady, metav1.ConditionTrue, "Ready", "Agent namespace is ready")
 
 	quota, err := r.ensureWorkspaceResources(ctx, agent)
 	if err != nil {
-		setAgentCondition(agent, linkv1alpha1.AgentConditionWorkspaceReady, metav1.ConditionFalse, "WorkspaceReconcileFailed", "Agent workspace guardrails could not be reconciled")
-		blockAgentConditions(agent, linkv1alpha1.AgentConditionCredentialsReady, "WorkspaceNotReady", "Agent workspace is not ready")
+		setAgentCondition(agent, aioutfitterv1alpha1.AgentConditionWorkspaceReady, metav1.ConditionFalse, "WorkspaceReconcileFailed", "Agent workspace guardrails could not be reconciled")
+		blockAgentConditions(agent, aioutfitterv1alpha1.AgentConditionCredentialsReady, "WorkspaceNotReady", "Agent workspace is not ready")
 		return r.finishAgent(ctx, statusBase, agent, ctrl.Result{}, err)
 	}
 	agent.Status.QuotaHard = quota.Status.Hard.DeepCopy()
@@ -115,23 +115,23 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	if len(agent.Status.QuotaHard) == 0 {
 		agent.Status.QuotaHard = quota.Spec.Hard.DeepCopy()
 	}
-	setAgentCondition(agent, linkv1alpha1.AgentConditionWorkspaceReady, metav1.ConditionTrue, "Ready", "Agent workspace guardrails are ready")
+	setAgentCondition(agent, aioutfitterv1alpha1.AgentConditionWorkspaceReady, metav1.ConditionTrue, "Ready", "Agent workspace guardrails are ready")
 
 	missingCredentials, err := r.missingCredentialReferences(ctx, agent)
 	if err != nil {
-		setAgentCondition(agent, linkv1alpha1.AgentConditionCredentialsReady, metav1.ConditionFalse, "CredentialCheckFailed", "Referenced objects could not be checked")
-		blockAgentConditions(agent, linkv1alpha1.AgentConditionOutfitterSettingsReady, "CredentialsUnknown", "Credential readiness is unknown")
+		setAgentCondition(agent, aioutfitterv1alpha1.AgentConditionCredentialsReady, metav1.ConditionFalse, "CredentialCheckFailed", "Referenced objects could not be checked")
+		blockAgentConditions(agent, aioutfitterv1alpha1.AgentConditionOutfitterSettingsReady, "CredentialsUnknown", "Credential readiness is unknown")
 		return r.finishAgent(ctx, statusBase, agent, ctrl.Result{}, err)
 	}
 	if len(missingCredentials) > 0 {
-		setAgentCondition(agent, linkv1alpha1.AgentConditionCredentialsReady, metav1.ConditionFalse, "ObjectsMissing", "Missing referenced objects: "+strings.Join(missingCredentials, ", "))
+		setAgentCondition(agent, aioutfitterv1alpha1.AgentConditionCredentialsReady, metav1.ConditionFalse, "ObjectsMissing", "Missing referenced objects: "+strings.Join(missingCredentials, ", "))
 	} else {
-		setAgentCondition(agent, linkv1alpha1.AgentConditionCredentialsReady, metav1.ConditionTrue, "Ready", "All referenced objects exist")
+		setAgentCondition(agent, aioutfitterv1alpha1.AgentConditionCredentialsReady, metav1.ConditionTrue, "Ready", "All referenced objects exist")
 	}
 
 	if err := r.ensureOutfitterSettings(ctx, agent, organization); err != nil {
-		setAgentCondition(agent, linkv1alpha1.AgentConditionOutfitterSettingsReady, metav1.ConditionFalse, "SettingsReconcileFailed", "Outfitter settings could not be reconciled")
-		blockAgentConditions(agent, linkv1alpha1.AgentConditionWorkloadReady, "SettingsNotReady", "Outfitter settings are not ready")
+		setAgentCondition(agent, aioutfitterv1alpha1.AgentConditionOutfitterSettingsReady, metav1.ConditionFalse, "SettingsReconcileFailed", "Outfitter settings could not be reconciled")
+		blockAgentConditions(agent, aioutfitterv1alpha1.AgentConditionWorkloadReady, "SettingsNotReady", "Outfitter settings are not ready")
 		return r.finishAgent(ctx, statusBase, agent, ctrl.Result{}, err)
 	}
 	catalogSource := organization.Spec.AgentCatalogs[0]
@@ -139,37 +139,37 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	if catalogSource.Revision != nil {
 		revision = strings.ToLower(*catalogSource.Revision)
 	}
-	agent.Status.CatalogSources = []linkv1alpha1.CatalogSourceStatus{{
+	agent.Status.CatalogSources = []aioutfitterv1alpha1.CatalogSourceStatus{{
 		Name:     catalogSource.Name,
 		Revision: revision,
 	}}
-	setAgentCondition(agent, linkv1alpha1.AgentConditionOutfitterSettingsReady, metav1.ConditionTrue, "Ready", "Outfitter settings contain the pinned source; runtime resolution is delegated to Outfitter")
+	setAgentCondition(agent, aioutfitterv1alpha1.AgentConditionOutfitterSettingsReady, metav1.ConditionTrue, "Ready", "Outfitter settings contain the pinned source; runtime resolution is delegated to Outfitter")
 
 	deployment, err := r.ensureAgentDeployment(ctx, agent, organization)
 	if err != nil {
-		setAgentCondition(agent, linkv1alpha1.AgentConditionWorkloadReady, metav1.ConditionFalse, "WorkloadReconcileFailed", "Agent Deployment could not be reconciled")
-		setAgentCondition(agent, linkv1alpha1.AgentConditionReady, metav1.ConditionFalse, "WorkloadNotReady", "Agent workload is not ready")
+		setAgentCondition(agent, aioutfitterv1alpha1.AgentConditionWorkloadReady, metav1.ConditionFalse, "WorkloadReconcileFailed", "Agent Deployment could not be reconciled")
+		setAgentCondition(agent, aioutfitterv1alpha1.AgentConditionReady, metav1.ConditionFalse, "WorkloadNotReady", "Agent workload is not ready")
 		return r.finishAgent(ctx, statusBase, agent, ctrl.Result{}, err)
 	}
 	if deployment.Status.AvailableReplicas < 1 {
-		setAgentCondition(agent, linkv1alpha1.AgentConditionWorkloadReady, metav1.ConditionFalse, "DeploymentUnavailable", "Agent Deployment has no available replica")
-		setAgentCondition(agent, linkv1alpha1.AgentConditionReady, metav1.ConditionFalse, "WorkloadNotReady", "Agent workload is not ready")
+		setAgentCondition(agent, aioutfitterv1alpha1.AgentConditionWorkloadReady, metav1.ConditionFalse, "DeploymentUnavailable", "Agent Deployment has no available replica")
+		setAgentCondition(agent, aioutfitterv1alpha1.AgentConditionReady, metav1.ConditionFalse, "WorkloadNotReady", "Agent workload is not ready")
 		return r.finishAgent(ctx, statusBase, agent, ctrl.Result{RequeueAfter: credentialPollInterval}, nil)
 	}
-	setAgentCondition(agent, linkv1alpha1.AgentConditionWorkloadReady, metav1.ConditionTrue, "Ready", "Agent Deployment is available")
+	setAgentCondition(agent, aioutfitterv1alpha1.AgentConditionWorkloadReady, metav1.ConditionTrue, "Ready", "Agent Deployment is available")
 	if len(missingCredentials) > 0 {
-		setAgentCondition(agent, linkv1alpha1.AgentConditionReady, metav1.ConditionFalse, "CredentialsNotReady", "Agent references missing objects")
+		setAgentCondition(agent, aioutfitterv1alpha1.AgentConditionReady, metav1.ConditionFalse, "CredentialsNotReady", "Agent references missing objects")
 		return r.finishAgent(ctx, statusBase, agent, ctrl.Result{RequeueAfter: credentialPollInterval}, nil)
 	}
-	setAgentCondition(agent, linkv1alpha1.AgentConditionReady, metav1.ConditionTrue, "Ready", "Agent is ready")
+	setAgentCondition(agent, aioutfitterv1alpha1.AgentConditionReady, metav1.ConditionTrue, "Ready", "Agent is ready")
 
 	return r.finishAgent(ctx, statusBase, agent, ctrl.Result{RequeueAfter: steadyStateInterval}, nil)
 }
 
 func (r *AgentReconciler) validateAgent(
 	ctx context.Context,
-	agent *linkv1alpha1.Agent,
-) (*linkv1alpha1.Organization, string, error) {
+	agent *aioutfitterv1alpha1.Agent,
+) (*aioutfitterv1alpha1.Organization, string, error) {
 	if len(agent.Name) > 57 {
 		return nil, "Agent name must be no longer than 57 characters", nil
 	}
@@ -189,14 +189,14 @@ func (r *AgentReconciler) validateAgent(
 	}
 
 	membership := agent.Spec.Memberships[0]
-	organization := &linkv1alpha1.Organization{}
+	organization := &aioutfitterv1alpha1.Organization{}
 	if err := r.Get(ctx, types.NamespacedName{Name: membership.Organization}, organization); err != nil {
 		if apierrors.IsNotFound(err) {
 			return nil, fmt.Sprintf("Organization %q does not exist", membership.Organization), nil
 		}
 		return nil, "", err
 	}
-	if !apiMeta.IsStatusConditionTrue(organization.Status.Conditions, linkv1alpha1.OrganizationConditionAccepted) {
+	if !apiMeta.IsStatusConditionTrue(organization.Status.Conditions, aioutfitterv1alpha1.OrganizationConditionAccepted) {
 		return organization, fmt.Sprintf("Organization %q is not accepted", membership.Organization), nil
 	}
 	projects := make(map[string]struct{}, len(organization.Spec.Projects))
@@ -213,7 +213,7 @@ func (r *AgentReconciler) validateAgent(
 
 func (r *AgentReconciler) missingCredentialReferences(
 	ctx context.Context,
-	agent *linkv1alpha1.Agent,
+	agent *aioutfitterv1alpha1.Agent,
 ) ([]string, error) {
 	reader := r.APIReader
 	if reader == nil {
@@ -237,7 +237,7 @@ func (r *AgentReconciler) missingCredentialReferences(
 	return missing, nil
 }
 
-func credentialObject(reference linkv1alpha1.CredentialReference) (string, string) {
+func credentialObject(reference aioutfitterv1alpha1.CredentialReference) (string, string) {
 	if reference.Secret != nil {
 		return *reference.Secret, credentialKindSecret
 	}
@@ -247,8 +247,8 @@ func credentialObject(reference linkv1alpha1.CredentialReference) (string, strin
 	return "", "Unknown"
 }
 
-func (r *AgentReconciler) finalizeAgent(ctx context.Context, agent *linkv1alpha1.Agent) (ctrl.Result, error) {
-	if !controllerutil.ContainsFinalizer(agent, linkv1alpha1.AgentFinalizer) {
+func (r *AgentReconciler) finalizeAgent(ctx context.Context, agent *aioutfitterv1alpha1.Agent) (ctrl.Result, error) {
+	if !controllerutil.ContainsFinalizer(agent, aioutfitterv1alpha1.AgentFinalizer) {
 		return ctrl.Result{}, nil
 	}
 	namespace := &corev1.Namespace{}
@@ -265,7 +265,7 @@ func (r *AgentReconciler) finalizeAgent(ctx context.Context, agent *linkv1alpha1
 		return ctrl.Result{}, err
 	}
 	base := agent.DeepCopy()
-	controllerutil.RemoveFinalizer(agent, linkv1alpha1.AgentFinalizer)
+	controllerutil.RemoveFinalizer(agent, aioutfitterv1alpha1.AgentFinalizer)
 	return ctrl.Result{}, r.Patch(ctx, agent, client.MergeFrom(base))
 }
 
@@ -299,7 +299,7 @@ func hasComputeDefaults(resources corev1.ResourceList) bool {
 	return cpuFound && memoryFound && cpu.Sign() > 0 && memory.Sign() > 0
 }
 
-func storageQuotaValidationMessage(agent *linkv1alpha1.Agent) string {
+func storageQuotaValidationMessage(agent *aioutfitterv1alpha1.Agent) string {
 	workspaceSize := agent.Spec.Workspace.Volume.Size.DeepCopy()
 	if workspaceSize.IsZero() {
 		workspaceSize = defaultWorkspaceSize.DeepCopy()
@@ -321,7 +321,7 @@ func storageQuotaValidationMessage(agent *linkv1alpha1.Agent) string {
 }
 
 func setAgentCondition(
-	agent *linkv1alpha1.Agent,
+	agent *aioutfitterv1alpha1.Agent,
 	conditionType string,
 	status metav1.ConditionStatus,
 	reason string,
@@ -336,7 +336,7 @@ func setAgentCondition(
 	})
 }
 
-func blockAgentConditions(agent *linkv1alpha1.Agent, from, reason, message string) {
+func blockAgentConditions(agent *aioutfitterv1alpha1.Agent, from, reason, message string) {
 	start := slices.Index(agentConditionOrder, from)
 	if start < 0 {
 		return
@@ -348,8 +348,8 @@ func blockAgentConditions(agent *linkv1alpha1.Agent, from, reason, message strin
 
 func (r *AgentReconciler) finishAgent(
 	ctx context.Context,
-	base *linkv1alpha1.Agent,
-	agent *linkv1alpha1.Agent,
+	base *aioutfitterv1alpha1.Agent,
+	agent *aioutfitterv1alpha1.Agent,
 	result ctrl.Result,
 	reconcileErr error,
 ) (ctrl.Result, error) {
@@ -376,7 +376,7 @@ func (r *AgentReconciler) mapOrganization(
 	ctx context.Context,
 	object client.Object,
 ) []reconcile.Request {
-	agents := &linkv1alpha1.AgentList{}
+	agents := &aioutfitterv1alpha1.AgentList{}
 	if err := r.List(ctx, agents); err != nil {
 		return nil
 	}
@@ -396,8 +396,8 @@ func (r *AgentReconciler) mapOrganization(
 func (r *AgentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	managed := handler.EnqueueRequestsFromMapFunc(r.mapManagedResource)
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&linkv1alpha1.Agent{}).
-		Watches(&linkv1alpha1.Organization{}, handler.EnqueueRequestsFromMapFunc(r.mapOrganization)).
+		For(&aioutfitterv1alpha1.Agent{}).
+		Watches(&aioutfitterv1alpha1.Organization{}, handler.EnqueueRequestsFromMapFunc(r.mapOrganization)).
 		Watches(&corev1.Namespace{}, managed).
 		Watches(&corev1.ServiceAccount{}, managed).
 		Watches(&corev1.ResourceQuota{}, managed).
