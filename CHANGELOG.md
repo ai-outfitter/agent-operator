@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.3.0](https://github.com/ai-outfitter/agent-operator/compare/link-operator-v0.2.3...link-operator-v0.3.0) (2026-08-03)
+
+
+### Features
+
+* add a Chrome DevTools browser sidecar to agent Pods ([#19](https://github.com/ai-outfitter/agent-operator/issues/19)) ([7abf52e](https://github.com/ai-outfitter/agent-operator/commit/7abf52ea38fb76404ba77742b1344c733b6f7126))
+* add agent session gateway support ([#10](https://github.com/ai-outfitter/agent-operator/issues/10)) ([a8ab147](https://github.com/ai-outfitter/agent-operator/commit/a8ab1475d0ef6810ee9a4a2cd62c2a571812a247))
+* allow agents to select runtime images ([#14](https://github.com/ai-outfitter/agent-operator/issues/14)) ([69535bf](https://github.com/ai-outfitter/agent-operator/commit/69535bf7bf5f785abfdc1ef2a5a7afe0eaf3ab53))
+
+
+### Bug Fixes
+
+* **operator:** harden the browser sidecar — token isolation, digest pin, regression tests ([#22](https://github.com/ai-outfitter/agent-operator/issues/22)) ([4d4e5b6](https://github.com/ai-outfitter/agent-operator/commit/4d4e5b6ef8a9b72512b65847d2a3b3a2a096b84c))
+* run headless-shell directly, bypassing the image entrypoint ([#21](https://github.com/ai-outfitter/agent-operator/issues/21)) ([173362c](https://github.com/ai-outfitter/agent-operator/commit/173362cd3910cf4aa5775960acaa3a53cacef5ce))
+
 ## [0.2.3](https://github.com/ai-outfitter/link-operator/compare/link-operator-v0.2.2...link-operator-v0.2.3) (2026-07-25)
 
 
