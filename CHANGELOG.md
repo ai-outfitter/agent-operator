@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/ai-outfitter/agent-operator/compare/link-operator-v0.3.0...link-operator-v0.3.1) (2026-08-03)
+
+
+### Bug Fixes
+
+* **ci:** give the image publish job devenv's binary cache ([#24](https://github.com/ai-outfitter/agent-operator/issues/24)) ([1cb64dc](https://github.com/ai-outfitter/agent-operator/commit/1cb64dcbd1f15f2ad736ee1c5c665c4de66f3b94))
+
 ## [0.3.0](https://github.com/ai-outfitter/agent-operator/compare/link-operator-v0.2.3...link-operator-v0.3.0) (2026-08-03)
 
 
