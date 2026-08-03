@@ -34,7 +34,13 @@ if [ "$PI_OFFLINE" = "1" ] || [ "$PI_OFFLINE" = "true" ]; then
   offline_args+=(--offline)
 fi
 
-cd /opt/link
+# Launch from $HOME, not /opt/link. Outfitter's workspace layer is
+# <cwd>/.agents and it outranks every configured source, so running from
+# /opt/link made the image-baked payload shadow the Organization catalog:
+# a catalog-root agents.md could never reach an agent. The baked payload
+# stays available because the operator renders it as the last settings
+# source, where the catalog outranks it file by file.
+cd "$HOME"
 exec outfitter run --strict "${LINK_AGENT_SLUG:-researcher}" -- \
   --mode rpc \
   --continue \
