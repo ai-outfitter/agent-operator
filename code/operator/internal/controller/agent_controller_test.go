@@ -112,6 +112,16 @@ var _ = Describe("Agent Controller", func() {
 		Expect(configVolume.ConfigMap.Optional).To(BeNil())
 		Expect(deployment.Spec.Template.Spec.Containers[0].Image).To(Equal(reconciler.AgentImage))
 
+		// The relay client's identity must survive pod replacement, so it is
+		// operator-projected rather than derived in the runtime. Renaming or
+		// dropping one of these silently breaks agent-to-agent addressing and
+		// strands the local spool, with no error at startup.
+		Expect(deployment.Spec.Template.Spec.Containers[0].Env).To(ContainElements(
+			corev1.EnvVar{Name: "AGENT_ENDPOINT_ID", Value: "link:" + agent.Name},
+			corev1.EnvVar{Name: "AGENT_PRINCIPAL_ID", Value: "link:" + agent.Name},
+			corev1.EnvVar{Name: "AGENT_SPOOL_PATH", Value: "/workspace/.channels/agent"},
+		))
+
 		// Agent-only pods must still get a usable API token: automount is off
 		// pod-wide, replaced by an explicit projection into the agent
 		// container at the well-known path.
