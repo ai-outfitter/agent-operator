@@ -79,6 +79,10 @@ var _ = Describe("Agent Controller", func() {
 		Expect(settingsYAML).To(ContainSubstring("github: " + testCatalogGitHub))
 		Expect(settingsYAML).To(ContainSubstring("ref: " + testCatalogRevision))
 		Expect(settingsYAML).To(ContainSubstring("path: .agents"))
+		// The baked image payload is the LAST source, so the catalog outranks
+		// it wherever both define a resource (the shadow bug this ordering fixes).
+		Expect(settingsYAML).To(ContainSubstring("path: /opt/link/.agents"))
+		Expect(strings.Index(settingsYAML, "path: .agents")).To(BeNumerically("<", strings.Index(settingsYAML, "path: /opt/link/.agents")))
 
 		actual := &linkv1alpha1.Agent{}
 		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: agent.Name}, actual)).To(Succeed())

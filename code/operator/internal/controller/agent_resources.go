@@ -34,6 +34,11 @@ const (
 	NixStoreName    = "agent-nix-store"
 	NixMount        = "/nix"
 	HomeEnvName     = "HOME"
+	// BakedCatalogPath is the agent image's built-in Outfitter payload. The
+	// entrypoint launches from $HOME, so this directory only enters the layer
+	// stack through the trailing settings source rendered below — never as
+	// the implicit workspace layer that would shadow the Organization catalog.
+	BakedCatalogPath = "/opt/link/.agents"
 )
 
 var defaultWorkspaceSize = resource.MustParse("10Gi")
@@ -339,7 +344,13 @@ func (r *AgentReconciler) ensureOutfitterSettings(
 		DefaultAgent:   agent.Spec.Profile.Agent,
 		DefaultHarness: agent.Spec.Profile.Harness,
 		CacheDirectory: path.Join(WorkspaceMount, ".agents-cache"),
-		Sources:        []outfitterSource{source},
+		// The baked payload trails the catalog: the entrypoint launches from
+		// $HOME so the image's /opt/link/.agents is no longer the implicit
+		// workspace layer (which outranks every source and shadowed the
+		// catalog's root files). Rendering it as the LAST source keeps its
+		// root system-prompt.md, skills, and the researcher fallback agent
+		// resolvable while the catalog wins wherever both define a resource.
+		Sources: []outfitterSource{source, {Path: BakedCatalogPath}},
 	})
 	if err != nil {
 		return err
