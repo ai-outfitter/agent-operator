@@ -75,26 +75,20 @@ type BrowserSpec struct {
 	// +optional
 	Enabled bool `json:"enabled,omitempty"`
 
-	// Image runs headless Chromium. Unless command is set, the operator runs
-	// the Chromium binary at /headless-shell/headless-shell directly — the
-	// image entrypoint is bypassed so no wrapper can re-expose the DevTools
-	// listener off loopback — and that binary must accept Chrome flags as
-	// arguments (the operator passes --remote-debugging-address/-port,
-	// --no-sandbox, --disable-gpu, --disable-dev-shm-usage,
-	// --user-data-dir). An image whose Chromium binary lives elsewhere must
-	// set command. When omitted, the operator's digest-pinned default browser
+	// Image must place its Chromium binary at /headless-shell/headless-shell
+	// and accept Chrome flags as arguments (the operator passes
+	// --remote-debugging-address/-port, --no-sandbox, --disable-gpu,
+	// --disable-dev-shm-usage, --user-data-dir). The operator always runs
+	// that path directly rather than the image entrypoint, deliberately and
+	// without an override: the upstream headless-shell entrypoint starts a
+	// forwarder that publishes the DevTools listener on 0.0.0.0, and CDP is
+	// unauthenticated full browser control, so an entrypoint must never
+	// choose the listener address. Images with another layout are not
+	// supported. When omitted, the operator's digest-pinned default browser
 	// image is used.
 	// +optional
 	// +kubebuilder:validation:MinLength=1
 	Image string `json:"image,omitempty"`
-
-	// Command overrides the sidecar container entrypoint. It must start a
-	// Chromium that accepts the Chrome flags listed on image, and it must
-	// keep the DevTools listener on loopback. When omitted,
-	// /headless-shell/headless-shell is run directly.
-	// +optional
-	// +listType=atomic
-	Command []string `json:"command,omitempty"`
 
 	// Resources for the sidecar container. When omitted, the workspace
 	// LimitRange defaults apply. The sidecar counts against the agent

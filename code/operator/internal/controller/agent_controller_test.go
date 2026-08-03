@@ -126,6 +126,23 @@ var _ = Describe("Agent Controller", func() {
 				break
 			}
 		}
+		// Setup steps are user bootstrap and could always reach the API
+		// server; turning automount off must not silently take that away.
+		// seed-nix-store stays without a token — it only copies store paths.
+		for _, initContainer := range deployment.Spec.Template.Spec.InitContainers {
+			mountNames := []string{}
+			for _, mount := range initContainer.VolumeMounts {
+				mountNames = append(mountNames, mount.Name)
+			}
+			if strings.HasPrefix(initContainer.Name, "setup-") {
+				Expect(mountNames).To(ContainElement(APITokenVolumeName),
+					"setup init container %s lost API access", initContainer.Name)
+			} else {
+				Expect(mountNames).NotTo(ContainElement(APITokenVolumeName),
+					"init container %s should not carry the API token", initContainer.Name)
+			}
+		}
+
 		Expect(tokenVolume).NotTo(BeNil())
 		Expect(tokenVolume.Projected).NotTo(BeNil())
 		var hasTokenSource bool

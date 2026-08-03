@@ -346,6 +346,12 @@ func (r *AgentReconciler) ensureAgentDeployment(
 			mounts = append(mounts,
 				corev1.VolumeMount{Name: WorkspaceName, MountPath: WorkspaceMount},
 				corev1.VolumeMount{Name: NixStoreName, MountPath: NixMount},
+				// Setup scripts are user-supplied bootstrap and could always
+				// reach the API server; pod-wide automount is off, so the
+				// projection has to be mounted explicitly to preserve that.
+				// seed-nix-store is deliberately excluded: it only copies the
+				// image's store closure onto the PVC.
+				corev1.VolumeMount{Name: APITokenVolumeName, MountPath: APITokenMountPath, ReadOnly: true},
 			)
 			initContainers = append(initContainers, corev1.Container{
 				Name:            "setup-" + step.Name,
@@ -482,15 +488,14 @@ func browserSidecar(browser *linkv1alpha1.BrowserSpec) corev1.Container {
 	if image == "" {
 		image = defaultBrowserImage
 	}
-	command := browser.Command
-	if len(command) == 0 {
-		command = defaultBrowserCommand
-	}
 	return corev1.Container{
 		Name:            BrowserName,
 		Image:           image,
 		ImagePullPolicy: corev1.PullIfNotPresent,
-		Command:         command,
+		// Not overridable by the Agent author: the upstream entrypoint
+		// publishes CDP on 0.0.0.0, and CDP is unauthenticated full browser
+		// control, so the listener address is the operator's decision alone.
+		Command: defaultBrowserCommand,
 		Args: []string{
 			"--remote-debugging-address=127.0.0.1",
 			fmt.Sprintf("--remote-debugging-port=%d", BrowserCDPPort),
