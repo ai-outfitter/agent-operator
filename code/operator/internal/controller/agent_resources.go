@@ -59,9 +59,17 @@ const (
 var apiTokenExpirationSeconds = ptr.To[int64](3607)
 
 // defaultBrowserImage runs headless Chromium with no services of its own; the
-// operator supplies every flag. Pinned so an operator upgrade, not a registry
-// tag move, is what changes the browser.
-const defaultBrowserImage = "docker.io/chromedp/headless-shell:151.0.7922.72"
+// operator supplies every flag. Pinned by digest so an operator upgrade, not a
+// registry tag move, is what changes the browser. The tag is kept for
+// readability; the digest is what the runtime resolves.
+const defaultBrowserImage = "docker.io/chromedp/headless-shell:151.0.7922.72" +
+	"@sha256:c65aef2b8fef5113cb97be8c99f7bf094320ca9b11e511041e6924e516bda0a1"
+
+// defaultBrowserCommand bypasses the image entrypoint: headless-shell's wrapper
+// prepends its own debugging flags and starts a socat forwarder that listens on
+// 0.0.0.0:9222 — exactly the off-pod CDP exposure the sidecar must not have.
+// Running the binary directly keeps the listener loopback.
+var defaultBrowserCommand = []string{"/headless-shell/headless-shell"}
 
 var defaultWorkspaceSize = resource.MustParse("10Gi")
 
@@ -474,15 +482,15 @@ func browserSidecar(browser *linkv1alpha1.BrowserSpec) corev1.Container {
 	if image == "" {
 		image = defaultBrowserImage
 	}
+	command := browser.Command
+	if len(command) == 0 {
+		command = defaultBrowserCommand
+	}
 	return corev1.Container{
 		Name:            BrowserName,
 		Image:           image,
 		ImagePullPolicy: corev1.PullIfNotPresent,
-		// Bypass the image entrypoint: headless-shell's wrapper prepends its
-		// own debugging flags and starts a socat forwarder that listens on
-		// 0.0.0.0:9222 — exactly the off-pod CDP exposure this sidecar must
-		// not have. Running the binary directly keeps the listener loopback.
-		Command: []string{"/headless-shell/headless-shell"},
+		Command:         command,
 		Args: []string{
 			"--remote-debugging-address=127.0.0.1",
 			fmt.Sprintf("--remote-debugging-port=%d", BrowserCDPPort),
