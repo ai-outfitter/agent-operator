@@ -48,6 +48,13 @@ let
       pkgs.gnutar
       pkgs.cacert
       pkgs.nix
+      # Forge CLIs: agents authenticate from deployment-provided env
+      # (GITHUB_TOKEN/GH_TOKEN for gh) or a profile/setup-written config
+      # (tea, fj). Deployments can override the agent image entirely, so
+      # this is the convenient default set, not a contract.
+      pkgs.gh
+      pkgs.tea
+      pkgs.forgejo-cli
       pkgs.dockerTools.usrBinEnv
       pkgs.dockerTools.binSh
     ];
@@ -314,6 +321,12 @@ in
         test ! -d agents-catalog/extensions
         grep -Fq 'outfitter run --strict "''${LINK_AGENT_SLUG:-researcher}" --' entrypoint.sh
         grep -Fq 'export PI_OFFLINE=1' entrypoint.sh
+        grep -Fq 'PI_CODING_AGENT_SESSION_DIR' entrypoint.sh
+        grep -Fq -- '--continue' entrypoint.sh
+        if grep -Fq -- '--no-session' entrypoint.sh; then
+          echo "resident agent entrypoint must persist its Pi session" >&2
+          exit 1
+        fi
         channels_dir=${channels}/outfitter/pi-extensions/git/github.com/ai-outfitter/channels
         test "$(tr -d '\n' < "$channels_dir/REVISION")" = "cac964724f149208a4d0fe2aca39e3e0a234045d"
         test "$(jq -r .name "$channels_dir/package.json")" = "@ai-outfitter/channels"

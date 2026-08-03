@@ -34,6 +34,11 @@ const (
 	NixStoreName    = "agent-nix-store"
 	NixMount        = "/nix"
 	HomeEnvName     = "HOME"
+	// BakedCatalogPath is the agent image's built-in Outfitter payload. The
+	// entrypoint launches from $HOME, so this directory only enters the layer
+	// stack through the trailing settings source rendered below — never as
+	// the implicit workspace layer that would shadow the Organization catalog.
+	BakedCatalogPath = "/opt/link/.agents"
 
 	// BrowserName is the sidecar container serving the Chrome DevTools
 	// Protocol; BrowserCDPURL is where the agent container reaches it over
@@ -305,6 +310,18 @@ func (r *AgentReconciler) ensureAgentDeployment(
 				{Name: "LINK_AGENT_SLUG", Value: agent.Spec.Profile.Agent},
 				{Name: "LINK_AGENT_HARNESS", Value: agent.Spec.Profile.Harness},
 				{Name: "LINK_ORGANIZATION", Value: organization.Name},
+				{
+					Name:  "AGENT_ENDPOINT_ID",
+					Value: "link:" + agent.Name,
+				},
+				{
+					Name:  "AGENT_PRINCIPAL_ID",
+					Value: "link:" + agent.Name,
+				},
+				{
+					Name:  "AGENT_SPOOL_PATH",
+					Value: path.Join(WorkspaceMount, ".channels", "agent"),
+				},
 			},
 			VolumeMounts: []corev1.VolumeMount{
 				{Name: WorkspaceName, MountPath: WorkspaceMount},
@@ -414,7 +431,13 @@ func (r *AgentReconciler) ensureOutfitterSettings(
 		DefaultAgent:   agent.Spec.Profile.Agent,
 		DefaultHarness: agent.Spec.Profile.Harness,
 		CacheDirectory: path.Join(WorkspaceMount, ".agents-cache"),
-		Sources:        []outfitterSource{source},
+		// The baked payload trails the catalog: the entrypoint launches from
+		// $HOME so the image's /opt/link/.agents is no longer the implicit
+		// workspace layer (which outranks every source and shadowed the
+		// catalog's root files). Rendering it as the LAST source keeps its
+		// root system-prompt.md, skills, and the researcher fallback agent
+		// resolvable while the catalog wins wherever both define a resource.
+		Sources: []outfitterSource{source, {Path: BakedCatalogPath}},
 	})
 	if err != nil {
 		return err
