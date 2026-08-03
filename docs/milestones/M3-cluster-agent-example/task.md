@@ -2,7 +2,7 @@
 
 ## Summary
 
-Deploy a released Link Operator to the Unsupervised nonprod Kubernetes cluster
+Deploy a released Agent Operator to the Unsupervised nonprod Kubernetes cluster
 and prove one useful in-cluster composition: a person asks a Slack bot to
 investigate cluster state, the bot uses the Grafana MCP plus read-only Kubernetes
 access, and it replies in the originating Slack thread with a source-attributed
@@ -34,23 +34,23 @@ This milestone intentionally spans two repositories.
 
 | Repository | Owns |
 | --- | --- |
-| `ai-outfitter/link-operator` | Releasable operator and agent images, install artifact, `Organization`/`Agent` examples, Slack/Grafana agent composition, and end-to-end verification |
+| `ai-outfitter/agent-operator` | Releasable operator and agent images, install artifact, `Organization`/`Agent` examples, Slack/Grafana agent composition, and end-to-end verification |
 | `Unsupervisedcom/unsupervised-main` | Nonprod namespace/release declaration, environment-specific values, secret references, read-only investigation RBAC, NetworkPolicy, Grafana endpoint/auth wiring, and deployment validation |
 
 Credentials and environment-specific endpoints belong in the consuming
-`unsupervised-main` deployment or its secret manager, never in the Link Operator
+`unsupervised-main` deployment or its secret manager, never in the Agent Operator
 catalog or this repository.
 
 ## Dependencies to resolve
 
-- Land or supersede `link-operator` branch `feat/slack-channel`. It documents a
+- Land or supersede `agent-operator` branch `feat/slack-channel`. It documents a
   least-privilege polling Slack channel and delegates the `slack-responder` skill
   to `ai-outfitter/community-profiles`.
-- Land or supersede `link-operator` branch
+- Land or supersede `agent-operator` branch
   `docs/usecase-grafana-alert-investigator`. Reuse its Grafana/Kubernetes
   evidence model, but M3 is user-requested through Slack rather than
   Alertmanager-triggered and does not comment on GitHub issues.
-- Pin released revisions of Link Operator, Outfitter, the agent runtime, and the
+- Pin released revisions of Agent Operator, Outfitter, the agent runtime, and the
   community catalog. Do not deploy mutable `main`, `staging`, or `latest`.
 - Confirm the nonprod Grafana API transport and least-privilege authentication
   contract. `unsupervised-main` currently documents developer-side Grafana MCP
@@ -59,7 +59,7 @@ catalog or this repository.
 
 ## Goals and tasks
 
-### 1. Produce deployable, pinned artifacts (`link-operator`)
+### 1. Produce deployable, pinned artifacts (`agent-operator`)
 
 - [ ] Decide and document the shared-cluster install surface (versioned Helm
       chart or versioned rendered manifest); include CRDs, controller RBAC,
@@ -81,7 +81,7 @@ catalog or this repository.
 - [ ] Create a dedicated, clearly labeled namespace/release for the operator and
       a dedicated agent workspace; do not install into `default`, `staging`, or
       `unsupervised-singleton`.
-- [ ] Add the pinned Link Operator install and environment values using the
+- [ ] Add the pinned Agent Operator install and environment values using the
       repository's existing Helm/environment conventions.
 - [ ] Declare only Secret names/keys in Git. Source Slack, model-provider, and
       Grafana credentials from the nonprod secret manager and document rotation.
@@ -92,7 +92,7 @@ catalog or this repository.
       catalog fetch required at startup.
 - [ ] Add a rollback and removal path that removes only M3-owned resources.
 
-### 3. Compose the cluster investigator (`link-operator`)
+### 3. Compose the cluster investigator (`agent-operator`)
 
 - [ ] Add or pin a `cluster-agent` Dotagents agent that composes:
       `slack-responder` as its channel, a read-only cluster-investigation skill,
@@ -118,7 +118,7 @@ catalog or this repository.
       approved nonprod resources and namespaces needed for diagnosis. Do not
       grant `admin`, write verbs, `pods/exec`, `pods/attach`, `secrets`, or
       service-account token reads outside its own operator-managed workspace.
-- [ ] If Link Operator's default namespaced `admin` binding remains necessary for
+- [ ] If Agent Operator's default namespaced `admin` binding remains necessary for
       its workspace, separate that workspace authority from investigation access
       to Unsupervised namespaces and prove the latter is read-only.
 - [ ] Package and launch `grafana/mcp-grafana` as an MCP process inside the agent
@@ -200,7 +200,7 @@ catalog or this repository.
 
 ## Graduation criteria
 
-- [ ] The pinned Link Operator and agent are healthy in Unsupervised nonprod for
+- [ ] The pinned Agent Operator and agent are healthy in Unsupervised nonprod for
       the agreed soak period.
 - [ ] [The demo](demo.md) passes from a clean checkout against
       `unsup-nonprod-engineer`.

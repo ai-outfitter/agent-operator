@@ -35,5 +35,5 @@ is append-only. Original papers are stored through Git LFS.
 - How should candidate links be verified before entering the exploration queue?
 
 The first required workflow is described by
-[[sources/2026-07-19-link-operator-requirements/source|the M1 requirements]].
+[[sources/2026-07-19-agent-operator-requirements/source|the M1 requirements]].
 

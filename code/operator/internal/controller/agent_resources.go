@@ -18,19 +18,19 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/yaml"
 
-	linkv1alpha1 "github.com/ncrmro/link-operator/code/operator/api/v1alpha1"
+	aioutfitterv1alpha1 "github.com/ai-outfitter/agent-operator/code/operator/api/v1alpha1"
 )
 
 const (
-	AgentNameLabel  = "link.aioutfitter.com/agent"
-	AgentUIDLabel   = "link.aioutfitter.com/agent-uid"
+	AgentNameLabel  = "aioutfitter.com/agent"
+	AgentUIDLabel   = "aioutfitter.com/agent-uid"
 	ManagedByLabel  = "app.kubernetes.io/managed-by"
 	RuntimeName     = "agent-runtime"
 	WorkspaceName   = "agent-workspace"
 	LimitRangeName  = "agent-workspace-defaults"
 	SettingsName    = "outfitter-settings"
 	WorkspaceMount  = "/workspace"
-	CredentialsRoot = "/var/run/link/credentials"
+	CredentialsRoot = "/var/run/agent/credentials"
 	NixStoreName    = "agent-nix-store"
 	NixMount        = "/nix"
 	HomeEnvName     = "HOME"
@@ -38,7 +38,16 @@ const (
 	// entrypoint launches from $HOME, so this directory only enters the layer
 	// stack through the trailing settings source rendered below — never as
 	// the implicit workspace layer that would shadow the Organization catalog.
-	BakedCatalogPath = "/opt/link/.agents"
+	BakedCatalogPath = "/opt/agent/.agents"
+
+	// RelayPrincipalPrefix is a wire identity, not a product name: it appears
+	// in every issued relay credential and keys the relay store's acknowledged
+	// cursors. Renaming it without re-minting credentials and migrating that
+	// store makes clients present a checkpoint the server does not recognise,
+	// which hard-loops them — observed in production on 2026-08-03. It is
+	// therefore deliberately excluded from the link → agent rename and tracked
+	// as its own migration.
+	RelayPrincipalPrefix = "link:"
 
 	// BrowserName is the sidecar container serving the Chrome DevTools
 	// Protocol; BrowserCDPURL is where the agent container reaches it over
@@ -100,11 +109,11 @@ touch "$destination_nix/.seeded"`
 
 func agentNamespace(agentName string) string { return "agent-" + agentName }
 
-func ownershipLabels(agent *linkv1alpha1.Agent) map[string]string {
+func ownershipLabels(agent *aioutfitterv1alpha1.Agent) map[string]string {
 	return map[string]string{
 		AgentNameLabel: AgentNameLabelValue(agent.Name),
 		AgentUIDLabel:  string(agent.UID),
-		ManagedByLabel: "link-operator",
+		ManagedByLabel: "agent-operator",
 	}
 }
 
@@ -120,7 +129,7 @@ func mergeLabels(existing, required map[string]string) map[string]string {
 	return existing
 }
 
-func (r *AgentReconciler) ensureAgentNamespace(ctx context.Context, agent *linkv1alpha1.Agent) error {
+func (r *AgentReconciler) ensureAgentNamespace(ctx context.Context, agent *aioutfitterv1alpha1.Agent) error {
 	namespace := &corev1.Namespace{}
 	key := types.NamespacedName{Name: agentNamespace(agent.Name)}
 	if err := r.Get(ctx, key, namespace); client.IgnoreNotFound(err) != nil {
@@ -141,7 +150,7 @@ func (r *AgentReconciler) ensureAgentNamespace(ctx context.Context, agent *linkv
 
 func (r *AgentReconciler) ensureWorkspaceResources(
 	ctx context.Context,
-	agent *linkv1alpha1.Agent,
+	agent *aioutfitterv1alpha1.Agent,
 ) (*corev1.ResourceQuota, error) {
 	namespace := agentNamespace(agent.Name)
 	labels := ownershipLabels(agent)
@@ -267,14 +276,14 @@ func apiTokenVolume() corev1.Volume {
 
 func (r *AgentReconciler) ensureAgentDeployment(
 	ctx context.Context,
-	agent *linkv1alpha1.Agent,
-	organization *linkv1alpha1.Organization,
+	agent *aioutfitterv1alpha1.Agent,
+	organization *aioutfitterv1alpha1.Organization,
 ) (*appsv1.Deployment, error) {
 	namespace := agentNamespace(agent.Name)
 	labels := ownershipLabels(agent)
 	runtimeImage := r.agentImage(agent)
 	selectorLabels := map[string]string{
-		"app.kubernetes.io/name":     "link-agent",
+		"app.kubernetes.io/name":     "agent-runtime",
 		"app.kubernetes.io/instance": agent.Name,
 	}
 	maps.Copy(selectorLabels, labels)
@@ -306,17 +315,17 @@ func (r *AgentReconciler) ensureAgentDeployment(
 			WorkingDir:      WorkspaceMount,
 			Env: []corev1.EnvVar{
 				{Name: HomeEnvName, Value: WorkspaceMount},
-				{Name: "LINK_AGENT", Value: agent.Name},
-				{Name: "LINK_AGENT_SLUG", Value: agent.Spec.Profile.Agent},
-				{Name: "LINK_AGENT_HARNESS", Value: agent.Spec.Profile.Harness},
-				{Name: "LINK_ORGANIZATION", Value: organization.Name},
+				{Name: "AGENT_NAME", Value: agent.Name},
+				{Name: "AGENT_SLUG", Value: agent.Spec.Profile.Agent},
+				{Name: "AGENT_HARNESS", Value: agent.Spec.Profile.Harness},
+				{Name: "AGENT_ORGANIZATION", Value: organization.Name},
 				{
 					Name:  "AGENT_ENDPOINT_ID",
-					Value: "link:" + agent.Name,
+					Value: RelayPrincipalPrefix + agent.Name,
 				},
 				{
 					Name:  "AGENT_PRINCIPAL_ID",
-					Value: "link:" + agent.Name,
+					Value: RelayPrincipalPrefix + agent.Name,
 				},
 				{
 					Name:  "AGENT_SPOOL_PATH",
@@ -414,8 +423,8 @@ type outfitterSource struct {
 
 func (r *AgentReconciler) ensureOutfitterSettings(
 	ctx context.Context,
-	agent *linkv1alpha1.Agent,
-	organization *linkv1alpha1.Organization,
+	agent *aioutfitterv1alpha1.Agent,
+	organization *aioutfitterv1alpha1.Organization,
 ) error {
 	catalogSource := organization.Spec.AgentCatalogs[0]
 	source := outfitterSource{GitHub: catalogSource.GitHub, URI: catalogSource.URI}
@@ -432,7 +441,7 @@ func (r *AgentReconciler) ensureOutfitterSettings(
 		DefaultHarness: agent.Spec.Profile.Harness,
 		CacheDirectory: path.Join(WorkspaceMount, ".agents-cache"),
 		// The baked payload trails the catalog: the entrypoint launches from
-		// $HOME so the image's /opt/link/.agents is no longer the implicit
+		// $HOME so the image's /opt/agent/.agents is no longer the implicit
 		// workspace layer (which outranks every source and shadowed the
 		// catalog's root files). Rendering it as the LAST source keeps its
 		// root system-prompt.md, skills, and the researcher fallback agent
@@ -454,11 +463,11 @@ func (r *AgentReconciler) ensureOutfitterSettings(
 }
 
 func credentialProjection(
-	agent *linkv1alpha1.Agent,
+	agent *aioutfitterv1alpha1.Agent,
 ) (envFrom []corev1.EnvFromSource, mounts []corev1.VolumeMount, volumes []corev1.Volume) {
 	for _, reference := range agent.Spec.Credentials {
 		name, kind := credentialObject(reference)
-		if reference.As == linkv1alpha1.CredentialExposureEnv {
+		if reference.As == aioutfitterv1alpha1.CredentialExposureEnv {
 			envSource := corev1.EnvFromSource{}
 			if kind == credentialKindSecret {
 				envSource.SecretRef = &corev1.SecretEnvSource{LocalObjectReference: corev1.LocalObjectReference{Name: name}}
@@ -506,7 +515,7 @@ const browserDataName = "browser-data"
 // already forces uid/gid 1000, which is why --no-sandbox is required: the
 // Chrome sandbox needs either root-owned helpers or user namespaces, and the
 // agent Pod grants neither. The DevTools listener binds loopback only.
-func browserSidecar(browser *linkv1alpha1.BrowserSpec) corev1.Container {
+func browserSidecar(browser *aioutfitterv1alpha1.BrowserSpec) corev1.Container {
 	image := browser.Image
 	if image == "" {
 		image = defaultBrowserImage
@@ -534,12 +543,12 @@ func browserSidecar(browser *linkv1alpha1.BrowserSpec) corev1.Container {
 	}
 }
 
-func (r *AgentReconciler) agentImage(agent *linkv1alpha1.Agent) string {
+func (r *AgentReconciler) agentImage(agent *aioutfitterv1alpha1.Agent) string {
 	if agent.Spec.Image != "" {
 		return agent.Spec.Image
 	}
 	if r.AgentImage != "" {
 		return r.AgentImage
 	}
-	return "link-agent:dev"
+	return "agent-runtime:dev"
 }

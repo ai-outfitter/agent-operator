@@ -3,7 +3,7 @@ title: Organization
 type: concept
 status: draft
 tags:
-  - system/link-operator
+  - system/agent-operator
   - topic/organization-model
   - topic/wiki
   - topic/agent-catalog
@@ -15,12 +15,12 @@ updated: 2026-07-19
 
 An organization is the ownership and policy boundary for one writable wiki,
 shared commit-pinned agent catalogs, embedded [[Project|projects]], and agent
-membership. In the Link Operator API it is represented by the cluster-scoped
+membership. In the Agent Operator API it is represented by the cluster-scoped
 `Organization` CRD.
 
 The product-facing organization is also the [[Forge Owner|owner]] boundary. It
 maps directly to a GitHub, Forgejo, or compatible forge owner namespace, where
-repositories have the familiar `<owner>/<repository>` identity. Link Operator
+repositories have the familiar `<owner>/<repository>` identity. Agent Operator
 then emphasizes `<owner>/<project>` as the user-facing work hierarchy because a
 project can coordinate many repositories and environments rather than being
 limited to one repository.
@@ -33,7 +33,7 @@ to every project.
 The organization owns catalog declarations, while the
 [[Dotagents Catalog Composition|catalog resources]] determine the actual agent
 definitions and skills. This model is defined by the
-[[sources/2026-07-19-link-operator-requirements/source|M1 requirements]].
+[[sources/2026-07-19-agent-operator-requirements/source|M1 requirements]].
 
 ## Relationships
 

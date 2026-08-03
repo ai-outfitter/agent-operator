@@ -9,7 +9,7 @@ authors:
 publication: Link Operator project design session
 published: 2026-07-19
 tags:
-  - system/link-operator
+  - system/agent-operator
   - evidence/design
   - topic/organization-model
   - topic/agent-runtime

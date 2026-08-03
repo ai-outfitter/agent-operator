@@ -13,7 +13,7 @@ opaque composition.
 ## OPR-003.1: API identity and membership
 
 `Agent` MUST be a cluster-scoped resource served as
-`link.aioutfitter.com/v1alpha1`, kind `Agent`. Its name MUST be a DNS label no
+`aioutfitter.com/v1alpha1`, kind `Agent`. Its name MUST be a DNS label no
 longer than 57 characters so its namespace can be `agent-<name>`.
 
 `spec.memberships` MUST be a **list** of `{organization, projects?}` entries with
@@ -174,7 +174,7 @@ it says nothing about channel or tool progress, which is the agent's concern.
 ## Example
 
 ```yaml
-apiVersion: link.aioutfitter.com/v1alpha1
+apiVersion: aioutfitter.com/v1alpha1
 kind: Agent
 metadata:
   name: researcher

@@ -6,7 +6,7 @@ tags:
   - process/email-processing
   - process/source-ingestion
   - method/idempotency
-  - system/link-operator
+  - system/agent-operator
 created: 2026-07-19
 updated: 2026-07-21
 ---
@@ -31,5 +31,5 @@ reply, and mark the source message complete only after JMAP accepts the reply.
 The acceptance demo must redeliver the same message and show that both commit
 count and reply count remain unchanged. This is an M2 requirement, first
 specified in
-[[sources/2026-07-19-link-operator-requirements/source|the initial requirements]];
+[[sources/2026-07-19-agent-operator-requirements/source|the initial requirements]];
 the implementation still needs failure-injection tests at every state boundary.

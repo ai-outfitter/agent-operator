@@ -1,4 +1,4 @@
-# link-operator - AI Agent Guide
+# agent-operator - AI Agent Guide
 
 ## Project Structure
 

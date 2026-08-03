@@ -28,8 +28,8 @@ Kubernetes documents ResourceQuota as limiting aggregate consumption and object
 counts per namespace, rejecting quota violations, and using LimitRange defaults
 when workloads omit compute requests or limits. See
 [[sources/2025-11-20-kubernetes-resource-quotas/source|Kubernetes Resource Quotas documentation]].
-The Link Operator-specific boundary comes from the
-[[sources/2026-07-19-link-operator-requirements/source|M1 requirements]].
+The Agent Operator-specific boundary comes from the
+[[sources/2026-07-19-agent-operator-requirements/source|M1 requirements]].
 
 ## Design consequence
 

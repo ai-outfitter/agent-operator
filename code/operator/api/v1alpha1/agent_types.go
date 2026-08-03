@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	AgentFinalizer = "agents.link.aioutfitter.com/finalizer"
+	AgentFinalizer = "agents.aioutfitter.com/finalizer"
 
 	AgentConditionAccepted               = "Accepted"
 	AgentConditionNamespaceReady         = "NamespaceReady"

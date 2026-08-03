@@ -37,7 +37,7 @@ devenv tasks run operator:install
 `cluster:up` starts a microVM containing single-node k3s, Stalwart (an isolated
 JMAP server for compositions that need mail), and a local image path.
 `operator:install` uses Devenv's container builder to build and load both the
-locked Outfitter/Pi agent image and the Link Operator image, installs the
+locked Outfitter/Pi agent image and the Agent Operator image, installs the
 operator idempotently, and waits until the controller is ready. To build a
 container specification without installing it, run `devenv container build
 agent` or `devenv container build operator`.
@@ -45,7 +45,7 @@ agent` or `devenv container build operator`.
 Confirm the two CRDs are installed:
 
 ```sh
-kubectl api-resources --api-group=link.aioutfitter.com
+kubectl api-resources --api-group=aioutfitter.com
 ```
 
 From here the [quick start](docs/documentation/quick-start.md) and the
@@ -58,7 +58,7 @@ The mail-loop scenario applies a demo `Organization` and `Agent`, copies the
 local `$HOME/.pi` directory directly into the agent's durable volume, starts the
 agent, and submits a uniquely identified message through Stalwart JMAP. It then
 logs back into the sender mailbox and proves exactly one threaded reply has
-the return address `From: researcher@link.test`, `To: demo-user@link.test`, and
+the return address `From: researcher@outfitter.test`, `To: demo-user@outfitter.test`, and
 the original Message-ID in `In-Reply-To`, including after a Deployment restart:
 
 ```sh
@@ -69,7 +69,7 @@ The task never stores the local `.pi` payload in a Kubernetes Secret or committe
 image. It streams the directory through a temporary pod into the researcher PVC,
 deletes the pod, and only then unblocks the agent Deployment. Redacted M1
 evidence is retained under
-`.devenv/state/link-cluster/shared/evidence/m1-email-flow/`.
+`.devenv/state/agent-cluster/shared/evidence/m1-email-flow/`.
 
 This is the complete [M1 acceptance demo](docs/milestones/M1-email-round-trip/demo.md).
 The PDF/wiki/research-response composition is the

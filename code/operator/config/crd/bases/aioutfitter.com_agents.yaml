@@ -4,9 +4,9 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.21.0
-  name: agents.link.aioutfitter.com
+  name: agents.aioutfitter.com
 spec:
-  group: link.aioutfitter.com
+  group: aioutfitter.com
   names:
     kind: Agent
     listKind: AgentList

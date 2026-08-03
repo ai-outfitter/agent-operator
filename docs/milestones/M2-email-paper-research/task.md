@@ -66,7 +66,7 @@ not built yet:
       controller-runtime, and envtest.
 - [x] Establish generation, formatting, lint, unit-test, image-build, and CRD
       manifest checks.
-- [x] Add the two cluster-scoped APIs at `link.aioutfitter.com/v1alpha1` and no
+- [x] Add the two cluster-scoped APIs at `aioutfitter.com/v1alpha1` and no
       other CRDs.
 
 ### 2. Organization reconciliation

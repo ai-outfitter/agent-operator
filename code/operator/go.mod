@@ -1,4 +1,4 @@
-module github.com/ncrmro/link-operator/code/operator
+module github.com/ai-outfitter/agent-operator/code/operator
 
 go 1.26.0
 

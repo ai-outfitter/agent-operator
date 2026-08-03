@@ -4,7 +4,7 @@ resources:
   - ../../code/operator/config/default
 images:
   - name: controller
-    newName: example.invalid/link-operator
+    newName: example.invalid/agent-operator
     digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
 patches:
   - target:
@@ -15,4 +15,4 @@ patches:
     patch: |-
       - op: add
         path: /spec/template/spec/containers/0/args/-
-        value: --agent-image=example.invalid/link-agent@sha256:0000000000000000000000000000000000000000000000000000000000000000
+        value: --agent-image=example.invalid/agent-runtime@sha256:0000000000000000000000000000000000000000000000000000000000000000

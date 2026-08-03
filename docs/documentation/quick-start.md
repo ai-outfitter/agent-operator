@@ -1,6 +1,6 @@
 # Quick start
 
-Link Operator runs composable Dotagents agents on Kubernetes. It provides
+Agent Operator runs composable Dotagents agents on Kubernetes. It provides
 **primitives** — a per-agent namespace workspace, generic secret/config exposure,
 Outfitter settings, and running the agent — and treats what the agent *does* as
 composition. Channels (email, and later GitHub notifications or Signal) and tools
@@ -23,7 +23,7 @@ see the [use cases](usecases.researcher-wiki-maintainer.md).
 To follow this guide you need:
 
 - a Kubernetes cluster and `kubectl` configured for it;
-- the Link Operator installed on that cluster (see step 1); and
+- the Agent Operator installed on that cluster (see step 1); and
 - credentials for the model selected by your Dotagents agent.
 
 To stand up a local cluster with the operator for evaluation or development, see
@@ -42,14 +42,14 @@ resolution inside the runtime.
 
 ## 1. Install the operator
 
-Install the Link Operator into your cluster. A Helm chart is planned; it will
+Install the Agent Operator into your cluster. A Helm chart is planned; it will
 install the controller and the two CRDs. (For a local cluster with the operator
 preinstalled, see [CONTRIBUTING.md](../../CONTRIBUTING.md).)
 
 Confirm that the two CRDs are installed:
 
 ```sh
-kubectl api-resources --api-group=link.aioutfitter.com
+kubectl api-resources --api-group=aioutfitter.com
 ```
 
 The output should contain `organizations` and `agents`, the only two CRDs.

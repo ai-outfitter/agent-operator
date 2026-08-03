@@ -21,7 +21,7 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	linkv1alpha1 "github.com/ncrmro/link-operator/code/operator/api/v1alpha1"
+	aioutfitterv1alpha1 "github.com/ai-outfitter/agent-operator/code/operator/api/v1alpha1"
 )
 
 var _ = Describe("Agent Controller", func() {
@@ -32,9 +32,9 @@ var _ = Describe("Agent Controller", func() {
 		agent := validAgent(uniqueTestName("researcher"), organization.Name)
 		secretName := "model-credentials"
 		configName := "runtime-config"
-		agent.Spec.Credentials = []linkv1alpha1.CredentialReference{
-			{Secret: &secretName, As: linkv1alpha1.CredentialExposureEnv},
-			{ConfigMap: &configName, As: linkv1alpha1.CredentialExposureVolume},
+		agent.Spec.Credentials = []aioutfitterv1alpha1.CredentialReference{
+			{Secret: &secretName, As: aioutfitterv1alpha1.CredentialExposureEnv},
+			{ConfigMap: &configName, As: aioutfitterv1alpha1.CredentialExposureVolume},
 		}
 		Expect(k8sClient.Create(ctx, agent)).To(Succeed())
 		DeferCleanup(removeAgent, ctx, agent.Name)
@@ -43,7 +43,7 @@ var _ = Describe("Agent Controller", func() {
 			Client:            k8sClient,
 			APIReader:         k8sClient,
 			Scheme:            k8sClient.Scheme(),
-			AgentImage:        "example.test/link-agent@sha256:" + strings.Repeat("a", 64),
+			AgentImage:        "example.test/agent-runtime@sha256:" + strings.Repeat("a", 64),
 			OutfitterRevision: "c44205ef35265c893ad9f088772c35c71753bfb7",
 		}
 		request := reconcile.Request{NamespacedName: types.NamespacedName{Name: agent.Name}}
@@ -81,16 +81,16 @@ var _ = Describe("Agent Controller", func() {
 		Expect(settingsYAML).To(ContainSubstring("ref: " + testCatalogRevision))
 		Expect(settingsYAML).To(ContainSubstring("path: .agents"))
 
-		actual := &linkv1alpha1.Agent{}
+		actual := &aioutfitterv1alpha1.Agent{}
 		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: agent.Name}, actual)).To(Succeed())
-		credentialsReady := apiMeta.FindStatusCondition(actual.Status.Conditions, linkv1alpha1.AgentConditionCredentialsReady)
+		credentialsReady := apiMeta.FindStatusCondition(actual.Status.Conditions, aioutfitterv1alpha1.AgentConditionCredentialsReady)
 		Expect(credentialsReady.Status).To(Equal(metav1.ConditionFalse))
 		Expect(credentialsReady.Message).To(ContainSubstring(credentialKindSecret + "/model-credentials"))
 		Expect(credentialsReady.Message).To(ContainSubstring(credentialKindConfig + "/runtime-config"))
-		workloadReady := apiMeta.FindStatusCondition(actual.Status.Conditions, linkv1alpha1.AgentConditionWorkloadReady)
+		workloadReady := apiMeta.FindStatusCondition(actual.Status.Conditions, aioutfitterv1alpha1.AgentConditionWorkloadReady)
 		Expect(workloadReady.Status).To(Equal(metav1.ConditionFalse))
 		Expect(workloadReady.Reason).To(Equal("DeploymentUnavailable"))
-		Expect(apiMeta.IsStatusConditionFalse(actual.Status.Conditions, linkv1alpha1.AgentConditionReady)).To(BeTrue())
+		Expect(apiMeta.IsStatusConditionFalse(actual.Status.Conditions, aioutfitterv1alpha1.AgentConditionReady)).To(BeTrue())
 
 		deployment := &appsv1.Deployment{}
 		Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: namespaceName, Name: RuntimeName}, deployment)).To(Succeed())
@@ -173,7 +173,7 @@ var _ = Describe("Agent Controller", func() {
 		DeferCleanup(removeAgent, ctx, agent.Name)
 
 		reconciler := &AgentReconciler{
-			Client: k8sClient, APIReader: k8sClient, Scheme: k8sClient.Scheme(), AgentImage: "link-agent:default",
+			Client: k8sClient, APIReader: k8sClient, Scheme: k8sClient.Scheme(), AgentImage: "agent-runtime:default",
 		}
 		request := reconcile.Request{NamespacedName: types.NamespacedName{Name: agent.Name}}
 		_, err := reconciler.Reconcile(ctx, request)
@@ -184,7 +184,7 @@ var _ = Describe("Agent Controller", func() {
 		Expect(k8sClient.Get(ctx, deploymentKey, deployment)).To(Succeed())
 		Expect(deployment.Spec.Template.Spec.Containers[0].Image).To(Equal(agent.Spec.Image))
 
-		current := &linkv1alpha1.Agent{}
+		current := &aioutfitterv1alpha1.Agent{}
 		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: agent.Name}, current)).To(Succeed())
 		current.Spec.Image = "example.test/user-owned-agent:v2"
 		Expect(k8sClient.Update(ctx, current)).To(Succeed())
@@ -199,7 +199,7 @@ var _ = Describe("Agent Controller", func() {
 	It("adds a browser sidecar when spec.browser is enabled", func() {
 		organization := createAcceptedOrganization(ctx)
 		agent := validAgent(uniqueTestName("browser"), organization.Name)
-		agent.Spec.Browser = &linkv1alpha1.BrowserSpec{Enabled: true}
+		agent.Spec.Browser = &aioutfitterv1alpha1.BrowserSpec{Enabled: true}
 		Expect(k8sClient.Create(ctx, agent)).To(Succeed())
 		DeferCleanup(removeAgent, ctx, agent.Name)
 
@@ -249,7 +249,7 @@ var _ = Describe("Agent Controller", func() {
 		Expect(volumeNames).To(ContainElement(browserDataName))
 
 		// Disabling the browser removes the sidecar again.
-		current := &linkv1alpha1.Agent{}
+		current := &aioutfitterv1alpha1.Agent{}
 		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: agent.Name}, current)).To(Succeed())
 		current.Spec.Browser = nil
 		Expect(k8sClient.Update(ctx, current)).To(Succeed())
@@ -265,11 +265,11 @@ var _ = Describe("Agent Controller", func() {
 		agent.Spec.Image = "example.test/user-owned-agent:v1"
 		secretName := "model-credentials"
 		configName := "runtime-config"
-		agent.Spec.Credentials = []linkv1alpha1.CredentialReference{
-			{Secret: &secretName, As: linkv1alpha1.CredentialExposureEnv},
-			{ConfigMap: &configName, As: linkv1alpha1.CredentialExposureVolume},
+		agent.Spec.Credentials = []aioutfitterv1alpha1.CredentialReference{
+			{Secret: &secretName, As: aioutfitterv1alpha1.CredentialExposureEnv},
+			{ConfigMap: &configName, As: aioutfitterv1alpha1.CredentialExposureVolume},
 		}
-		agent.Spec.Setup = []linkv1alpha1.SetupStep{
+		agent.Spec.Setup = []aioutfitterv1alpha1.SetupStep{
 			{Name: "wait-for-mail", Script: "echo mail-ready"},
 			{Name: "mail-bootstrap", Script: "echo setup-ready"},
 		}
@@ -277,7 +277,7 @@ var _ = Describe("Agent Controller", func() {
 		DeferCleanup(removeAgent, ctx, agent.Name)
 
 		reconciler := &AgentReconciler{
-			Client: k8sClient, APIReader: k8sClient, Scheme: k8sClient.Scheme(), AgentImage: "link-agent:test",
+			Client: k8sClient, APIReader: k8sClient, Scheme: k8sClient.Scheme(), AgentImage: "agent-runtime:test",
 		}
 		request := reconcile.Request{NamespacedName: types.NamespacedName{Name: agent.Name}}
 		_, err := reconciler.Reconcile(ctx, request)
@@ -304,8 +304,8 @@ var _ = Describe("Agent Controller", func() {
 		Expect(container.Command).To(BeEmpty())
 		Expect(container.Args).To(BeEmpty())
 		Expect(container.Env).To(ContainElements(
-			corev1.EnvVar{Name: "LINK_AGENT_SLUG", Value: "researcher"},
-			corev1.EnvVar{Name: "LINK_AGENT_HARNESS", Value: "pi"},
+			corev1.EnvVar{Name: "AGENT_SLUG", Value: "researcher"},
+			corev1.EnvVar{Name: "AGENT_HARNESS", Value: "pi"},
 		))
 		Expect(container.ReadinessProbe).To(BeNil())
 		Expect(container.EnvFrom).To(ContainElement(corev1.EnvFromSource{
@@ -343,9 +343,9 @@ var _ = Describe("Agent Controller", func() {
 			),
 		})))
 
-		actual := &linkv1alpha1.Agent{}
+		actual := &aioutfitterv1alpha1.Agent{}
 		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: agent.Name}, actual)).To(Succeed())
-		settingsReady := apiMeta.FindStatusCondition(actual.Status.Conditions, linkv1alpha1.AgentConditionOutfitterSettingsReady)
+		settingsReady := apiMeta.FindStatusCondition(actual.Status.Conditions, aioutfitterv1alpha1.AgentConditionOutfitterSettingsReady)
 		Expect(settingsReady.Status).To(Equal(metav1.ConditionTrue))
 		Expect(settingsReady.Reason).To(Equal("Ready"))
 
@@ -356,8 +356,8 @@ var _ = Describe("Agent Controller", func() {
 		_, err = reconciler.Reconcile(ctx, request)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: agent.Name}, actual)).To(Succeed())
-		Expect(apiMeta.IsStatusConditionTrue(actual.Status.Conditions, linkv1alpha1.AgentConditionOutfitterSettingsReady)).To(BeTrue())
-		Expect(apiMeta.IsStatusConditionTrue(actual.Status.Conditions, linkv1alpha1.AgentConditionReady)).To(BeTrue())
+		Expect(apiMeta.IsStatusConditionTrue(actual.Status.Conditions, aioutfitterv1alpha1.AgentConditionOutfitterSettingsReady)).To(BeTrue())
+		Expect(apiMeta.IsStatusConditionTrue(actual.Status.Conditions, aioutfitterv1alpha1.AgentConditionReady)).To(BeTrue())
 	})
 
 	It("rejects storage budgets that cannot hold both persistent claims", func() {
@@ -371,9 +371,9 @@ var _ = Describe("Agent Controller", func() {
 		_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: agent.Name}})
 		Expect(err).NotTo(HaveOccurred())
 
-		actual := &linkv1alpha1.Agent{}
+		actual := &aioutfitterv1alpha1.Agent{}
 		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: agent.Name}, actual)).To(Succeed())
-		accepted := apiMeta.FindStatusCondition(actual.Status.Conditions, linkv1alpha1.AgentConditionAccepted)
+		accepted := apiMeta.FindStatusCondition(actual.Status.Conditions, aioutfitterv1alpha1.AgentConditionAccepted)
 		Expect(accepted.Status).To(Equal(metav1.ConditionFalse))
 		Expect(accepted.Reason).To(Equal("InvalidSpecification"))
 		Expect(accepted.Message).To(ContainSubstring("workspace 10Gi + Nix store 20Gi"))
@@ -437,13 +437,13 @@ var _ = Describe("Agent Controller", func() {
 	})
 })
 
-func createAcceptedOrganization(ctx context.Context) *linkv1alpha1.Organization {
+func createAcceptedOrganization(ctx context.Context) *aioutfitterv1alpha1.Organization {
 	name := uniqueTestName("organization")
 	revision := testCatalogRevision
 	github := testCatalogGitHub
-	organization := &linkv1alpha1.Organization{
+	organization := &aioutfitterv1alpha1.Organization{
 		ObjectMeta: metav1.ObjectMeta{Name: name},
-		Spec: linkv1alpha1.OrganizationSpec{AgentCatalogs: []linkv1alpha1.AgentCatalog{{
+		Spec: aioutfitterv1alpha1.OrganizationSpec{AgentCatalogs: []aioutfitterv1alpha1.AgentCatalog{{
 			Name: testCatalogName, GitHub: &github, Revision: &revision, Path: ".agents",
 		}}},
 	}
@@ -456,14 +456,14 @@ func createAcceptedOrganization(ctx context.Context) *linkv1alpha1.Organization 
 	return organization
 }
 
-func validAgent(name, organization string) *linkv1alpha1.Agent {
-	return &linkv1alpha1.Agent{
+func validAgent(name, organization string) *aioutfitterv1alpha1.Agent {
+	return &aioutfitterv1alpha1.Agent{
 		ObjectMeta: metav1.ObjectMeta{Name: name},
-		Spec: linkv1alpha1.AgentSpec{
-			Memberships: []linkv1alpha1.Membership{{Organization: organization}},
-			Profile:     linkv1alpha1.AgentProfile{Agent: "researcher", Harness: "pi"},
-			Workspace: linkv1alpha1.WorkspaceSpec{
-				ResourceQuota: linkv1alpha1.ResourceQuotaSpec{Hard: corev1.ResourceList{
+		Spec: aioutfitterv1alpha1.AgentSpec{
+			Memberships: []aioutfitterv1alpha1.Membership{{Organization: organization}},
+			Profile:     aioutfitterv1alpha1.AgentProfile{Agent: "researcher", Harness: "pi"},
+			Workspace: aioutfitterv1alpha1.WorkspaceSpec{
+				ResourceQuota: aioutfitterv1alpha1.ResourceQuotaSpec{Hard: corev1.ResourceList{
 					corev1.ResourceRequestsCPU:              resource.MustParse("4"),
 					corev1.ResourceRequestsMemory:           resource.MustParse("8Gi"),
 					corev1.ResourceLimitsCPU:                resource.MustParse("8"),
@@ -476,7 +476,7 @@ func validAgent(name, organization string) *linkv1alpha1.Agent {
 					corev1.ResourceName("count/configmaps"): resource.MustParse("50"),
 					corev1.ResourceName("count/secrets"):    resource.MustParse("20"),
 				}},
-				LimitRange: linkv1alpha1.WorkspaceLimitRangeSpec{Container: linkv1alpha1.ContainerLimitSpec{
+				LimitRange: aioutfitterv1alpha1.WorkspaceLimitRangeSpec{Container: aioutfitterv1alpha1.ContainerLimitSpec{
 					DefaultRequest: corev1.ResourceList{
 						corev1.ResourceCPU: resource.MustParse("100m"), corev1.ResourceMemory: resource.MustParse("128Mi"),
 					},
@@ -490,7 +490,7 @@ func validAgent(name, organization string) *linkv1alpha1.Agent {
 }
 
 func removeAgent(ctx context.Context, name string) {
-	agent := &linkv1alpha1.Agent{}
+	agent := &aioutfitterv1alpha1.Agent{}
 	err := k8sClient.Get(ctx, types.NamespacedName{Name: name}, agent)
 	if apierrors.IsNotFound(err) {
 		return

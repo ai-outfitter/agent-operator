@@ -34,14 +34,14 @@ requirements:
 - A bare writable wiki fixture with the `wiki/` layout, Git LFS enabled, and a
   clean default branch.
 - A known research PDF at `fixtures/m2/seed-paper.pdf`, no larger than 25 MiB.
-- An agent mailbox `researcher@link.test` and sender mailbox
-  `demo-user@link.test`.
+- An agent mailbox `researcher@outfitter.test` and sender mailbox
+  `demo-user@outfitter.test`.
 - A model-provider test Secret suitable for the selected Pi model.
 - The M2 organization and agent examples derived from OPR-001 and OPR-003.
 
 The runtime image is built from Outfitter commit
 `c44205ef35265c893ad9f088772c35c71753bfb7` and uses Dotagents protocol revision
-`502a9d5`. The only M2 catalog is the commit-pinned Link Operator repository,
+`502a9d5`. The only M2 catalog is the commit-pinned Agent Operator repository,
 payload path `.agents`. That payload defines `researcher` and vendors both
 required skills. Its provenance is recorded in `.agents/README.md`.
 
@@ -107,10 +107,10 @@ The task creates a standards-compliant message and submits it through Stalwart's
 JMAP API:
 
 ```text
-From: demo-user@link.test
-To: researcher@link.test
+From: demo-user@outfitter.test
+To: researcher@outfitter.test
 Subject: Research this paper for the AI Outfitter wiki
-Message-ID: <m2-seed-paper@link.test>
+Message-ID: <m2-seed-paper@outfitter.test>
 
 Please ingest the attached paper, update the organization wiki, and tell me
 which papers should be explored next.
@@ -153,7 +153,7 @@ devenv tasks run demo:m2:verify
 
 The verifier MUST query the sender mailbox through JMAP and prove:
 
-- exactly one reply exists for `<m2-seed-paper@link.test>`;
+- exactly one reply exists for `<m2-seed-paper@outfitter.test>`;
 - `In-Reply-To` equals that Message-ID and `References` contains it;
 - the body reports success, source title, concise summary, organization, local
   commit SHA, changed paths, candidate papers, and warnings if any;

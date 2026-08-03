@@ -1,4 +1,4 @@
-apiVersion: link.aioutfitter.com/v1alpha1
+apiVersion: aioutfitter.com/v1alpha1
 kind: Agent
 metadata:
   name: researcher
@@ -24,9 +24,9 @@ spec:
           echo "mail-bootstrap: waiting for JMAP connectivity" >&2
           sleep 2
         done
-        until xin labels create "$LINK_MAIL_PROCESSED" >/dev/null 2>&1 || \
-          xin messages search "in:$LINK_MAIL_PROCESSED" --max 1 >/dev/null 2>&1; do
-          echo "mail-bootstrap: waiting to provision $LINK_MAIL_PROCESSED" >&2
+        until xin labels create "$AGENT_MAIL_PROCESSED" >/dev/null 2>&1 || \
+          xin messages search "in:$AGENT_MAIL_PROCESSED" --max 1 >/dev/null 2>&1; do
+          echo "mail-bootstrap: waiting to provision $AGENT_MAIL_PROCESSED" >&2
           sleep 2
         done
   workspace:

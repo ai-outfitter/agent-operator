@@ -39,7 +39,7 @@ Three pieces:
 
 pi generates the actual reply content (the M2 "real research result"); the old
 canned acknowledgement is gone. The `agents-catalog/` tree is baked into the
-image at `/opt/link/.agents`; the operator supplies `default_agent`/harness via
+image at `/opt/agent/.agents`; the operator supplies `default_agent`/harness via
 the mounted `settings.yml`. (TODO: move the catalog to the Organization's remote
 Outfitter catalog once runtime egress allows.)
 
@@ -75,7 +75,7 @@ Optional runtime configuration:
 - `AGENT_RELAY_URL` and `AGENT_RELAY_TOKEN` — authenticated outbound WSS relay
   connection for the native `agent` channel. Supply both through existing
   Secret/ConfigMap credential references; neither belongs in an `Agent` spec.
-- `LINK_MAIL_PROCESSED` (default `Processed`) — target mailbox for processed mail
+- `AGENT_MAIL_PROCESSED` (default `Processed`) — target mailbox for processed mail
   (supplied by the demo runtime ConfigMap to both containers).
 
 The operator projects native-channel defaults into every

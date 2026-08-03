@@ -6,23 +6,21 @@ cliVersion: 4.15.0
 domain: aioutfitter.com
 layout:
 - go.kubebuilder.io/v4
-projectName: link-operator
-repo: github.com/ncrmro/link-operator/code/operator
+projectName: agent-operator
+repo: github.com/ai-outfitter/agent-operator/code/operator
 resources:
 - api:
     crdVersion: v1
   controller: true
   domain: aioutfitter.com
-  group: link
   kind: Organization
-  path: github.com/ncrmro/link-operator/code/operator/api/v1alpha1
+  path: github.com/ai-outfitter/agent-operator/code/operator/api/v1alpha1
   version: v1alpha1
 - api:
     crdVersion: v1
   controller: true
   domain: aioutfitter.com
-  group: link
   kind: Agent
-  path: github.com/ncrmro/link-operator/code/operator/api/v1alpha1
+  path: github.com/ai-outfitter/agent-operator/code/operator/api/v1alpha1
   version: v1alpha1
 version: "3"

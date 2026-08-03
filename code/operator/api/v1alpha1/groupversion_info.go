@@ -1,6 +1,6 @@
-// Package v1alpha1 contains API Schema definitions for the link v1alpha1 API group.
+// Package v1alpha1 contains API Schema definitions for the aioutfitter.com v1alpha1 API group.
 // +kubebuilder:object:generate=true
-// +groupName=link.aioutfitter.com
+// +groupName=aioutfitter.com
 package v1alpha1
 
 import (
@@ -12,7 +12,7 @@ import (
 var (
 	// SchemeGroupVersion is group version used to register these objects.
 	// This name is used by applyconfiguration generators (e.g. controller-gen).
-	SchemeGroupVersion = schema.GroupVersion{Group: "link.aioutfitter.com", Version: "v1alpha1"}
+	SchemeGroupVersion = schema.GroupVersion{Group: "aioutfitter.com", Version: "v1alpha1"}
 
 	// GroupVersion is an alias for SchemeGroupVersion, for backward compatibility.
 	GroupVersion = SchemeGroupVersion

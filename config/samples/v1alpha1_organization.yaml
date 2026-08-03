@@ -1,5 +1,5 @@
 # Replace repository locations and revisions before applying this sample.
-apiVersion: link.aioutfitter.com/v1alpha1
+apiVersion: aioutfitter.com/v1alpha1
 kind: Organization
 metadata:
   name: example-org

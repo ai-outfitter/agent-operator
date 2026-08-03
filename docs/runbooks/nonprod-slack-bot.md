@@ -1,7 +1,7 @@
 # Run the Slack bot as a nonprod agent
 
 This runbook deploys the `nonprod-bot` Slack responder as a controller-managed
-Link Operator `Agent` in the Unsupervised nonprod Kubernetes cluster. Link
+Agent Operator `Agent` in the Unsupervised nonprod Kubernetes cluster. Agent
 Operator recreates its single runtime pod after failure or restart; this
 runbook does not provide an availability SLO. Slack Socket Mode requires
 outbound TLS and no inbound ingress. The runtime also needs DNS and outbound
@@ -10,8 +10,8 @@ access to the configured model provider and the read-only Grafana MCP endpoint.
 This runbook is limited to the following resources:
 
 - Kubernetes context: `unsup-nonprod-engineer`, passed on every command.
-- Link Operator namespace: `link-operator-system`.
-- Agent namespace: `agent-nonprod-bot`, created and owned by Link Operator.
+- Agent Operator namespace: `agent-operator-system`.
+- Agent namespace: `agent-nonprod-bot`, created and owned by Agent Operator.
 - Slack channel scope: every channel the bot has joined
   (`SLACK_CHANNEL_IDS=joined`). Inviting it to another channel expands that
   scope without a Kubernetes change.
@@ -19,12 +19,24 @@ This runbook is limited to the following resources:
   `kubectl` without intentionally printing them. Keep shell tracing disabled.
 - Deployment images: linux/amd64 and pinned by immutable digest.
 
+This repository was renamed from `link-operator` to
+[`agent-operator`](https://github.com/ai-outfitter/agent-operator), and every
+identifier in this repository now uses the `agent-operator` naming: the
+`agent-operator-system` namespace, the `agent-operator`/`agent-runtime` image
+names, and `agent-*` labels and deployment names. The nonprod cluster deployed
+before the rename still runs the legacy `link-*` equivalents
+(`link-operator-system`, `ghcr.io/ai-outfitter/link-agent`, `link-*` labels);
+commands in this runbook target a fresh deployment with the new names — when
+operating the pre-rename deployment, substitute the legacy identifiers, and
+retire it by redeploying with this procedure.
+
 The operator manifests live in [`dev/nonprod`](../../dev/nonprod). The agent
 composition — profile, `slack-grafana-responder` skill, MCP declaration, and
 deployment manifests — lives in the internal
 [`Unsupervisedcom/.agents`](https://github.com/Unsupervisedcom/.agents)
 catalog, consumed by immutable commit from `unsupervised-main`. This repository
-carries no Unsupervised-specific agent runtime content (see issue #13).
+carries no Unsupervised-specific agent runtime content (see
+[issue #13](https://github.com/ai-outfitter/agent-operator/issues/13)).
 
 ## Prerequisites
 
@@ -33,7 +45,7 @@ You need:
 - `kubectl` access through the `unsup-nonprod-engineer` context;
 - Docker Buildx with linux/amd64 support for the local pre-publish test;
 - authenticated `gh` access to this repository and its Actions runs;
-- the `channels` and `link-operator` repositories checked out as sibling
+- the `channels` and `agent-operator` repositories checked out as sibling
   directories;
 - the `nonprod-bot` Slack CLI app configured by following the
   [Channels local Slack runbook](https://github.com/ai-outfitter/channels/blob/main/docs/runbooks/slack-local.md);
@@ -61,37 +73,39 @@ authentication is verified when the agent starts.
 
 ## Build and publish immutable images through GitHub
 
-Images are published only by GitHub Actions. Do not publish Link images to ECR
+Images are published only by GitHub Actions. Do not publish operator or agent images to ECR
 and do not deploy `latest`, `main`, or another mutable reference.
 
-This repository publishes only the operator image, through
-[release-images.yml](../../.github/workflows/release-images.yml). The nonprod
-agent image is owned by the consuming deployment: it is built from the
+This repository's release workflow,
+[release-images.yml](../../.github/workflows/release-images.yml), publishes the
+operator image and the generic agent runtime image. The nonprod bot's agent
+image is owned by the consuming deployment: it is built from the
 `Unsupervisedcom/.agents` catalog and published by that pipeline, then selected
-on the `Agent` resource via `spec.image` (added in PR #14). Follow the build,
+on the `Agent` resource via `spec.image` (added in
+[PR #14](https://github.com/ai-outfitter/agent-operator/pull/14)). Follow the build,
 test, and publication procedure in the internal catalog's documentation to
-obtain `LINK_AGENT_TAG`.
+obtain `AGENT_RUNTIME_TAG`.
 
 Resolve the published agent image and released operator image to registry
 digests. The resulting values must contain `@sha256:`:
 
 ```sh
-export LINK_OPERATOR_TAG="ghcr.io/ai-outfitter/link-operator:<release-tag>"
-export LINK_OPERATOR_IMAGE="$(
+export AGENT_OPERATOR_TAG="ghcr.io/ai-outfitter/agent-operator:<release-tag>"
+export AGENT_OPERATOR_IMAGE="$(
   docker buildx imagetools inspect \
-    "$LINK_OPERATOR_TAG" \
+    "$AGENT_OPERATOR_TAG" \
     --format '{{json .Manifest.Digest}}' | tr -d '"'
 )"
-export LINK_AGENT_IMAGE="$(
+export AGENT_RUNTIME_IMAGE="$(
   docker buildx imagetools inspect \
-    "$LINK_AGENT_TAG" \
+    "$AGENT_RUNTIME_TAG" \
     --format '{{json .Manifest.Digest}}' | tr -d '"'
 )"
-export LINK_OPERATOR_IMAGE="ghcr.io/ai-outfitter/link-operator@$LINK_OPERATOR_IMAGE"
-export LINK_AGENT_IMAGE="ghcr.io/ai-outfitter/link-agent@$LINK_AGENT_IMAGE"
+export AGENT_OPERATOR_IMAGE="ghcr.io/ai-outfitter/agent-operator@$AGENT_OPERATOR_IMAGE"
+export AGENT_RUNTIME_IMAGE="ghcr.io/ai-outfitter/agent-runtime@$AGENT_RUNTIME_IMAGE"
 ```
 
-## Install Link Operator
+## Install Agent Operator
 
 Render the nonprod kustomization, replace only its two zero-digest image
 placeholders in the rendered output, and perform a server-side dry run before
@@ -101,23 +115,23 @@ applying it. Never edit the committed placeholders in place.
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 kubectl kustomize dev/nonprod | sed \
-  -e "s#example.invalid/link-operator@sha256:[0-9a-f]*#$LINK_OPERATOR_IMAGE#" \
-  -e "s#example.invalid/link-agent@sha256:[0-9a-f]*#$LINK_AGENT_IMAGE#" \
+  -e "s#example.invalid/agent-operator@sha256:[0-9a-f]*#$AGENT_OPERATOR_IMAGE#" \
+  -e "s#example.invalid/agent-runtime@sha256:[0-9a-f]*#$AGENT_RUNTIME_IMAGE#" \
   >"$work/operator.yaml"
 test "$(grep -c 'example.invalid' "$work/operator.yaml")" -eq 0
 kubectl --context unsup-nonprod-engineer create namespace \
-  link-operator-system --dry-run=client -o yaml | \
+  agent-operator-system --dry-run=client -o yaml | \
   kubectl --context unsup-nonprod-engineer apply -f -
 kubectl --context unsup-nonprod-engineer label namespace \
-  link-operator-system app.kubernetes.io/managed-by=link-operator --overwrite
+  agent-operator-system app.kubernetes.io/managed-by=agent-operator --overwrite
 kubectl --context unsup-nonprod-engineer apply \
   --dry-run=server -f "$work/operator.yaml"
 kubectl --context unsup-nonprod-engineer apply -f "$work/operator.yaml"
 kubectl --context unsup-nonprod-engineer \
-  -n link-operator-system rollout status \
-  deployment/link-operator-controller-manager --timeout=5m
+  -n agent-operator-system rollout status \
+  deployment/agent-operator-controller-manager --timeout=5m
 kubectl --context unsup-nonprod-engineer \
-  api-resources --api-group=link.aioutfitter.com
+  api-resources --api-group=aioutfitter.com
 ```
 
 ## Create the agent workspace
@@ -138,14 +152,14 @@ kubectl --context unsup-nonprod-engineer apply \
   -f dev/nonprod/runtime-config.yaml
 ```
 
-Render the seeder with `$LINK_AGENT_IMAGE`, then apply it. After the seeder pod
+Render the seeder with `$AGENT_RUNTIME_IMAGE`, then apply it. After the seeder pod
 is ready, review and copy the entire local `$HOME/.pi` tree into the agent
 workspace volume. This includes credentials and any other Pi state in that
 directory:
 
 ```sh
 sed \
-  "s#example.invalid/link-agent@sha256:[0-9a-f]*#$LINK_AGENT_IMAGE#" \
+  "s#example.invalid/agent-runtime@sha256:[0-9a-f]*#$AGENT_RUNTIME_IMAGE#" \
   dev/nonprod/pi-seeder.yaml | \
   kubectl --context unsup-nonprod-engineer apply -f -
 kubectl --context unsup-nonprod-engineer \
@@ -162,7 +176,7 @@ kubectl --context unsup-nonprod-engineer \
   -n agent-nonprod-bot delete pod/nonprod-bot-pi-seeder --wait=true
 kubectl --context unsup-nonprod-engineer \
   -n agent-nonprod-bot create configmap nonprod-bot-pi-ready \
-  --from-literal=LINK_PI_CONFIG_READY=true \
+  --from-literal=AGENT_PI_CONFIG_READY=true \
   --dry-run=client -o yaml | \
   kubectl --context unsup-nonprod-engineer apply -f -
 ```
@@ -182,12 +196,12 @@ ignored Slack CLI launcher with the credential-sync helper and run it:
 
 ```sh
 export SLACK_CLI_TEAM_ID=T7GCW93AA
-cp ../link-operator/dev/nonprod/slack-secret-sync.mjs \
+cp ../agent-operator/dev/nonprod/slack-secret-sync.mjs \
   dev/nonprod-bot/app.js
 (
   cd dev/nonprod-bot
-  LINK_KUBE_CONTEXT=unsup-nonprod-engineer \
-  LINK_AGENT_NAMESPACE=agent-nonprod-bot \
+  AGENT_KUBE_CONTEXT=unsup-nonprod-engineer \
+  AGENT_NAMESPACE=agent-nonprod-bot \
     "$HOME/.local/bin/slack" run \
     --app local \
     --team "$SLACK_CLI_TEAM_ID" \
@@ -227,7 +241,7 @@ operator_relay_token="$(openssl rand -hex 32)"
 kubectl --context unsup-nonprod-engineer \
   -n agent-nonprod-bot create secret generic nonprod-bot-relay \
   --from-literal=AGENT_RELAY_TOKEN="$agent_relay_token" \
-  --from-literal=LINK_AGENT_RELAY_OPERATOR_TOKEN="$operator_relay_token" \
+  --from-literal=AGENT_RELAY_OPERATOR_TOKEN="$operator_relay_token" \
   --dry-run=client -o yaml | \
   kubectl --context unsup-nonprod-engineer apply -f -
 unset agent_relay_token operator_relay_token
@@ -266,7 +280,7 @@ token (read it into the environment, never into command arguments):
 AGENT_RELAY_TOKEN="$(
   kubectl --context unsup-nonprod-engineer \
     -n agent-nonprod-bot get secret/nonprod-bot-relay \
-    -o jsonpath='{.data.LINK_AGENT_RELAY_OPERATOR_TOKEN}' | base64 --decode
+    -o jsonpath='{.data.AGENT_RELAY_OPERATOR_TOKEN}' | base64 --decode
 )" node relay-smoke.mjs \
   "Use Grafana MCP to list the configured datasources and report the tool result."
 ```
@@ -289,7 +303,7 @@ reply plus the handled reaction:
 ```sh
 cd ../channels
 export SLACK_VERIFY_CHANNEL_IDS="<channel-id>"
-cp ../link-operator/dev/nonprod/slack-verify-app.mjs \
+cp ../agent-operator/dev/nonprod/slack-verify-app.mjs \
   dev/nonprod-bot/app.js
 (
   cd dev/nonprod-bot
@@ -308,7 +322,7 @@ Verify restart recovery:
 ```sh
 before="$(
   kubectl --context unsup-nonprod-engineer -n agent-nonprod-bot \
-    get pod -l app.kubernetes.io/name=link-agent \
+    get pod -l app.kubernetes.io/name=agent-runtime \
     -o jsonpath='{.items[0].metadata.uid}'
 )"
 kubectl --context unsup-nonprod-engineer -n agent-nonprod-bot \
@@ -317,7 +331,7 @@ kubectl --context unsup-nonprod-engineer -n agent-nonprod-bot \
   rollout status deployment/agent-runtime --timeout=5m
 after="$(
   kubectl --context unsup-nonprod-engineer -n agent-nonprod-bot \
-    get pod -l app.kubernetes.io/name=link-agent \
+    get pod -l app.kubernetes.io/name=agent-runtime \
     -o jsonpath='{.items[0].metadata.uid}'
 )"
 test "$before" != "$after"
@@ -352,30 +366,36 @@ kubectl --context unsup-nonprod-engineer delete \
   organization/nonprod-channels
 ```
 
-Removing Link Operator itself is a separate cluster-wide decision because
+Removing Agent Operator itself is a separate cluster-wide decision because
 future agents may share it. Do not delete its CRDs or namespace as part of bot
 rotation or ordinary bot teardown.
 
 ## Current nonprod deployment
 
-The agent image was updated on 2026-07-28 to the GitHub-published:
+The agent image was updated on 2026-07-28 to the GitHub-published
+[`ghcr.io/ai-outfitter/link-agent`](https://github.com/ai-outfitter/agent-operator/pkgs/container/link-agent)
+image (the pre-rename package name; new publications use `agent-runtime`) from
+[this publication run](https://github.com/ai-outfitter/agent-operator/actions/runs/30637837298).
+Read the exact deployed digest from the cluster rather than from this document:
 
-- agent image:
-  `ghcr.io/ai-outfitter/link-agent@sha256:986896dcec2197bf4c15325ad00702198e78f6c55ea1ab1e37d4c48a9863a7b7`
-  (tag `nonprod-sha-ef6a4cc9562ab90ac784502d84566dba11bf5d7f`, published by
-  [Actions run 30637837298](https://github.com/ai-outfitter/agent-operator/actions/runs/30637837298)).
+```sh
+kubectl --context unsup-nonprod-engineer -n agent-nonprod-bot \
+  get deployment/agent-runtime \
+  -o jsonpath='{.spec.template.spec.containers[?(@.name=="agent")].image}'
+```
 
-The operator remains on the 2026-07-25 deployment (manifest source `20320e1`,
-operator binary source `d5ffe5dd05c10796f6793493aab06740d0fc32ff`); migrating
-it to an immutable GHCR digest and retiring the remaining ECR references is
-tracked in issue #12.
+The operator remains on the deployment established 2026-07-25 from commit
+[`d5ffe5d`](https://github.com/ai-outfitter/agent-operator/commit/d5ffe5dd05c10796f6793493aab06740d0fc32ff);
+migrating it to an immutable GHCR digest and retiring the remaining ECR
+references is tracked in
+[issue #12](https://github.com/ai-outfitter/agent-operator/issues/12).
 
 Migration history: the deployed agent image was built from this repository's
 `dev/nonprod` composition, since moved to the internal `Unsupervisedcom/.agents`
 catalog. The next agent image rollout should come from that catalog's pipeline
 and be selected with `Agent.spec.image`.
 
-Link Operator reported `Agent/nonprod-bot` Ready, both encrypted CSI volumes
+Agent Operator reported `Agent/nonprod-bot` Ready, both encrypted CSI volumes
 bound, and the replacement pod established a new Socket Mode connection after a
 Deployment restart. Record the Slack round-trip verifier result here after the
 first human mention passes.

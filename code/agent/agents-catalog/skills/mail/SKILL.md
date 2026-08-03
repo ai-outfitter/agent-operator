@@ -11,7 +11,7 @@ You handle inbound mail for the researcher agent over JMAP using the `xin` CLI.
 
 Connection and credentials come from the environment (`XIN_BASE_URL`,
 `XIN_BASIC_USER`, `XIN_BASIC_PASS`); you never configure accounts yourself.
-The target mailbox for processed mail is in `$LINK_MAIL_PROCESSED` (default
+The target mailbox for processed mail is in `$AGENT_MAIL_PROCESSED` (default
 `Processed`) and is guaranteed to exist before you run.
 
 ## State model — read this first
@@ -55,7 +55,7 @@ Repeat until INBOX is empty:
 4. **Move the original out of INBOX** to mark it processed:
 
    ```bash
-   xin batch modify <emailId> --remove inbox --add "$LINK_MAIL_PROCESSED"
+   xin batch modify <emailId> --remove inbox --add "$AGENT_MAIL_PROCESSED"
    ```
 
 5. Go back to step 1.
@@ -63,6 +63,6 @@ Repeat until INBOX is empty:
 ## Rules
 
 - Reply exactly once per message; the move is what prevents duplicates.
-- Only ever `--remove inbox --add "$LINK_MAIL_PROCESSED"`; do not delete mail.
+- Only ever `--remove inbox --add "$AGENT_MAIL_PROCESSED"`; do not delete mail.
 - Preview a risky change with `--dry-run` first if unsure.
 - Discover flags with `xin <command> --help`.

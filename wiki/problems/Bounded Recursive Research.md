@@ -33,4 +33,4 @@ M2 records verified depth-one candidates but fetches none of them.
 - How does a partially completed traversal resume deterministically?
 
 The boundary is documented by the
-[[sources/2026-07-19-link-operator-requirements/source|current requirements]].
+[[sources/2026-07-19-agent-operator-requirements/source|current requirements]].

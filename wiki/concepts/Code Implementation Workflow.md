@@ -3,7 +3,7 @@ title: Code Implementation Workflow
 type: concept
 status: draft
 tags:
-  - system/link-operator
+  - system/agent-operator
   - topic/agent-runtime
   - topic/repository
   - topic/pull-request
@@ -53,7 +53,7 @@ Separating implementer from reviewer is a deliberate **separation of duties**: t
 review gate, not the author, is where correctness and policy are enforced
 ([[Safe Agent Autonomy]]).
 
-## How it maps to Link Operator
+## How it maps to Agent Operator
 
 - Each role is an [[Agent]], or a subagent launched as a Kubernetes Job from a
   [[Project Environment]] inside an [[Agent Namespace Workspace]], bounded by the

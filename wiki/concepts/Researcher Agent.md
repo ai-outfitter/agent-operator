@@ -3,7 +3,7 @@ title: Researcher Agent
 type: concept
 status: draft
 tags:
-  - system/link-operator
+  - system/agent-operator
   - system/dotagents
   - topic/agent-runtime
   - process/source-ingestion
@@ -26,6 +26,6 @@ It must not fetch those candidates during M2 and must not put credentials or
 private keys into the wiki, Git history, logs, or replies.
 
 The profile name and composition were chosen in the
-[[sources/2026-07-19-link-operator-design-conversation/source|design conversation]]
+[[sources/2026-07-19-agent-operator-design-conversation/source|design conversation]]
 and are encoded in the
-[[sources/2026-07-19-link-operator-requirements/source|repository catalog]].
+[[sources/2026-07-19-agent-operator-requirements/source|repository catalog]].

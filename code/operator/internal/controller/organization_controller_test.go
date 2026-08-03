@@ -13,14 +13,14 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	linkv1alpha1 "github.com/ncrmro/link-operator/code/operator/api/v1alpha1"
+	aioutfitterv1alpha1 "github.com/ai-outfitter/agent-operator/code/operator/api/v1alpha1"
 )
 
 var testNameCounter atomic.Uint64
 
 const (
 	testCatalogRevision = "0123456789abcdef0123456789abcdef01234567"
-	testCatalogGitHub   = "ncrmro/link-operator"
+	testCatalogGitHub   = "ai-outfitter/agent-operator"
 	testCatalogName     = "agents"
 	testRepositoryName  = "wiki"
 )
@@ -36,13 +36,13 @@ var _ = Describe("Organization Controller", func() {
 		name := uniqueTestName("organization")
 		revision := testCatalogRevision
 		github := testCatalogGitHub
-		organization := &linkv1alpha1.Organization{
+		organization := &aioutfitterv1alpha1.Organization{
 			ObjectMeta: metav1.ObjectMeta{Name: name},
-			Spec: linkv1alpha1.OrganizationSpec{
-				Repositories: []linkv1alpha1.Repository{{
+			Spec: aioutfitterv1alpha1.OrganizationSpec{
+				Repositories: []aioutfitterv1alpha1.Repository{{
 					Name: testRepositoryName, URI: "ssh://git@example.test/ai-outfitter/wiki.git",
 				}},
-				AgentCatalogs: []linkv1alpha1.AgentCatalog{{
+				AgentCatalogs: []aioutfitterv1alpha1.AgentCatalog{{
 					Name: testCatalogName, GitHub: &github, Revision: &revision, Path: ".agents",
 				}},
 			},
@@ -54,29 +54,29 @@ var _ = Describe("Organization Controller", func() {
 		_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: name}})
 		Expect(err).NotTo(HaveOccurred())
 
-		actual := &linkv1alpha1.Organization{}
+		actual := &aioutfitterv1alpha1.Organization{}
 		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name}, actual)).To(Succeed())
-		Expect(actual.Finalizers).To(ContainElement(linkv1alpha1.OrganizationFinalizer))
-		Expect(apiMeta.IsStatusConditionTrue(actual.Status.Conditions, linkv1alpha1.OrganizationConditionAccepted)).To(BeTrue())
-		catalogCondition := apiMeta.FindStatusCondition(actual.Status.Conditions, linkv1alpha1.OrganizationConditionCatalogSourcesReady)
+		Expect(actual.Finalizers).To(ContainElement(aioutfitterv1alpha1.OrganizationFinalizer))
+		Expect(apiMeta.IsStatusConditionTrue(actual.Status.Conditions, aioutfitterv1alpha1.OrganizationConditionAccepted)).To(BeTrue())
+		catalogCondition := apiMeta.FindStatusCondition(actual.Status.Conditions, aioutfitterv1alpha1.OrganizationConditionCatalogSourcesReady)
 		Expect(catalogCondition).NotTo(BeNil())
 		Expect(catalogCondition.Status).To(Equal(metav1.ConditionTrue))
 		Expect(catalogCondition.Reason).To(Equal("DelegatedToOutfitter"))
-		Expect(actual.Status.CatalogSources).To(Equal([]linkv1alpha1.CatalogSourceStatus{{
+		Expect(actual.Status.CatalogSources).To(Equal([]aioutfitterv1alpha1.CatalogSourceStatus{{
 			Name: testCatalogName, Revision: revision,
 		}}))
-		Expect(actual.Status.ResolvedRepositories).To(Equal([]linkv1alpha1.ResolvedRepositoryStatus{{Name: testRepositoryName}}))
+		Expect(actual.Status.ResolvedRepositories).To(Equal([]aioutfitterv1alpha1.ResolvedRepositoryStatus{{Name: testRepositoryName}}))
 	})
 
 	It("rejects credential-bearing repository URIs without echoing them", func() {
 		name := uniqueTestName("organization")
 		revision := testCatalogRevision
 		github := testCatalogGitHub
-		organization := &linkv1alpha1.Organization{
+		organization := &aioutfitterv1alpha1.Organization{
 			ObjectMeta: metav1.ObjectMeta{Name: name},
-			Spec: linkv1alpha1.OrganizationSpec{
-				Repositories:  []linkv1alpha1.Repository{{Name: testRepositoryName, URI: "https://private-token@example.test/wiki.git"}},
-				AgentCatalogs: []linkv1alpha1.AgentCatalog{{Name: testCatalogName, GitHub: &github, Revision: &revision}},
+			Spec: aioutfitterv1alpha1.OrganizationSpec{
+				Repositories:  []aioutfitterv1alpha1.Repository{{Name: testRepositoryName, URI: "https://private-token@example.test/wiki.git"}},
+				AgentCatalogs: []aioutfitterv1alpha1.AgentCatalog{{Name: testCatalogName, GitHub: &github, Revision: &revision}},
 			},
 		}
 		Expect(k8sClient.Create(ctx, organization)).To(Succeed())
@@ -86,9 +86,9 @@ var _ = Describe("Organization Controller", func() {
 		_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: name}})
 		Expect(err).NotTo(HaveOccurred())
 
-		actual := &linkv1alpha1.Organization{}
+		actual := &aioutfitterv1alpha1.Organization{}
 		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name}, actual)).To(Succeed())
-		accepted := apiMeta.FindStatusCondition(actual.Status.Conditions, linkv1alpha1.OrganizationConditionAccepted)
+		accepted := apiMeta.FindStatusCondition(actual.Status.Conditions, aioutfitterv1alpha1.OrganizationConditionAccepted)
 		Expect(accepted).NotTo(BeNil())
 		Expect(accepted.Status).To(Equal(metav1.ConditionFalse))
 		Expect(accepted.Message).To(ContainSubstring("must not contain credentials"))
@@ -97,7 +97,7 @@ var _ = Describe("Organization Controller", func() {
 })
 
 func removeOrganization(ctx context.Context, name string) {
-	organization := &linkv1alpha1.Organization{}
+	organization := &aioutfitterv1alpha1.Organization{}
 	err := k8sClient.Get(ctx, types.NamespacedName{Name: name}, organization)
 	if apierrors.IsNotFound(err) {
 		return

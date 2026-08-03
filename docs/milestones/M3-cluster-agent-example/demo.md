@@ -38,7 +38,7 @@ Preflight must stop before mutation if any assertion fails.
 ## 2. Deploy the operator and agent
 
 Use the deployment interface implemented in `unsupervised-main`, passing the
-context, namespace, and pinned Link Operator version explicitly.
+context, namespace, and pinned Agent Operator version explicitly.
 
 The deploy command must:
 

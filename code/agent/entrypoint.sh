@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# link-agent entrypoint — generic resident Outfitter/Pi session.
+# agent-runtime entrypoint — generic resident Outfitter/Pi session.
 #
 # Channel setup and credentials are supplied by the Agent CR. The selected
 # Outfitter profile chooses the Channels extension and its channel-facing skills;
@@ -21,7 +21,7 @@ set -euo pipefail
 export HOME="/workspace"
 export PATH="/bin:/usr/bin:/usr/local/bin${PATH:+:$PATH}"
 export NIX_CONFIG="${NIX_CONFIG:-experimental-features = nix-command flakes}"
-export XDG_CACHE_HOME="${XDG_CACHE_HOME:-/opt/link/.cache}"
+export XDG_CACHE_HOME="${XDG_CACHE_HOME:-/opt/agent/.cache}"
 export PI_CODING_AGENT_SESSION_DIR="${PI_CODING_AGENT_SESSION_DIR:-/workspace/.pi/agent/sessions}"
 if [ -z "${PI_OFFLINE:-}" ]; then
   export PI_OFFLINE=1
@@ -34,14 +34,14 @@ if [ "$PI_OFFLINE" = "1" ] || [ "$PI_OFFLINE" = "true" ]; then
   offline_args+=(--offline)
 fi
 
-# Launch from $HOME, not /opt/link. Outfitter's workspace layer is
-# <cwd>/.agents and it outranks every configured source, so running from
-# /opt/link made the image-baked payload shadow the Organization catalog:
+# Launch from $HOME, not the baked payload directory. Outfitter's workspace
+# layer is <cwd>/.agents and it outranks every configured source, so running
+# from there made the image-baked payload shadow the Organization catalog:
 # a catalog-root agents.md could never reach an agent. The baked payload
 # stays available because the operator renders it as the last settings
 # source, where the catalog outranks it file by file.
 cd "$HOME"
-exec outfitter run --strict "${LINK_AGENT_SLUG:-researcher}" -- \
+exec outfitter run --strict "${AGENT_SLUG:-researcher}" -- \
   --mode rpc \
   --continue \
   ${offline_args[@]+"${offline_args[@]}"} \

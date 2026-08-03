@@ -5,7 +5,7 @@ metadata:
   namespace: agent-researcher
   labels:
     app.kubernetes.io/name: pi-seeder
-    app.kubernetes.io/part-of: link-operator-mail-loop-demo
+    app.kubernetes.io/part-of: agent-operator-mail-loop-demo
 spec:
   restartPolicy: Never
   terminationGracePeriodSeconds: 1
@@ -15,7 +15,7 @@ spec:
     runAsGroup: 1000
   containers:
     - name: seeder
-      image: localhost/link-agent:dev
+      image: localhost/agent-runtime:dev
       imagePullPolicy: IfNotPresent
       command: ["sleep", "3600"]
       volumeMounts:
