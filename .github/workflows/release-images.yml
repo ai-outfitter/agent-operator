@@ -28,6 +28,14 @@ jobs:
 
       - name: Install Nix
         uses: DeterminateSystems/determinate-nix-action@v3
+        with:
+          # Without devenv's own binary cache, `nix profile add devenv` builds
+          # it from source — hundreds of Rust crates — and the job dies in the
+          # install step before it ever reaches the image build. That is why
+          # no release has published images since the workflow was written.
+          extra-conf: |
+            extra-substituters = https://devenv.cachix.org
+            extra-trusted-public-keys = devenv.cachix.org-1:w1cLUi8dv3hnoSPGAuibQv+f9TZLr6cv/Hm9XgU50cw=
 
       - name: Restore and save Nix store
         uses: nix-community/cache-nix-action@v7

@@ -8,29 +8,30 @@ let
   kubeconfig = "${clusterShare}/kubeconfig";
   kubernetesPort = config.processes.cluster.ports.kubernetes.value;
   jmapPort = config.processes.cluster.ports.jmap.value;
-  containersRegistries = pkgs.writeText "link-registries.conf" ''
+  containersRegistries = pkgs.writeText "agent-registries.conf" ''
     unqualified-search-registries = ["docker.io"]
   '';
-  registryAuth = pkgs.writeText "link-registry-auth.json" "{}";
+  registryAuth = pkgs.writeText "agent-registry-auth.json" "{}";
   outfitter = inputs.outfitter.packages.${system}.outfitter;
   xin = pkgs.callPackage ./nix/xin.nix { };
   channels = pkgs.callPackage ./nix/channels.nix { };
+  chrome-devtools-mcp = pkgs.callPackage ./nix/chrome-devtools-mcp.nix { };
   operator = pkgs.callPackage ./nix/operator.nix { };
 
-  emptyContainerHome = pkgs.runCommand "link-container-empty-home" { } ''
+  emptyContainerHome = pkgs.runCommand "agent-container-empty-home" { } ''
     mkdir -p "$out"
   '';
 
   agentContainerRoot = pkgs.runCommand "agent-runtime-container-root" { } ''
     mkdir -p \
-      "$out/opt/link/.agents" \
-      "$out/opt/link/.cache" \
-      "$out/workspace/.link" \
+      "$out/opt/agent/.agents" \
+      "$out/opt/agent/.cache" \
+      "$out/workspace/.agent" \
       "$out/workspace/.pi/agent"
-    cp -r ${./code/agent/agents-catalog}/. "$out/opt/link/.agents/"
-    cp -r ${channels}/. "$out/opt/link/.cache/"
-    cp ${./code/agent/entrypoint.sh} "$out/opt/link/entrypoint"
-    chmod +x "$out/opt/link/entrypoint"
+    cp -r ${./code/agent/agents-catalog}/. "$out/opt/agent/.agents/"
+    cp -r ${channels}/. "$out/opt/agent/.cache/"
+    cp ${./code/agent/entrypoint.sh} "$out/opt/agent/entrypoint"
+    chmod +x "$out/opt/agent/entrypoint"
   '';
 
   agentContainerPackages = pkgs.buildEnv {
@@ -38,6 +39,7 @@ let
     paths = [
       xin
       outfitter
+      chrome-devtools-mcp
       pkgs.nodejs_22
       pkgs.jq
       pkgs.bash
@@ -46,6 +48,13 @@ let
       pkgs.gnutar
       pkgs.cacert
       pkgs.nix
+      # Forge CLIs: agents authenticate from deployment-provided env
+      # (GITHUB_TOKEN/GH_TOKEN for gh) or a profile/setup-written config
+      # (tea, fj). Deployments can override the agent image entirely, so
+      # this is the convenient default set, not a contract.
+      pkgs.gh
+      pkgs.tea
+      pkgs.forgejo-cli
       pkgs.dockerTools.usrBinEnv
       pkgs.dockerTools.binSh
     ];
@@ -85,11 +94,11 @@ let
 
         networking.firewall.allowedTCPPorts = [ 6443 8080 ];
 
-        systemd.services.link-kubeconfig = {
+        systemd.services.agent-kubeconfig = {
           description = "Publish the k3s kubeconfig to the development host";
           wantedBy = [ "multi-user.target" ];
-          after = [ "k3s.service" "mnt-link\\x2dstate.mount" ];
-          requires = [ "mnt-link\\x2dstate.mount" ];
+          after = [ "k3s.service" "mnt-agent\\x2dstate.mount" ];
+          requires = [ "mnt-agent\\x2dstate.mount" ];
           serviceConfig = {
             Type = "oneshot";
             RemainAfterExit = true;
@@ -100,25 +109,25 @@ let
             until [ -s /etc/rancher/k3s/k3s.yaml ]; do
               sleep 1
             done
-            install -m 0600 /etc/rancher/k3s/k3s.yaml /mnt/link-state/kubeconfig
-            sed -i 's#https://127.0.0.1:6443#https://127.0.0.1:${toString kubernetesPort}#' /mnt/link-state/kubeconfig
+            install -m 0600 /etc/rancher/k3s/k3s.yaml /mnt/agent-state/kubeconfig
+            sed -i 's#https://127.0.0.1:6443#https://127.0.0.1:${toString kubernetesPort}#' /mnt/agent-state/kubeconfig
           '';
         };
 
-        systemd.services.link-image-import = {
+        systemd.services.agent-image-import = {
           description = "Import host-built development images into k3s";
-          after = [ "k3s.service" "mnt-link\\x2dstate.mount" ];
-          requires = [ "mnt-link\\x2dstate.mount" ];
+          after = [ "k3s.service" "mnt-agent\\x2dstate.mount" ];
+          requires = [ "mnt-agent\\x2dstate.mount" ];
           serviceConfig.Type = "oneshot";
           path = [ pkgs.coreutils pkgs.findutils pkgs.k3s ];
           script = ''
             set -euo pipefail
-            mkdir -p /mnt/link-state/images /mnt/link-state/imported
-            for archive in /mnt/link-state/images/*.tar; do
+            mkdir -p /mnt/agent-state/images /mnt/agent-state/imported
+            for archive in /mnt/agent-state/images/*.tar; do
               [ -e "$archive" ] || continue
               name="$(basename "$archive")"
               digest="$(sha256sum "$archive" | cut -d' ' -f1)"
-              stamp="/mnt/link-state/imported/$name.sha256"
+              stamp="/mnt/agent-state/imported/$name.sha256"
               if [ -s "$stamp" ] && [ "$(tr -d '\n' < "$stamp")" = "$digest" ]; then
                 continue
               fi
@@ -128,12 +137,12 @@ let
           '';
         };
 
-        systemd.timers.link-image-import = {
+        systemd.timers.agent-image-import = {
           wantedBy = [ "timers.target" ];
           timerConfig = {
             OnBootSec = "5s";
             OnUnitActiveSec = "5s";
-            Unit = "link-image-import.service";
+            Unit = "agent-image-import.service";
           };
         };
 
@@ -171,15 +180,15 @@ let
             }
             {
               proto = "9p";
-              tag = "link-state";
+              tag = "agent-state";
               source = clusterShare;
-              mountPoint = "/mnt/link-state";
+              mountPoint = "/mnt/agent-state";
               readOnly = false;
             }
           ];
           volumes = [{
             image = "${clusterState}/k3s.img";
-            label = "link-k3s";
+            label = "agent-k3s";
             mountPoint = "/var/lib/rancher";
             size = 32768;
           }];
@@ -223,7 +232,7 @@ in
     name = "localhost/agent-runtime";
     version = "dev";
     copyToRoot = emptyContainerHome;
-    entrypoint = [ "/opt/link/entrypoint" ];
+    entrypoint = [ "/opt/agent/entrypoint" ];
     startupCommand = [ ];
     workingDir = "/workspace";
     maxLayers = 20;
@@ -312,22 +321,28 @@ in
         test ! -d agents-catalog/extensions
         grep -Fq 'outfitter run --strict "''${AGENT_SLUG:-researcher}" --' entrypoint.sh
         grep -Fq 'export PI_OFFLINE=1' entrypoint.sh
+        grep -Fq 'PI_CODING_AGENT_SESSION_DIR' entrypoint.sh
+        grep -Fq -- '--continue' entrypoint.sh
+        if grep -Fq -- '--no-session' entrypoint.sh; then
+          echo "resident agent entrypoint must persist its Pi session" >&2
+          exit 1
+        fi
         channels_dir=${channels}/outfitter/pi-extensions/git/github.com/ai-outfitter/channels
         test "$(tr -d '\n' < "$channels_dir/REVISION")" = "cac964724f149208a4d0fe2aca39e3e0a234045d"
         test "$(jq -r .name "$channels_dir/package.json")" = "@ai-outfitter/channels"
         validation_home="$(mktemp -d)"
         trap 'rm -rf "$validation_home"' EXIT
         (
-          cd ${agentContainerRoot}/opt/link
+          cd ${agentContainerRoot}/opt/agent
           HOME="$validation_home" \
-            XDG_CACHE_HOME=${agentContainerRoot}/opt/link/.cache \
+            XDG_CACHE_HOME=${agentContainerRoot}/opt/agent/.cache \
             PI_OFFLINE=1 \
             ${outfitter}/bin/outfitter validate --strict
         )
         printf '%s\n' '{"type":"get_commands"}' | (
-          cd ${agentContainerRoot}/opt/link
+          cd ${agentContainerRoot}/opt/agent
           HOME="$validation_home" \
-            XDG_CACHE_HOME=${agentContainerRoot}/opt/link/.cache \
+            XDG_CACHE_HOME=${agentContainerRoot}/opt/agent/.cache \
             PI_OFFLINE=1 \
             ${outfitter}/bin/outfitter run --strict researcher -- \
               --mode rpc --no-session --offline

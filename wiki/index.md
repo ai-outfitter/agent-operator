@@ -1,18 +1,18 @@
 ---
-title: Link Operator Wiki
+title: Agent Operator Wiki
 type: reference
 status: active
 tags:
-  - system/link-operator
+  - system/agent-operator
   - topic/knowledge-base
   - evidence/design
 created: 2026-07-19
 updated: 2026-07-21
 ---
 
-# Link Operator Wiki
+# Agent Operator Wiki
 
-This vault captures durable domain knowledge for Link Operator. Product plans,
+This vault captures durable domain knowledge for Agent Operator. Product plans,
 milestones, and acceptance checklists remain under `docs/`; this wiki explains
 the systems, boundaries, and persistent problems behind them.
 
@@ -29,7 +29,7 @@ the systems, boundaries, and persistent problems behind them.
 
 ## Concepts
 
-- [[Link Operator]] — Kubernetes operator for organization-owned, composable agents.
+- [[Agent Operator]] — Kubernetes operator for organization-owned, composable agents.
 - [[Organization]] — ownership and policy boundary for wikis, catalogs, and projects.
 - [[Forge Owner]] — GitHub/Forgejo-style owner namespace behind an organization.
 - [[Project]] — embedded organization-owned unit of work.
@@ -57,8 +57,8 @@ the systems, boundaries, and persistent problems behind them.
 
 ## Sources
 
-- [[sources/2026-07-19-link-operator-design-conversation/source|Link Operator design conversation]]
-- [[sources/2026-07-19-link-operator-requirements/source|Link Operator M1 requirements and catalog]]
+- [[sources/2026-07-19-agent-operator-design-conversation/source|Agent Operator design conversation]]
+- [[sources/2026-07-19-agent-operator-requirements/source|Agent Operator M1 requirements and catalog]]
 - [[sources/2025-11-20-kubernetes-resource-quotas/source|Kubernetes Resource Quotas documentation]]
 
 ## Maintenance

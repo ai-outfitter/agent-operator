@@ -37,4 +37,4 @@ from the agent itself. Credential-class allow-listing for child
 parent agent's namespace authority.
 
 This trust model is defined by the
-[[sources/2026-07-19-link-operator-requirements/source|M1 requirements]].
+[[sources/2026-07-19-agent-operator-requirements/source|M1 requirements]].

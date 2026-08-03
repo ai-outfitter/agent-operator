@@ -49,6 +49,90 @@ spec:
           spec:
             description: AgentSpec defines the desired state of Agent.
             properties:
+              browser:
+                description: Browser adds a headless-Chrome DevTools sidecar to the
+                  agent Pod.
+                properties:
+                  enabled:
+                    type: boolean
+                  image:
+                    description: |-
+                      Image must place its Chromium binary at /headless-shell/headless-shell
+                      and accept Chrome flags as arguments (the operator passes
+                      --remote-debugging-address/-port, --no-sandbox, --disable-gpu,
+                      --disable-dev-shm-usage, --user-data-dir). The operator always runs
+                      that path directly rather than the image entrypoint, deliberately and
+                      without an override: the upstream headless-shell entrypoint starts a
+                      forwarder that publishes the DevTools listener on 0.0.0.0, and CDP is
+                      unauthenticated full browser control, so an entrypoint must never
+                      choose the listener address. Images with another layout are not
+                      supported. When omitted, the operator's digest-pinned default browser
+                      image is used.
+                    minLength: 1
+                    type: string
+                  resources:
+                    description: |-
+                      Resources for the sidecar container. When omitted, the workspace
+                      LimitRange defaults apply. The sidecar counts against the agent
+                      namespace's ResourceQuota.
+                    properties:
+                      claims:
+                        description: |-
+                          Claims lists the names of resources, defined in spec.resourceClaims,
+                          that are used by this container.
+
+                          This field depends on the
+                          DynamicResourceAllocation feature gate.
+
+                          This field is immutable. It can only be set for containers.
+                        items:
+                          description: ResourceClaim references one entry in PodSpec.ResourceClaims.
+                          properties:
+                            name:
+                              description: |-
+                                Name must match the name of one entry in pod.spec.resourceClaims of
+                                the Pod where this field is used. It makes that resource available
+                                inside a container.
+                              type: string
+                            request:
+                              description: |-
+                                Request is the name chosen for a request in the referenced claim.
+                                If empty, everything from the claim is made available, otherwise
+                                only the result of this request.
+                              type: string
+                          required:
+                          - name
+                          type: object
+                        type: array
+                        x-kubernetes-list-map-keys:
+                        - name
+                        x-kubernetes-list-type: map
+                      limits:
+                        additionalProperties:
+                          anyOf:
+                          - type: integer
+                          - type: string
+                          pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                          x-kubernetes-int-or-string: true
+                        description: |-
+                          Limits describes the maximum amount of compute resources allowed.
+                          More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                        type: object
+                      requests:
+                        additionalProperties:
+                          anyOf:
+                          - type: integer
+                          - type: string
+                          pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                          x-kubernetes-int-or-string: true
+                        description: |-
+                          Requests describes the minimum amount of compute resources required.
+                          If Requests is omitted for a container, it defaults to Limits if that is explicitly specified,
+                          otherwise to an implementation-defined value. Requests cannot exceed Limits.
+                          More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                        type: object
+                    type: object
+                type: object
               credentials:
                 items:
                   description: |-

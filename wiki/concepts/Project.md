@@ -3,7 +3,7 @@ title: Project
 type: concept
 status: draft
 tags:
-  - system/link-operator
+  - system/agent-operator
   - topic/organization-model
   - topic/project
   - topic/repository
@@ -18,7 +18,7 @@ repositories and reusable [[Project Environment|environment templates]]. It is
 embedded in `Organization.spec.projects`; it is not a Kubernetes custom
 resource.
 
-The project is more meaningful to a Link Operator user than a single forge
+The project is more meaningful to a Agent Operator user than a single forge
 repository: one `<owner>/<project>` can include many repositories, each resolved
 through the [[Forge Owner]] as `<owner>/<repository>`. This keeps repository
 identity compatible with GitHub and Forgejo while letting the product model a
@@ -31,6 +31,6 @@ on the agent side avoids competing member lists in a many-to-many model.
 
 M1 validates projects but does not materialize project workloads. The validation
 boundary is documented by the
-[[sources/2026-07-19-link-operator-requirements/source|M1 requirements]]; the
+[[sources/2026-07-19-agent-operator-requirements/source|M1 requirements]]; the
 forge-owner mapping was added in the
-[[sources/2026-07-19-link-operator-design-conversation/source|design conversation]].
+[[sources/2026-07-19-agent-operator-design-conversation/source|design conversation]].

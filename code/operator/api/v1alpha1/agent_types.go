@@ -66,6 +66,37 @@ type CredentialReference struct {
 	As CredentialExposure `json:"as"`
 }
 
+// BrowserSpec configures an optional headless-Chrome sidecar container. The
+// sidecar serves the Chrome DevTools Protocol on 127.0.0.1:9222 inside the
+// Pod, so a browser MCP server in the agent container attaches over pod-shared
+// localhost with no Service. The agent container receives the endpoint as
+// AGENT_BROWSER_CDP_URL.
+type BrowserSpec struct {
+	// +optional
+	Enabled bool `json:"enabled,omitempty"`
+
+	// Image must place its Chromium binary at /headless-shell/headless-shell
+	// and accept Chrome flags as arguments (the operator passes
+	// --remote-debugging-address/-port, --no-sandbox, --disable-gpu,
+	// --disable-dev-shm-usage, --user-data-dir). The operator always runs
+	// that path directly rather than the image entrypoint, deliberately and
+	// without an override: the upstream headless-shell entrypoint starts a
+	// forwarder that publishes the DevTools listener on 0.0.0.0, and CDP is
+	// unauthenticated full browser control, so an entrypoint must never
+	// choose the listener address. Images with another layout are not
+	// supported. When omitted, the operator's digest-pinned default browser
+	// image is used.
+	// +optional
+	// +kubebuilder:validation:MinLength=1
+	Image string `json:"image,omitempty"`
+
+	// Resources for the sidecar container. When omitted, the workspace
+	// LimitRange defaults apply. The sidecar counts against the agent
+	// namespace's ResourceQuota.
+	// +optional
+	Resources corev1.ResourceRequirements `json:"resources,omitempty"`
+}
+
 // SetupStep defines one initialization script that runs before the agent.
 type SetupStep struct {
 	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`
@@ -130,6 +161,10 @@ type AgentSpec struct {
 	Image string `json:"image,omitempty"`
 
 	Profile AgentProfile `json:"profile"`
+
+	// Browser adds a headless-Chrome DevTools sidecar to the agent Pod.
+	// +optional
+	Browser *BrowserSpec `json:"browser,omitempty"`
 
 	// +listType=atomic
 	// +optional

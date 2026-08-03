@@ -3,7 +3,7 @@ title: Project Environment
 type: concept
 status: draft
 tags:
-  - system/link-operator
+  - system/agent-operator
   - topic/project
   - topic/environment-template
   - environment/agent-namespace
@@ -26,6 +26,6 @@ enforced reconciliation or admission behavior.
 Future launches create Jobs inside the invoking [[Agent Namespace Workspace]],
 never a shared project namespace. M1 validates the embedded shape but does not
 launch it. This simplification originated in the
-[[sources/2026-07-19-link-operator-design-conversation/source|design conversation]]
+[[sources/2026-07-19-agent-operator-design-conversation/source|design conversation]]
 and is formalized by the
-[[sources/2026-07-19-link-operator-requirements/source|requirements]].
+[[sources/2026-07-19-agent-operator-requirements/source|requirements]].

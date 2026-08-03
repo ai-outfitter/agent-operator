@@ -3,7 +3,7 @@ title: Multi-Agent Review Convergence
 type: problem
 status: open
 tags:
-  - system/link-operator
+  - system/agent-operator
   - topic/agent-runtime
   - process/code-review
   - method/multi-agent

@@ -3,7 +3,7 @@ title: Research Wiki Maintainer
 type: concept
 status: draft
 tags:
-  - system/link-operator
+  - system/agent-operator
   - topic/agent-runtime
   - process/source-ingestion
   - process/email-processing
@@ -27,10 +27,10 @@ user-facing walkthrough lives in `docs/documentation/usecases.researcher-wiki-ma
 
 ## Delivery models
 
-### Pure operator (Link Operator, this project)
+### Pure operator (Agent Operator, this project)
 
 A persistent, in-cluster agent Deployment runs the whole flow itself.
-[[Link Operator]] reconciles the agent's [[Agent Namespace Workspace]], resolves
+[[Agent Operator]] reconciles the agent's [[Agent Namespace Workspace]], resolves
 its catalog, and runs it; the agent watches its channel (email), ingests the paper,
 and commits — all inside a bounded namespace governed by a ResourceQuota and an
 `admin` RoleBinding. Kubernetes is the runtime, and durable state lives in the

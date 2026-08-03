@@ -37,4 +37,4 @@ updating or deleting the quota itself; see
 
 The chosen boundary is a design requirement, not yet an experimentally verified
 security claim. See
-[[sources/2026-07-19-link-operator-requirements/source|Link Operator M1 requirements]].
+[[sources/2026-07-19-agent-operator-requirements/source|Agent Operator M1 requirements]].

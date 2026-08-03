@@ -28,7 +28,7 @@ actually ingested.
 This repository vendors separate `wiki` and `source-ingest` skills in the
 [[Dotagents Catalog Composition|Dotagents catalog]]. Their first integration
 target is specified by the
-[[sources/2026-07-19-link-operator-requirements/source|M1 requirements and catalog]].
+[[sources/2026-07-19-agent-operator-requirements/source|M1 requirements and catalog]].
 
 ## Persistent problem
 

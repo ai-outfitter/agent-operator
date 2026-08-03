@@ -3,7 +3,7 @@ title: Agent
 type: concept
 status: draft
 tags:
-  - system/link-operator
+  - system/agent-operator
   - topic/agent-runtime
   - topic/membership
   - control/access-control
@@ -14,7 +14,7 @@ updated: 2026-07-21
 # Agent
 
 An agent is both a cluster-deployed worker and a membership identity. It is the
-second cluster-scoped Link Operator CRD, alongside [[Organization]]. An agent
+second cluster-scoped Agent Operator CRD, alongside [[Organization]]. An agent
 may belong to multiple organizations and to explicitly named [[Project|projects]]
 within each organization.
 
@@ -26,7 +26,7 @@ Pi as the harness; M1 exercises only the agent-owned JMAP channel adapter.
 Every accepted agent receives its own [[Agent Namespace Workspace]] and
 references namespaced Kubernetes Secrets for email, model-provider, and
 optional SSH credentials. The intended behavior is specified by the
-[[sources/2026-07-19-link-operator-requirements/source|M1 requirements]].
+[[sources/2026-07-19-agent-operator-requirements/source|M1 requirements]].
 
 ## First profile
 

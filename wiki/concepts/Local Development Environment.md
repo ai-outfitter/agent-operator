@@ -3,7 +3,7 @@ title: Local Development Environment
 type: concept
 status: active
 tags:
-  - system/link-operator
+  - system/agent-operator
   - system/kubernetes
   - environment/local-development
   - method/integration-testing
@@ -27,5 +27,5 @@ named explicitly. M2 will add its paper-research and verification tasks.
 
 The implemented M1 contract is under `docs/milestones/M1-email-round-trip/`.
 The original target environment was recorded in the
-[[sources/2026-07-19-link-operator-requirements/source|initial requirements]],
+[[sources/2026-07-19-agent-operator-requirements/source|initial requirements]],
 which used GreenMail before the JMAP/Stalwart revision.

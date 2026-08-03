@@ -3,7 +3,7 @@ title: Wiki Change Log
 type: reference
 status: active
 tags:
-  - system/link-operator
+  - system/agent-operator
   - topic/knowledge-base
   - evidence/design
 created: 2026-07-19
@@ -15,7 +15,7 @@ updated: 2026-07-21
 Append entries in the form `## [YYYY-MM-DD] operation | subject`. Existing
 entries are immutable; corrections are new entries.
 
-## [2026-07-19] setup | Initial Link Operator knowledge graph
+## [2026-07-19] setup | Initial Agent Operator knowledge graph
 
 Created the vault taxonomy, index, 12 concept notes, 6 problem notes, and 3
 source notes from the project design conversation, the current requirements,
@@ -24,7 +24,7 @@ and the official Kubernetes ResourceQuota documentation.
 ## [2026-07-19] update | Forge owner and project hierarchy
 
 Added [[Forge Owner]] and clarified that the product-facing organization/owner
-maps to a GitHub or Forgejo owner namespace, while Link Operator projects group
+maps to a GitHub or Forgejo owner namespace, while Agent Operator projects group
 one or more `owner/repository` resources into a user-meaningful work boundary.
 
 ## [2026-07-20] create | Research Wiki Maintainer delivery models
@@ -44,7 +44,7 @@ implementer and reviewer agents — and the companion problem
 
 ## [2026-07-21] update | Split email transport M1 from paper research M2
 
-Updated the living Link Operator, agent, local-environment, catalog-composition,
+Updated the living Agent Operator, agent, local-environment, catalog-composition,
 email-research, and recursive-research notes after the milestone split. M1 now
 means the graduated Stalwart JMAP receive/reply round trip; the
 [[Email Paper Research Workflow]] and [[Researcher Agent]] profile execution are

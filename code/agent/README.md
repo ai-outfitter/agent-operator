@@ -24,8 +24,9 @@ The container is **an agent**: a resident Pi session with push-driven Channels.
 Three pieces:
 
 - **`entrypoint.sh` is tiny** — it starts `outfitter run` in pi's headless RPC
-  mode and keeps stdin open. `outfitter run` composes the selected loadout and
-  projects its pinned extensions to Pi.
+  mode, resumes the most recent session from the workspace, and keeps stdin
+  open. `outfitter run` composes the selected loadout and projects its pinned
+  extensions to Pi.
 - **JMAP setup is a user-declared setup step** (`mail-bootstrap` in the Agent
   CR): it ensures the `Processed` mailbox exists and waits for JMAP connectivity
   using the image's `xin`. The agent starts after the setup init container
@@ -38,7 +39,7 @@ Three pieces:
 
 pi generates the actual reply content (the M2 "real research result"); the old
 canned acknowledgement is gone. The `agents-catalog/` tree is baked into the
-image at `/opt/link/.agents`; the operator supplies `default_agent`/harness via
+image at `/opt/agent/.agents`; the operator supplies `default_agent`/harness via
 the mounted `settings.yml`. (TODO: move the catalog to the Organization's remote
 Outfitter catalog once runtime egress allows.)
 
@@ -70,9 +71,28 @@ init and agent containers):
 Optional runtime configuration:
 
 - `OUTFITTER_CHANNELS` — explicit comma-separated channel selection. The mail
-  demo sets `jmap`; composed resident agents can set `jmap,slack`.
+  demo sets `jmap`; composed resident agents can set `jmap,agent`.
+- `AGENT_RELAY_URL` and `AGENT_RELAY_TOKEN` — authenticated outbound WSS relay
+  connection for the native `agent` channel. Supply both through existing
+  Secret/ConfigMap credential references; neither belongs in an `Agent` spec.
 - `AGENT_MAIL_PROCESSED` (default `Processed`) — target mailbox for processed mail
   (supplied by the demo runtime ConfigMap to both containers).
+
+The operator projects native-channel defaults into every
+resident runtime:
+
+- `AGENT_ENDPOINT_ID=link:<agent>` and the matching `AGENT_PRINCIPAL_ID`.
+  `Agent` names are cluster-scoped, so this remains unique and within the
+  channel protocol's identifier bound across pod replacement;
+- `AGENT_SPOOL_PATH=/workspace/.channels/agent`, on the persistent workspace
+  volume, for unacknowledged local delivery only.
+
+Pi sessions are stored under `/workspace/.pi/agent/sessions` and the entrypoint
+uses `--continue`, so a restarted pod resumes the durable session instead of
+minting an unrelated ephemeral session. Native agent-channel messages and replay
+state are recorded as Pi session entries, making this session on the workspace
+PVC the conversation source of truth. The relay token remains independently
+revocable and is never derived from the endpoint ID.
 
 Channels is built by Nix into Outfitter's extension-cache layout. The
 runtime sets `PI_OFFLINE=1` and launches Outfitter in strict mode, so it never

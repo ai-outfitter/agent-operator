@@ -21,15 +21,15 @@ choosing one by declaration order can mask configuration mistakes and makes an
 
 ## Current approach
 
-Link Operator delegates catalog union and collision behavior to Outfitter. The
+Agent Operator delegates catalog union and collision behavior to Outfitter. The
 operator validates and writes pinned source declarations but does not inspect
 resource identities or choose a winner. Collision policy therefore belongs to
 Outfitter's documented composition contract.
 
 ## Deferred alternative
 
-If Link Operator ever adds policy above Outfitter, it needs a concrete use case,
+If Agent Operator ever adds policy above Outfitter, it needs a concrete use case,
 explicit precedence, conflict reporting, and tests that exercise replacement.
 The initial design selected controller-side duplicate rejection in the
-[[sources/2026-07-19-link-operator-design-conversation/source|design conversation]],
+[[sources/2026-07-19-agent-operator-design-conversation/source|design conversation]],
 but the later architecture revision removed that parallel resolver.

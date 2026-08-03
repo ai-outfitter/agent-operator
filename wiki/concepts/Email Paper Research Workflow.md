@@ -3,7 +3,7 @@ title: Email Paper Research Workflow
 type: concept
 status: draft
 tags:
-  - system/link-operator
+  - system/agent-operator
   - process/email-processing
   - process/source-ingestion
   - method/idempotency
@@ -14,7 +14,7 @@ updated: 2026-07-21
 
 # Email Paper Research Workflow
 
-The M2 Link Operator workflow begins when the [[Researcher Agent]]
+The M2 Agent Operator workflow begins when the [[Researcher Agent]]
 receives an email containing exactly one PDF. It maps the request to an
 [[Organization]], preserves the paper, updates the organization's wiki, creates
 one local Git commit, and sends a reply in the original email thread.
@@ -28,7 +28,7 @@ The research portion uses [[Wiki Source Ingestion]]. It records linked papers as
 depth-one candidates but does not fetch them in M2. The workflow's current
 acceptance boundary is under `docs/milestones/M2-email-paper-research/`; it was
 originally defined as M1 in the
-[[sources/2026-07-19-link-operator-requirements/source|initial requirements]].
+[[sources/2026-07-19-agent-operator-requirements/source|initial requirements]].
 
 ## Persistent problems
 

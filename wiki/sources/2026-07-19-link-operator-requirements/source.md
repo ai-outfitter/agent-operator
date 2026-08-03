@@ -10,7 +10,7 @@ publication: Link Operator repository
 published: 2026-07-19
 revision: 5df121e82daac28ff3567280df95cdb9e140df97
 tags:
-  - system/link-operator
+  - system/agent-operator
   - evidence/design
   - topic/organization-model
   - topic/agent-runtime

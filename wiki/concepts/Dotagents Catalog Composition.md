@@ -4,7 +4,7 @@ type: concept
 status: draft
 tags:
   - system/dotagents
-  - system/link-operator
+  - system/agent-operator
   - topic/agent-catalog
   - method/catalog-composition
   - control/supply-chain
@@ -25,10 +25,10 @@ index, merge, or resolve catalog resources. Outfitter owns fetching,
 union/conflict behavior, profile resolution, composition, and launch; the
 operator must not grow a parallel Dotagents resolver.
 
-M2 uses the Link Operator repository's `.agents` payload as the single source
+M2 uses the Agent Operator repository's `.agents` payload as the single source
 that defines [[Researcher Agent|`researcher`]] and vendors the `wiki` and
 `source-ingest` skills. The model and pinned revisions were recorded by the
-[[sources/2026-07-19-link-operator-requirements/source|requirements and catalog source]].
+[[sources/2026-07-19-agent-operator-requirements/source|requirements and catalog source]].
 
 ## Persistent risk
 
