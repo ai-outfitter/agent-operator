@@ -3,6 +3,9 @@ kind: Agent
 metadata:
   name: researcher
 spec:
+  # Optional. When omitted, the operator's configured default image is used.
+  # Users can select the published Outfitter image or their own derivative.
+  image: ghcr.io/ai-outfitter/outfitter:1.0.2
   # A list preserves the many-to-many future; the MVP exercises one entry.
   memberships:
     - organization: example-org

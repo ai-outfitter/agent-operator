@@ -15,6 +15,7 @@ let
   outfitter = inputs.outfitter.packages.${system}.outfitter;
   xin = pkgs.callPackage ./nix/xin.nix { };
   channels = pkgs.callPackage ./nix/channels.nix { };
+  chrome-devtools-mcp = pkgs.callPackage ./nix/chrome-devtools-mcp.nix { };
   operator = pkgs.callPackage ./nix/operator.nix { };
 
   emptyContainerHome = pkgs.runCommand "link-container-empty-home" { } ''
@@ -38,6 +39,7 @@ let
     paths = [
       xin
       outfitter
+      chrome-devtools-mcp
       pkgs.nodejs_22
       pkgs.jq
       pkgs.bash

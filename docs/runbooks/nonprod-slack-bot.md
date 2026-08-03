@@ -5,7 +5,7 @@ Link Operator `Agent` in the Unsupervised nonprod Kubernetes cluster. Link
 Operator recreates its single runtime pod after failure or restart; this
 runbook does not provide an availability SLO. Slack Socket Mode requires
 outbound TLS and no inbound ingress. The runtime also needs DNS and outbound
-access to the configured model provider.
+access to the configured model provider and the read-only Grafana MCP endpoint.
 
 This runbook is limited to the following resources:
 
@@ -15,23 +15,30 @@ This runbook is limited to the following resources:
 - Slack channel scope: every channel the bot has joined
   (`SLACK_CHANNEL_IDS=joined`). Inviting it to another channel expands that
   scope without a Kubernetes change.
-- Credentials: the commands pass Slack tokens to `kubectl` over stdin and do
-  not intentionally print them. Keep shell tracing disabled.
+- Credentials: the commands pass Slack, relay, and Grafana credentials to
+  `kubectl` without intentionally printing them. Keep shell tracing disabled.
 - Deployment images: linux/amd64 and pinned by immutable digest.
 
-The manifests and build inputs live in [`dev/nonprod`](../../dev/nonprod).
+The operator manifests live in [`dev/nonprod`](../../dev/nonprod). The agent
+composition — profile, `slack-grafana-responder` skill, MCP declaration, and
+deployment manifests — lives in the internal
+[`Unsupervisedcom/.agents`](https://github.com/Unsupervisedcom/.agents)
+catalog, consumed by immutable commit from `unsupervised-main`. This repository
+carries no Unsupervised-specific agent runtime content (see issue #13).
 
 ## Prerequisites
 
 You need:
 
 - `kubectl` access through the `unsup-nonprod-engineer` context;
-- Docker Buildx with linux/amd64 support;
-- an authenticated OCI registry that the nonprod EKS nodes can pull from;
+- Docker Buildx with linux/amd64 support for the local pre-publish test;
+- authenticated `gh` access to this repository and its Actions runs;
 - the `channels` and `link-operator` repositories checked out as sibling
   directories;
 - the `nonprod-bot` Slack CLI app configured by following the
   [Channels local Slack runbook](https://github.com/ai-outfitter/channels/blob/main/docs/runbooks/slack-local.md);
+- read access to key `nonprod-bot-authorization` in
+  `secret/mcp-grafana-auth` through context `unsup-prod-admin`;
 - local Pi authentication in `$HOME/.pi/agent/auth.json`.
 
 Preflight without reading any secret values:
@@ -41,61 +48,47 @@ kubectl --context unsup-nonprod-engineer get --raw=/readyz
 kubectl --context unsup-nonprod-engineer auth can-i create \
   customresourcedefinitions.apiextensions.k8s.io
 kubectl --context unsup-nonprod-engineer auth can-i create namespaces
-docker buildx inspect --bootstrap
+kubectl --context unsup-prod-admin -n unsupervised-singleton auth can-i get \
+  secret/mcp-grafana-auth
+gh auth status
 test -s "$HOME/.pi/agent/auth.json"
 ```
 
-Confirm that both `kubectl` commands above target
-`unsup-nonprod-engineer`. Do not substitute another context. The Pi check
-confirms only that the auth file exists; successful authentication is verified
-when the agent starts.
+Confirm that deployment commands target `unsup-nonprod-engineer` and only the
+gateway Secret read targets `unsup-prod-admin`. Do not substitute other
+contexts. The Pi check confirms only that the auth file exists; successful
+authentication is verified when the agent starts.
 
-## Build and publish immutable images
+## Build and publish immutable images through GitHub
 
-Set a registry repository and a build tag. A commit-derived tag can be reused
-when rebuilding a dirty worktree; deployment immutability comes from the
-resolved digest. Do not deploy `latest`, `main`, or another mutable reference.
+Images are published only by GitHub Actions. Do not publish Link images to ECR
+and do not deploy `latest`, `main`, or another mutable reference.
 
-```sh
-export LINK_IMAGE_REPOSITORY="<registry>/<owner>"
-export LINK_IMAGE_TAG="$(git rev-parse --short=12 HEAD)"
-export CHANNELS_REVISION="$(git -C ../channels rev-parse HEAD)"
-```
+This repository publishes only the operator image, through
+[release-images.yml](../../.github/workflows/release-images.yml). The nonprod
+agent image is owned by the consuming deployment: it is built from the
+`Unsupervisedcom/.agents` catalog and published by that pipeline, then selected
+on the `Agent` resource via `spec.image` (added in PR #14). Follow the build,
+test, and publication procedure in the internal catalog's documentation to
+obtain `LINK_AGENT_TAG`.
 
-Build and push linux/amd64 images:
-
-```sh
-docker buildx build \
-  --platform linux/amd64 \
-  --file dev/nonprod/Dockerfile.operator \
-  --tag "$LINK_IMAGE_REPOSITORY/link-operator:$LINK_IMAGE_TAG" \
-  --push .
-
-docker buildx build \
-  --platform linux/amd64 \
-  --build-context channels=../channels \
-  --build-arg "CHANNELS_REVISION=$CHANNELS_REVISION" \
-  --file dev/nonprod/Dockerfile.agent \
-  --tag "$LINK_IMAGE_REPOSITORY/link-agent:$LINK_IMAGE_TAG" \
-  --push .
-```
-
-Resolve both pushed images to registry digests. The resulting values must
-contain `@sha256:`:
+Resolve the published agent image and released operator image to registry
+digests. The resulting values must contain `@sha256:`:
 
 ```sh
+export LINK_OPERATOR_TAG="ghcr.io/ai-outfitter/link-operator:<release-tag>"
 export LINK_OPERATOR_IMAGE="$(
   docker buildx imagetools inspect \
-    "$LINK_IMAGE_REPOSITORY/link-operator:$LINK_IMAGE_TAG" \
+    "$LINK_OPERATOR_TAG" \
     --format '{{json .Manifest.Digest}}' | tr -d '"'
 )"
 export LINK_AGENT_IMAGE="$(
   docker buildx imagetools inspect \
-    "$LINK_IMAGE_REPOSITORY/link-agent:$LINK_IMAGE_TAG" \
+    "$LINK_AGENT_TAG" \
     --format '{{json .Manifest.Digest}}' | tr -d '"'
 )"
-export LINK_OPERATOR_IMAGE="$LINK_IMAGE_REPOSITORY/link-operator@$LINK_OPERATOR_IMAGE"
-export LINK_AGENT_IMAGE="$LINK_IMAGE_REPOSITORY/link-agent@$LINK_AGENT_IMAGE"
+export LINK_OPERATOR_IMAGE="ghcr.io/ai-outfitter/link-operator@$LINK_OPERATOR_IMAGE"
+export LINK_AGENT_IMAGE="ghcr.io/ai-outfitter/link-agent@$LINK_AGENT_IMAGE"
 ```
 
 ## Install Link Operator
@@ -220,6 +213,26 @@ kubectl --context unsup-nonprod-engineer \
   -o go-template='{{range $key, $value := .data}}{{printf "%s\n" $key}}{{end}}'
 ```
 
+## Create scoped relay credentials
+
+The relay is a loopback-only debugging channel hosted in the same Pi process as
+Slack. It has no Service or ingress; an operator reaches it only through an
+authorized `kubectl port-forward`.
+
+Create independent agent and operator bearer tokens without printing them:
+
+```sh
+agent_relay_token="$(openssl rand -hex 32)"
+operator_relay_token="$(openssl rand -hex 32)"
+kubectl --context unsup-nonprod-engineer \
+  -n agent-nonprod-bot create secret generic nonprod-bot-relay \
+  --from-literal=AGENT_RELAY_TOKEN="$agent_relay_token" \
+  --from-literal=LINK_AGENT_RELAY_OPERATOR_TOKEN="$operator_relay_token" \
+  --dry-run=client -o yaml | \
+  kubectl --context unsup-nonprod-engineer apply -f -
+unset agent_relay_token operator_relay_token
+```
+
 ## Verify persistent operation
 
 Wait for the controller-managed Deployment:
@@ -234,8 +247,32 @@ kubectl --context unsup-nonprod-engineer \
   -n agent-nonprod-bot logs deployment/agent-runtime --tail=100
 ```
 
-The logs must show Slack bot authentication and a Socket Mode connection
-without printing token values.
+The logs must show both `slack` and `agent` Channels sources, the relay profile,
+Slack bot authentication, a Socket Mode connection, and the Grafana MCP server
+connected without printing credential values.
+
+To debug the same Slack-based agent directly, keep the relay port-forward open:
+
+```sh
+kubectl --context unsup-nonprod-engineer \
+  -n agent-nonprod-bot port-forward deployment/agent-runtime 8787:8787
+```
+
+In another shell, run the relay smoke client from the internal
+`Unsupervisedcom/.agents` catalog checkout, authenticating with the operator
+token (read it into the environment, never into command arguments):
+
+```sh
+AGENT_RELAY_TOKEN="$(
+  kubectl --context unsup-nonprod-engineer \
+    -n agent-nonprod-bot get secret/nonprod-bot-relay \
+    -o jsonpath='{.data.LINK_AGENT_RELAY_OPERATOR_TOKEN}' | base64 --decode
+)" node relay-smoke.mjs \
+  "Use Grafana MCP to list the configured datasources and report the tool result."
+```
+
+This is an additional debugging ingress. Slack remains active in the same Pi
+session throughout the relay exchange.
 
 Mention the bot in a channel it has joined:
 
@@ -295,6 +332,8 @@ credentials and Slack Secret and established a new Socket Mode connection.
 
 - Slack: rotate the app or bot token in Slack, rerun the credential-transfer
   step, then restart `deployment/agent-runtime`.
+- Grafana MCP: rotate the dedicated `nonprod-bot` gateway credential, rerun the
+  Grafana credential-transfer step, then restart the Deployment.
 - Pi: rerun the seeder flow and restart the Deployment.
 - Images: repeat the immutable-image render and server-side dry-run procedure
   above with the new digests, apply the rendered manifest, and wait for the
@@ -319,18 +358,24 @@ rotation or ordinary bot teardown.
 
 ## Current nonprod deployment
 
-The deployment established on 2026-07-25 uses:
+The agent image was updated on 2026-07-28 to the GitHub-published:
 
-- deployment-manifest source: `20320e1`;
-- operator binary source: `d5ffe5dd05c10796f6793493aab06740d0fc32ff`;
-- Channels source: `4139900df418f013c18412247fa530043391eb9b`;
-- operator image:
-  `216577824627.dkr.ecr.us-east-1.amazonaws.com/ai-outfitter/link-operator@sha256:9a86250b8e59f188e077c0f0077dd48ea9b3ae2ee25f9f9fb2601a250def01df`;
 - agent image:
-  `216577824627.dkr.ecr.us-east-1.amazonaws.com/ai-outfitter/link-agent@sha256:551b2340bbc83da580d2362c2e8a384882a842bdd36a605f4a4c732d1d4a24be`.
+  `ghcr.io/ai-outfitter/link-agent@sha256:986896dcec2197bf4c15325ad00702198e78f6c55ea1ab1e37d4c48a9863a7b7`
+  (tag `nonprod-sha-ef6a4cc9562ab90ac784502d84566dba11bf5d7f`, published by
+  [Actions run 30637837298](https://github.com/ai-outfitter/agent-operator/actions/runs/30637837298)).
 
-Both ECR scans completed with no findings before deployment. Link Operator
-reported `Agent/nonprod-bot` Ready, both encrypted CSI volumes bound, and the
-replacement pod established a new Socket Mode connection after a Deployment
-restart. Record the Slack round-trip verifier result here after the first
-human mention passes.
+The operator remains on the 2026-07-25 deployment (manifest source `20320e1`,
+operator binary source `d5ffe5dd05c10796f6793493aab06740d0fc32ff`); migrating
+it to an immutable GHCR digest and retiring the remaining ECR references is
+tracked in issue #12.
+
+Migration history: the deployed agent image was built from this repository's
+`dev/nonprod` composition, since moved to the internal `Unsupervisedcom/.agents`
+catalog. The next agent image rollout should come from that catalog's pipeline
+and be selected with `Agent.spec.image`.
+
+Link Operator reported `Agent/nonprod-bot` Ready, both encrypted CSI volumes
+bound, and the replacement pod established a new Socket Mode connection after a
+Deployment restart. Record the Slack round-trip verifier result here after the
+first human mention passes.

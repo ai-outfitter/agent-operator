@@ -28,6 +28,12 @@ organizations, projects, teams, and environments it may act within.
 
 ## OPR-003.2: Dotagents runtime
 
+`spec.image` MAY select a user-owned runtime image. When it is omitted, the
+operator MUST use its configured default image. The operator MUST pass the image
+reference through to Kubernetes without adding registry, signature, or
+immutability policy; cluster owners can enforce those constraints with standard
+Kubernetes admission controls.
+
 `spec.profile.agent` MUST select an agent slug resolved from the organization's
 commit-pinned catalogs. `spec.profile.harness` MUST default to `pi`. The
 runtime MUST invoke the equivalent of:
@@ -40,15 +46,11 @@ The agent definition supplies identity, skills, subagents, model, thinking
 level, and tool policy according to the pinned Dotagents revision. The operator
 MUST NOT copy those fields into the `Agent` CRD.
 
-The runtime image MUST be reproducibly built from a pinned Outfitter revision and
-a Deployment MUST ultimately use an immutable image digest; a mutable development
-tag may be accepted only until the local image is loaded and its digest recorded
-in status.
-
-The image is a **generic base** (Pi, Outfitter, git, ssh). Channel and tool
-dependencies — for example an email adapter or Docling — belong to the composed
-agent, not to the operator's contract; the operator does not care what
-capabilities the image contains.
+The published Outfitter image is the default generic runtime. Users MAY select it
+directly or supply a derivative containing additional tools. Channel and tool
+dependencies belong to the selected profile or user-owned image, not to the
+operator's contract; the operator does not care what capabilities the image
+contains.
 
 ## OPR-003.3: Namespace workspace and owned resources
 
@@ -177,6 +179,8 @@ kind: Agent
 metadata:
   name: researcher
 spec:
+  # Optional; omit this to use the operator's default Outfitter image.
+  image: ghcr.io/example/research-agent:v1
   memberships:
     - organization: ai-outfitter
       projects: []

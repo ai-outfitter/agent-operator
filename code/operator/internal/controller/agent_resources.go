@@ -39,7 +39,22 @@ const (
 	// stack through the trailing settings source rendered below — never as
 	// the implicit workspace layer that would shadow the Organization catalog.
 	BakedCatalogPath = "/opt/link/.agents"
+
+	// BrowserName is the sidecar container serving the Chrome DevTools
+	// Protocol; BrowserCDPURL is where the agent container reaches it over
+	// pod-shared localhost. The address is loopback on purpose: nothing
+	// outside the Pod can speak CDP, which is an unauthenticated
+	// full-control protocol.
+	BrowserName          = "browser"
+	BrowserCDPPort       = 9222
+	BrowserCDPURL        = "http://127.0.0.1:9222"
+	BrowserCDPURLEnvName = "AGENT_BROWSER_CDP_URL"
 )
+
+// defaultBrowserImage runs headless Chromium with no services of its own; the
+// operator supplies every flag. Pinned so an operator upgrade, not a registry
+// tag move, is what changes the browser.
+const defaultBrowserImage = "docker.io/chromedp/headless-shell:151.0.7922.72"
 
 var defaultWorkspaceSize = resource.MustParse("10Gi")
 
@@ -208,6 +223,7 @@ func (r *AgentReconciler) ensureAgentDeployment(
 ) (*appsv1.Deployment, error) {
 	namespace := agentNamespace(agent.Name)
 	labels := ownershipLabels(agent)
+	runtimeImage := r.agentImage(agent)
 	selectorLabels := map[string]string{
 		"app.kubernetes.io/name":     "link-agent",
 		"app.kubernetes.io/instance": agent.Name,
@@ -232,7 +248,7 @@ func (r *AgentReconciler) ensureAgentDeployment(
 
 		container := corev1.Container{
 			Name:            "agent",
-			Image:           r.agentImage(),
+			Image:           runtimeImage,
 			ImagePullPolicy: corev1.PullIfNotPresent,
 			WorkingDir:      WorkspaceMount,
 			Env: []corev1.EnvVar{
@@ -275,7 +291,7 @@ func (r *AgentReconciler) ensureAgentDeployment(
 		// while --no-clobber preserves paths and Nix state already on the PVC.
 		seedInit := corev1.Container{
 			Name:            "seed-nix-store",
-			Image:           r.agentImage(),
+			Image:           runtimeImage,
 			ImagePullPolicy: corev1.PullIfNotPresent,
 			Command:         []string{"sh", "-c", nixStoreSeedScript},
 			VolumeMounts:    []corev1.VolumeMount{{Name: NixStoreName, MountPath: "/mnt/nix"}},
@@ -295,7 +311,7 @@ func (r *AgentReconciler) ensureAgentDeployment(
 			)
 			initContainers = append(initContainers, corev1.Container{
 				Name:            "setup-" + step.Name,
-				Image:           r.agentImage(),
+				Image:           runtimeImage,
 				ImagePullPolicy: corev1.PullIfNotPresent,
 				Command:         []string{"sh", "-c", step.Script},
 				EnvFrom:         credentialEnvFrom,
@@ -304,7 +320,17 @@ func (r *AgentReconciler) ensureAgentDeployment(
 			})
 		}
 		deployment.Spec.Template.Spec.InitContainers = initContainers
-		deployment.Spec.Template.Spec.Containers = []corev1.Container{container}
+		containers := []corev1.Container{container}
+		if browser := agent.Spec.Browser; browser != nil && browser.Enabled {
+			container.Env = append(container.Env,
+				corev1.EnvVar{Name: BrowserCDPURLEnvName, Value: BrowserCDPURL})
+			containers = []corev1.Container{container, browserSidecar(browser)}
+			volumes = append(volumes, corev1.Volume{
+				Name:         browserDataName,
+				VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
+			})
+		}
+		deployment.Spec.Template.Spec.Containers = containers
 		deployment.Spec.Template.Spec.Volumes = volumes
 		return nil
 	})
@@ -413,7 +439,40 @@ func credentialVolumeName(kind, name string) string {
 	return value
 }
 
-func (r *AgentReconciler) agentImage() string {
+const browserDataName = "browser-data"
+
+// browserSidecar builds the headless-Chrome container. The Pod securityContext
+// already forces uid/gid 1000, which is why --no-sandbox is required: the
+// Chrome sandbox needs either root-owned helpers or user namespaces, and the
+// agent Pod grants neither. The DevTools listener binds loopback only.
+func browserSidecar(browser *linkv1alpha1.BrowserSpec) corev1.Container {
+	image := browser.Image
+	if image == "" {
+		image = defaultBrowserImage
+	}
+	return corev1.Container{
+		Name:            BrowserName,
+		Image:           image,
+		ImagePullPolicy: corev1.PullIfNotPresent,
+		Args: []string{
+			"--remote-debugging-address=127.0.0.1",
+			fmt.Sprintf("--remote-debugging-port=%d", BrowserCDPPort),
+			"--no-sandbox",
+			"--disable-gpu",
+			"--disable-dev-shm-usage",
+			"--user-data-dir=/data",
+		},
+		Resources: browser.Resources,
+		VolumeMounts: []corev1.VolumeMount{
+			{Name: browserDataName, MountPath: "/data"},
+		},
+	}
+}
+
+func (r *AgentReconciler) agentImage(agent *linkv1alpha1.Agent) string {
+	if agent.Spec.Image != "" {
+		return agent.Spec.Image
+	}
 	if r.AgentImage != "" {
 		return r.AgentImage
 	}
