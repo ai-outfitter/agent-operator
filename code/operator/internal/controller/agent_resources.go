@@ -431,6 +431,11 @@ func browserSidecar(browser *linkv1alpha1.BrowserSpec) corev1.Container {
 		Name:            BrowserName,
 		Image:           image,
 		ImagePullPolicy: corev1.PullIfNotPresent,
+		// Bypass the image entrypoint: headless-shell's wrapper prepends its
+		// own debugging flags and starts a socat forwarder that listens on
+		// 0.0.0.0:9222 — exactly the off-pod CDP exposure this sidecar must
+		// not have. Running the binary directly keeps the listener loopback.
+		Command: []string{"/headless-shell/headless-shell"},
 		Args: []string{
 			"--remote-debugging-address=127.0.0.1",
 			fmt.Sprintf("--remote-debugging-port=%d", BrowserCDPPort),
