@@ -143,6 +143,49 @@ var _ = Describe("Agent Controller", func() {
 		Expect(deployment.Spec.Template.Spec.InitContainers[0].Image).To(Equal(current.Spec.Image))
 	})
 
+	It("adds a browser sidecar when spec.browser is enabled", func() {
+		organization := createAcceptedOrganization(ctx)
+		agent := validAgent(uniqueTestName("browser"), organization.Name)
+		agent.Spec.Browser = &linkv1alpha1.BrowserSpec{Enabled: true}
+		Expect(k8sClient.Create(ctx, agent)).To(Succeed())
+		DeferCleanup(removeAgent, ctx, agent.Name)
+
+		reconciler := &AgentReconciler{
+			Client: k8sClient, APIReader: k8sClient, Scheme: k8sClient.Scheme(), AgentImage: "link-agent:default",
+		}
+		request := reconcile.Request{NamespacedName: types.NamespacedName{Name: agent.Name}}
+		_, err := reconciler.Reconcile(ctx, request)
+		Expect(err).NotTo(HaveOccurred())
+
+		deployment := &appsv1.Deployment{}
+		deploymentKey := types.NamespacedName{Namespace: agentNamespace(agent.Name), Name: RuntimeName}
+		Expect(k8sClient.Get(ctx, deploymentKey, deployment)).To(Succeed())
+		containers := deployment.Spec.Template.Spec.Containers
+		Expect(containers).To(HaveLen(2))
+		Expect(containers[1].Name).To(Equal(BrowserName))
+		Expect(containers[1].Image).To(Equal(defaultBrowserImage))
+		Expect(containers[1].Args).To(ContainElement("--remote-debugging-address=127.0.0.1"))
+		Expect(containers[1].Args).To(ContainElement("--no-sandbox"))
+		Expect(containers[0].Env).To(ContainElement(corev1.EnvVar{
+			Name: BrowserCDPURLEnvName, Value: BrowserCDPURL,
+		}))
+		volumeNames := []string{}
+		for _, volume := range deployment.Spec.Template.Spec.Volumes {
+			volumeNames = append(volumeNames, volume.Name)
+		}
+		Expect(volumeNames).To(ContainElement(browserDataName))
+
+		// Disabling the browser removes the sidecar again.
+		current := &linkv1alpha1.Agent{}
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: agent.Name}, current)).To(Succeed())
+		current.Spec.Browser = nil
+		Expect(k8sClient.Update(ctx, current)).To(Succeed())
+		_, err = reconciler.Reconcile(ctx, request)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(k8sClient.Get(ctx, deploymentKey, deployment)).To(Succeed())
+		Expect(deployment.Spec.Template.Spec.Containers).To(HaveLen(1))
+	})
+
 	It("projects references and becomes ready after the agent runtime starts", func() {
 		organization := createAcceptedOrganization(ctx)
 		agent := validAgent(uniqueTestName("researcher"), organization.Name)
