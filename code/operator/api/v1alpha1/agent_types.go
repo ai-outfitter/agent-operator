@@ -75,10 +75,17 @@ type BrowserSpec struct {
 	// +optional
 	Enabled bool `json:"enabled,omitempty"`
 
-	// Image runs headless Chromium. It must accept Chrome flags as arguments
-	// (the operator passes --remote-debugging-address/-port, --no-sandbox,
-	// --disable-gpu, --disable-dev-shm-usage). When omitted, the operator's
-	// configured default browser image is used.
+	// Image must place its Chromium binary at /headless-shell/headless-shell
+	// and accept Chrome flags as arguments (the operator passes
+	// --remote-debugging-address/-port, --no-sandbox, --disable-gpu,
+	// --disable-dev-shm-usage, --user-data-dir). The operator always runs
+	// that path directly rather than the image entrypoint, deliberately and
+	// without an override: the upstream headless-shell entrypoint starts a
+	// forwarder that publishes the DevTools listener on 0.0.0.0, and CDP is
+	// unauthenticated full browser control, so an entrypoint must never
+	// choose the listener address. Images with another layout are not
+	// supported. When omitted, the operator's digest-pinned default browser
+	// image is used.
 	// +optional
 	// +kubebuilder:validation:MinLength=1
 	Image string `json:"image,omitempty"`
