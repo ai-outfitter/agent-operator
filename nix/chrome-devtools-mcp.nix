@@ -9,7 +9,7 @@
 # @paulirish/trace_engine. The lockfile project in ./chrome-devtools-mcp/
 # pins the tarball and its transitive dependencies; regenerate it with
 # `npm install --package-lock-only` after bumping the version there.
-{ lib, buildNpmPackage, nodejs_22 }:
+{ lib, buildNpmPackage, makeWrapper, nodejs_22 }:
 
 buildNpmPackage {
   pname = "chrome-devtools-mcp";
@@ -17,6 +17,8 @@ buildNpmPackage {
 
   src = ./chrome-devtools-mcp;
   nodejs = nodejs_22;
+
+  nativeBuildInputs = [ makeWrapper ];
 
   npmDepsHash = "sha256-PlYaUaz+6aCtXh4jW+sH7eN/zsu6U/SJGzcbCAUBVyY=";
 
