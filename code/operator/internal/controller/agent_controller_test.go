@@ -18,6 +18,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	linkv1alpha1 "github.com/ncrmro/link-operator/code/operator/api/v1alpha1"
@@ -110,6 +111,48 @@ var _ = Describe("Agent Controller", func() {
 		Expect(configVolume.ConfigMap.Name).To(Equal(configName))
 		Expect(configVolume.ConfigMap.Optional).To(BeNil())
 		Expect(deployment.Spec.Template.Spec.Containers[0].Image).To(Equal(reconciler.AgentImage))
+
+		// Agent-only pods must still get a usable API token: automount is off
+		// pod-wide, replaced by an explicit projection into the agent
+		// container at the well-known path.
+		Expect(deployment.Spec.Template.Spec.AutomountServiceAccountToken).To(Equal(ptr.To(false)))
+		Expect(deployment.Spec.Template.Spec.Containers[0].VolumeMounts).To(ContainElement(corev1.VolumeMount{
+			Name: APITokenVolumeName, MountPath: APITokenMountPath, ReadOnly: true,
+		}))
+		var tokenVolume *corev1.Volume
+		for index := range deployment.Spec.Template.Spec.Volumes {
+			if deployment.Spec.Template.Spec.Volumes[index].Name == APITokenVolumeName {
+				tokenVolume = &deployment.Spec.Template.Spec.Volumes[index]
+				break
+			}
+		}
+		// Setup steps are user bootstrap and could always reach the API
+		// server; turning automount off must not silently take that away.
+		// seed-nix-store stays without a token — it only copies store paths.
+		for _, initContainer := range deployment.Spec.Template.Spec.InitContainers {
+			mountNames := []string{}
+			for _, mount := range initContainer.VolumeMounts {
+				mountNames = append(mountNames, mount.Name)
+			}
+			if strings.HasPrefix(initContainer.Name, "setup-") {
+				Expect(mountNames).To(ContainElement(APITokenVolumeName),
+					"setup init container %s lost API access", initContainer.Name)
+			} else {
+				Expect(mountNames).NotTo(ContainElement(APITokenVolumeName),
+					"init container %s should not carry the API token", initContainer.Name)
+			}
+		}
+
+		Expect(tokenVolume).NotTo(BeNil())
+		Expect(tokenVolume.Projected).NotTo(BeNil())
+		var hasTokenSource bool
+		for _, source := range tokenVolume.Projected.Sources {
+			if source.ServiceAccountToken != nil {
+				hasTokenSource = true
+				Expect(source.ServiceAccountToken.Path).To(Equal("token"))
+			}
+		}
+		Expect(hasTokenSource).To(BeTrue())
 	})
 
 	It("rolls out a new user-owned runtime image", func() {
@@ -164,8 +207,28 @@ var _ = Describe("Agent Controller", func() {
 		Expect(containers).To(HaveLen(2))
 		Expect(containers[1].Name).To(Equal(BrowserName))
 		Expect(containers[1].Image).To(Equal(defaultBrowserImage))
+		// The Command must bypass the image entrypoint: the headless-shell
+		// wrapper starts a socat forwarder on 0.0.0.0:9222, which would
+		// expose the unauthenticated CDP listener outside the Pod.
+		Expect(containers[1].Command).To(Equal([]string{"/headless-shell/headless-shell"}))
 		Expect(containers[1].Args).To(ContainElement("--remote-debugging-address=127.0.0.1"))
+		Expect(containers[1].Args).To(ContainElement("--remote-debugging-port=9222"))
 		Expect(containers[1].Args).To(ContainElement("--no-sandbox"))
+
+		// The unsandboxed browser must never hold the agent-runtime
+		// ServiceAccount credentials: no pod-wide automount, no token mount
+		// in the browser container — only the agent container gets the
+		// projected token.
+		Expect(deployment.Spec.Template.Spec.AutomountServiceAccountToken).To(Equal(ptr.To(false)))
+		for _, mount := range containers[1].VolumeMounts {
+			Expect(mount.Name).NotTo(Equal(APITokenVolumeName))
+			Expect(mount.MountPath).NotTo(HavePrefix("/var/run/secrets/kubernetes.io"))
+		}
+		agentMountNames := []string{}
+		for _, mount := range containers[0].VolumeMounts {
+			agentMountNames = append(agentMountNames, mount.Name)
+		}
+		Expect(agentMountNames).To(ContainElement(APITokenVolumeName))
 		Expect(containers[0].Env).To(ContainElement(corev1.EnvVar{
 			Name: BrowserCDPURLEnvName, Value: BrowserCDPURL,
 		}))

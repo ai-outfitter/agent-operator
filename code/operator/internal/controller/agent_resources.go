@@ -44,12 +44,32 @@ const (
 	BrowserCDPPort       = 9222
 	BrowserCDPURL        = "http://127.0.0.1:9222"
 	BrowserCDPURLEnvName = "AGENT_BROWSER_CDP_URL"
+
+	// APITokenVolumeName carries a manually projected ServiceAccount token.
+	// Pod-level automountServiceAccountToken is false so sidecars (notably the
+	// unsandboxed browser) never see the agent-runtime credentials; the token
+	// is mounted into the agent container only, at the well-known path client
+	// libraries expect.
+	APITokenVolumeName = "agent-api-access"
+	APITokenMountPath  = "/var/run/secrets/kubernetes.io/serviceaccount"
 )
 
+// apiTokenExpirationSeconds matches the kubelet-managed kube-api-access
+// projection: one hour plus a small skew so clients refresh before expiry.
+var apiTokenExpirationSeconds = ptr.To[int64](3607)
+
 // defaultBrowserImage runs headless Chromium with no services of its own; the
-// operator supplies every flag. Pinned so an operator upgrade, not a registry
-// tag move, is what changes the browser.
-const defaultBrowserImage = "docker.io/chromedp/headless-shell:151.0.7922.72"
+// operator supplies every flag. Pinned by digest so an operator upgrade, not a
+// registry tag move, is what changes the browser. The tag is kept for
+// readability; the digest is what the runtime resolves.
+const defaultBrowserImage = "docker.io/chromedp/headless-shell:151.0.7922.72" +
+	"@sha256:c65aef2b8fef5113cb97be8c99f7bf094320ca9b11e511041e6924e516bda0a1"
+
+// defaultBrowserCommand bypasses the image entrypoint: headless-shell's wrapper
+// prepends its own debugging flags and starts a socat forwarder that listens on
+// 0.0.0.0:9222 — exactly the off-pod CDP exposure the sidecar must not have.
+// Running the binary directly keeps the listener loopback.
+var defaultBrowserCommand = []string{"/headless-shell/headless-shell"}
 
 var defaultWorkspaceSize = resource.MustParse("10Gi")
 
@@ -211,6 +231,35 @@ func pvcVolume(name string) corev1.Volume {
 	}
 }
 
+// apiTokenVolume reproduces the kubelet's kube-api-access projection — a bound
+// ServiceAccount token plus the cluster CA and namespace — as an explicit
+// volume, so the token can be mounted into the agent container only. The
+// audience is left empty on purpose: it defaults to the API server audience,
+// which is what kubectl in the agent container needs.
+func apiTokenVolume() corev1.Volume {
+	return corev1.Volume{
+		Name: APITokenVolumeName,
+		VolumeSource: corev1.VolumeSource{Projected: &corev1.ProjectedVolumeSource{
+			Sources: []corev1.VolumeProjection{
+				{ServiceAccountToken: &corev1.ServiceAccountTokenProjection{
+					Path:              "token",
+					ExpirationSeconds: apiTokenExpirationSeconds,
+				}},
+				{ConfigMap: &corev1.ConfigMapProjection{
+					LocalObjectReference: corev1.LocalObjectReference{Name: "kube-root-ca.crt"},
+					Items:                []corev1.KeyToPath{{Key: "ca.crt", Path: "ca.crt"}},
+				}},
+				{DownwardAPI: &corev1.DownwardAPIProjection{
+					Items: []corev1.DownwardAPIVolumeFile{{
+						Path:     "namespace",
+						FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.namespace"},
+					}},
+				}},
+			},
+		}},
+	}
+}
+
 func (r *AgentReconciler) ensureAgentDeployment(
 	ctx context.Context,
 	agent *linkv1alpha1.Agent,
@@ -233,7 +282,11 @@ func (r *AgentReconciler) ensureAgentDeployment(
 		deployment.Spec.Selector = &metav1.LabelSelector{MatchLabels: selectorLabels}
 		deployment.Spec.Template.Labels = mergeLabels(selectorLabels, labels)
 		deployment.Spec.Template.Spec.ServiceAccountName = RuntimeName
-		deployment.Spec.Template.Spec.AutomountServiceAccountToken = ptr.To(true)
+		// No pod-wide token automount: the browser sidecar runs an
+		// unsandboxed Chromium and must never hold agent-runtime API
+		// credentials. The agent container gets an explicit projected token
+		// instead (see apiTokenVolume).
+		deployment.Spec.Template.Spec.AutomountServiceAccountToken = ptr.To(false)
 		deployment.Spec.Template.Spec.SecurityContext = &corev1.PodSecurityContext{
 			RunAsNonRoot: ptr.To(true),
 			RunAsUser:    agentFSGroup,
@@ -257,6 +310,7 @@ func (r *AgentReconciler) ensureAgentDeployment(
 				{Name: WorkspaceName, MountPath: WorkspaceMount},
 				{Name: NixStoreName, MountPath: NixMount},
 				{Name: SettingsName, MountPath: path.Join(WorkspaceMount, ".agents"), ReadOnly: true},
+				{Name: APITokenVolumeName, MountPath: APITokenMountPath, ReadOnly: true},
 			},
 		}
 		volumes := []corev1.Volume{
@@ -268,6 +322,7 @@ func (r *AgentReconciler) ensureAgentDeployment(
 					LocalObjectReference: corev1.LocalObjectReference{Name: SettingsName},
 				}},
 			},
+			apiTokenVolume(),
 		}
 		// Merge the current image's store paths on every boot. A prior .seeded
 		// marker is informational only: image upgrades can introduce new hashes,
@@ -291,6 +346,12 @@ func (r *AgentReconciler) ensureAgentDeployment(
 			mounts = append(mounts,
 				corev1.VolumeMount{Name: WorkspaceName, MountPath: WorkspaceMount},
 				corev1.VolumeMount{Name: NixStoreName, MountPath: NixMount},
+				// Setup scripts are user-supplied bootstrap and could always
+				// reach the API server; pod-wide automount is off, so the
+				// projection has to be mounted explicitly to preserve that.
+				// seed-nix-store is deliberately excluded: it only copies the
+				// image's store closure onto the PVC.
+				corev1.VolumeMount{Name: APITokenVolumeName, MountPath: APITokenMountPath, ReadOnly: true},
 			)
 			initContainers = append(initContainers, corev1.Container{
 				Name:            "setup-" + step.Name,
@@ -431,11 +492,10 @@ func browserSidecar(browser *linkv1alpha1.BrowserSpec) corev1.Container {
 		Name:            BrowserName,
 		Image:           image,
 		ImagePullPolicy: corev1.PullIfNotPresent,
-		// Bypass the image entrypoint: headless-shell's wrapper prepends its
-		// own debugging flags and starts a socat forwarder that listens on
-		// 0.0.0.0:9222 — exactly the off-pod CDP exposure this sidecar must
-		// not have. Running the binary directly keeps the listener loopback.
-		Command: []string{"/headless-shell/headless-shell"},
+		// Not overridable by the Agent author: the upstream entrypoint
+		// publishes CDP on 0.0.0.0, and CDP is unauthenticated full browser
+		// control, so the listener address is the operator's decision alone.
+		Command: defaultBrowserCommand,
 		Args: []string{
 			"--remote-debugging-address=127.0.0.1",
 			fmt.Sprintf("--remote-debugging-port=%d", BrowserCDPPort),
