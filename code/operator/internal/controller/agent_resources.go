@@ -44,7 +44,19 @@ const (
 	BrowserCDPPort       = 9222
 	BrowserCDPURL        = "http://127.0.0.1:9222"
 	BrowserCDPURLEnvName = "AGENT_BROWSER_CDP_URL"
+
+	// APITokenVolumeName carries a manually projected ServiceAccount token.
+	// Pod-level automountServiceAccountToken is false so sidecars (notably the
+	// unsandboxed browser) never see the agent-runtime credentials; the token
+	// is mounted into the agent container only, at the well-known path client
+	// libraries expect.
+	APITokenVolumeName = "agent-api-access"
+	APITokenMountPath  = "/var/run/secrets/kubernetes.io/serviceaccount"
 )
+
+// apiTokenExpirationSeconds matches the kubelet-managed kube-api-access
+// projection: one hour plus a small skew so clients refresh before expiry.
+var apiTokenExpirationSeconds = ptr.To[int64](3607)
 
 // defaultBrowserImage runs headless Chromium with no services of its own; the
 // operator supplies every flag. Pinned so an operator upgrade, not a registry
@@ -211,6 +223,35 @@ func pvcVolume(name string) corev1.Volume {
 	}
 }
 
+// apiTokenVolume reproduces the kubelet's kube-api-access projection — a bound
+// ServiceAccount token plus the cluster CA and namespace — as an explicit
+// volume, so the token can be mounted into the agent container only. The
+// audience is left empty on purpose: it defaults to the API server audience,
+// which is what kubectl in the agent container needs.
+func apiTokenVolume() corev1.Volume {
+	return corev1.Volume{
+		Name: APITokenVolumeName,
+		VolumeSource: corev1.VolumeSource{Projected: &corev1.ProjectedVolumeSource{
+			Sources: []corev1.VolumeProjection{
+				{ServiceAccountToken: &corev1.ServiceAccountTokenProjection{
+					Path:              "token",
+					ExpirationSeconds: apiTokenExpirationSeconds,
+				}},
+				{ConfigMap: &corev1.ConfigMapProjection{
+					LocalObjectReference: corev1.LocalObjectReference{Name: "kube-root-ca.crt"},
+					Items:                []corev1.KeyToPath{{Key: "ca.crt", Path: "ca.crt"}},
+				}},
+				{DownwardAPI: &corev1.DownwardAPIProjection{
+					Items: []corev1.DownwardAPIVolumeFile{{
+						Path:     "namespace",
+						FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.namespace"},
+					}},
+				}},
+			},
+		}},
+	}
+}
+
 func (r *AgentReconciler) ensureAgentDeployment(
 	ctx context.Context,
 	agent *linkv1alpha1.Agent,
@@ -233,7 +274,11 @@ func (r *AgentReconciler) ensureAgentDeployment(
 		deployment.Spec.Selector = &metav1.LabelSelector{MatchLabels: selectorLabels}
 		deployment.Spec.Template.Labels = mergeLabels(selectorLabels, labels)
 		deployment.Spec.Template.Spec.ServiceAccountName = RuntimeName
-		deployment.Spec.Template.Spec.AutomountServiceAccountToken = ptr.To(true)
+		// No pod-wide token automount: the browser sidecar runs an
+		// unsandboxed Chromium and must never hold agent-runtime API
+		// credentials. The agent container gets an explicit projected token
+		// instead (see apiTokenVolume).
+		deployment.Spec.Template.Spec.AutomountServiceAccountToken = ptr.To(false)
 		deployment.Spec.Template.Spec.SecurityContext = &corev1.PodSecurityContext{
 			RunAsNonRoot: ptr.To(true),
 			RunAsUser:    agentFSGroup,
@@ -257,6 +302,7 @@ func (r *AgentReconciler) ensureAgentDeployment(
 				{Name: WorkspaceName, MountPath: WorkspaceMount},
 				{Name: NixStoreName, MountPath: NixMount},
 				{Name: SettingsName, MountPath: path.Join(WorkspaceMount, ".agents"), ReadOnly: true},
+				{Name: APITokenVolumeName, MountPath: APITokenMountPath, ReadOnly: true},
 			},
 		}
 		volumes := []corev1.Volume{
@@ -268,6 +314,7 @@ func (r *AgentReconciler) ensureAgentDeployment(
 					LocalObjectReference: corev1.LocalObjectReference{Name: SettingsName},
 				}},
 			},
+			apiTokenVolume(),
 		}
 		// Merge the current image's store paths on every boot. A prior .seeded
 		// marker is informational only: image upgrades can introduce new hashes,
