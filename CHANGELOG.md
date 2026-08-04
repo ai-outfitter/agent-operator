@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.0](https://github.com/ai-outfitter/agent-operator/compare/agent-operator-v0.4.0...agent-operator-v0.5.0) (2026-08-04)
+
+
+### Features
+
+* default agents to the published Outfitter container ([#32](https://github.com/ai-outfitter/agent-operator/issues/32)) ([d31fb64](https://github.com/ai-outfitter/agent-operator/commit/d31fb64380e553e3db56bd05e8bfd8410c86264d))
+* publish only the controller image ([#28](https://github.com/ai-outfitter/agent-operator/issues/28)) ([8aca7c4](https://github.com/ai-outfitter/agent-operator/commit/8aca7c47f7c5e7a7b340e03866aa93f939627381))
+
 ## [0.4.0](https://github.com/ai-outfitter/agent-operator/compare/agent-operator-v0.3.0...agent-operator-v0.4.0) (2026-08-03)
 
 
