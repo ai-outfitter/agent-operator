@@ -1,0 +1,87 @@
+# [MANAGER]: Manager Deployment Configurations
+controllerManager:
+  replicas: 1
+  container:
+    image:
+      # The published controller. This chart installs no agent runtime image:
+      # agents run the published Outfitter container by default, or an image an
+      # organization derives from it and publishes from its own <org>/.agents
+      # repository. See issue #13.
+      repository: ghcr.io/ai-outfitter/agent-operator
+      # Defaults to the chart's appVersion so a chart release and the controller
+      # it ships cannot drift apart. Override with a digest for immutability.
+      tag: ""
+    imagePullPolicy: IfNotPresent
+    args:
+      - "--leader-elect"
+      - "--metrics-bind-address=:8443"
+      - "--health-probe-bind-address=:8081"
+      # --agent-image is deliberately absent. It defaults to the published
+      # Outfitter container, and it is cluster-global: it sets the runtime for
+      # every Agent this controller manages. Prefer per-agent Agent.spec.image
+      # over setting it here.
+    resources:
+      limits:
+        cpu: 500m
+        memory: 128Mi
+      requests:
+        cpu: 10m
+        memory: 64Mi
+    livenessProbe:
+      initialDelaySeconds: 15
+      periodSeconds: 20
+      httpGet:
+        path: /healthz
+        port: 8081
+    readinessProbe:
+      initialDelaySeconds: 5
+      periodSeconds: 10
+      httpGet:
+        path: /readyz
+        port: 8081
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+          - "ALL"
+  securityContext:
+    runAsNonRoot: true
+    seccompProfile:
+      type: RuntimeDefault
+  terminationGracePeriodSeconds: 10
+  serviceAccountName: agent-operator-controller-manager
+
+# [RBAC]: To enable RBAC (Permissions) configurations
+rbac:
+  enable: true
+
+# [CRDs]: To enable the CRDs
+crd:
+  # This option determines whether the CRDs are included
+  # in the installation process.
+  enable: true
+
+  # Enabling this option adds the "helm.sh/resource-policy": keep
+  # annotation to the CRD, ensuring it remains installed even when
+  # the Helm release is uninstalled.
+  # NOTE: Removing the CRDs will also remove all cert-manager CR(s)
+  # (Certificates, Issuers, ...) due to garbage collection.
+  keep: true
+
+# [METRICS]: Set to true to generate manifests for exporting metrics.
+# To disable metrics export set false, and ensure that the
+# ControllerManager argument "--metrics-bind-address=:8443" is removed.
+metrics:
+  enable: true
+
+# [PROMETHEUS]: To enable a ServiceMonitor to export metrics to Prometheus set true
+prometheus:
+  enable: false
+
+# [CERT-MANAGER]: To enable cert-manager injection to webhooks set true
+certmanager:
+  enable: false
+
+# [NETWORK POLICIES]: To enable NetworkPolicies set true
+networkPolicy:
+  enable: false

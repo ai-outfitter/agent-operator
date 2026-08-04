@@ -6,6 +6,8 @@ cliVersion: 4.15.0
 domain: aioutfitter.com
 layout:
 - go.kubebuilder.io/v4
+plugins:
+  helm.kubebuilder.io/v1-alpha: {}
 projectName: agent-operator
 repo: github.com/ai-outfitter/agent-operator/code/operator
 resources:

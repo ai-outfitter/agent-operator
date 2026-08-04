@@ -1,0 +1,23 @@
+apiVersion: v2
+name: agent-operator
+description: |
+  Kubernetes controller for resident Outfitter agents. Installs the Organization
+  and Agent CRDs and the controller that reconciles them.
+
+  It does not install an agent runtime image. Agents run the published Outfitter
+  container by default, or an image derived from it that an organization
+  publishes from its own <org>/.agents repository.
+type: application
+# Chart version tracks the operator release it ships. release-please owns both.
+version: 0.5.0 # x-release-please-version
+appVersion: "0.5.0" # x-release-please-version
+home: https://github.com/ai-outfitter/agent-operator
+sources:
+  - https://github.com/ai-outfitter/agent-operator
+maintainers:
+  - name: ai-outfitter
+    url: https://github.com/ai-outfitter
+keywords:
+  - agents
+  - outfitter
+  - operator
