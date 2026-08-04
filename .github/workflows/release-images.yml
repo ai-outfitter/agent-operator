@@ -57,9 +57,9 @@ jobs:
             --username "${GITHUB_ACTOR}" \
             --password-stdin ghcr.io <<<"$GHCR_TOKEN"
 
-      # Controller only. This repository publishes no agent runtime image: per
-      # #13 the runtime is the published Outfitter container, which a consumer
-      # runs directly or extends in its own <org>/.agents repository.
+      # Controller only. This repository publishes no agent runtime image.
+      # Per issue #13 the runtime is the published Outfitter container, which a
+      # consumer runs directly or extends in its own <org>/.agents repository.
       # `containers.agent` still exists for the local dev cluster — it is simply
       # never released, so nothing downstream can pin it.
       - name: Publish immutable controller image
