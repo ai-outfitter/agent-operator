@@ -302,7 +302,14 @@ var _ = Describe("Agent Controller", func() {
 		Expect(deployment.Spec.Template.Spec.SecurityContext.RunAsUser).To(PointTo(Equal(int64(1000))))
 		Expect(deployment.Spec.Template.Spec.SecurityContext.RunAsGroup).To(PointTo(Equal(int64(1000))))
 		Expect(container.Command).To(BeEmpty())
-		Expect(container.Args).To(BeEmpty())
+		// The operator supplies the resident invocation rather than relying on a baked
+		// entrypoint. That reliance is what forced this repository to publish its own agent
+		// image: the stock Outfitter container's entrypoint is bare `outfitter`, which prints
+		// usage and exits. Stdin keeps the RPC session alive between wakes.
+		Expect(container.Args).To(Equal([]string{
+			"run", "researcher", "--strict", "--", "--mode", "rpc", "--no-session",
+		}))
+		Expect(container.Stdin).To(BeTrue())
 		Expect(container.Env).To(ContainElements(
 			corev1.EnvVar{Name: "AGENT_SLUG", Value: "researcher"},
 			corev1.EnvVar{Name: "AGENT_HARNESS", Value: "pi"},
