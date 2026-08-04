@@ -6,8 +6,32 @@ resolution, and running the agent. Channels (email, GitHub, Signal) and tools
 (a wiki, source ingestion) are **composed at the agent layer**, not baked into the
 operator.
 
-> **Status:** design stage. The CRDs, controller, and runtime image are specified
-> but not yet implemented.
+> **Status:** design stage. The CRDs and controller are specified but not yet
+> implemented.
+
+## Images
+
+This repository publishes **one** image: the controller,
+`ghcr.io/ai-outfitter/agent-operator`. It publishes **no agent runtime image**
+(see [#13](https://github.com/ai-outfitter/agent-operator/issues/13) and
+[#28](https://github.com/ai-outfitter/agent-operator/pull/28)).
+
+The agent runtime is the published Outfitter container,
+`ghcr.io/ai-outfitter/outfitter:<version>`. As of Outfitter
+[v1.4.0](https://github.com/ai-outfitter/outfitter/releases/tag/v1.4.0) that
+image is deliberately extensible — it carries a shell and a `root` account — so a
+consumer can build `FROM ghcr.io/ai-outfitter/outfitter:1.4.0`. That release also
+forwards `SIGTERM`, `SIGINT`, and `SIGHUP` to the harness it spawns, so a
+resident agent shuts down cleanly on pod deletion instead of being `SIGKILL`ed
+when the grace period expires. An agent that
+needs more than the stock runtime publishes that derived image from its own
+org's `<org>/.agents` repository, beside the profiles it runs — never from an
+application repository. `Agent.spec.image` selects the image per Agent.
+
+`containers.agent` in `devenv.nix` still builds a runtime image, for the **local
+dev cluster only**. It is never released, so nothing downstream can pin it. The
+controller's `--agent-image` flag likewise still defaults to `agent-runtime:dev`;
+pointing that default at the Outfitter container is pending follow-up work.
 
 ## Docs
 
