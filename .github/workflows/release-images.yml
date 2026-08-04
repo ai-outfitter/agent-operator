@@ -57,17 +57,21 @@ jobs:
             --username "${GITHUB_ACTOR}" \
             --password-stdin ghcr.io <<<"$GHCR_TOKEN"
 
-      - name: Publish immutable controller and agent images
+      # Controller only. This repository publishes no agent runtime image: per
+      # #13 the runtime is the published Outfitter container, which a consumer
+      # runs directly or extends in its own <org>/.agents repository.
+      # `containers.agent` still exists for the local dev cluster — it is simply
+      # never released, so nothing downstream can pin it.
+      - name: Publish immutable controller image
         env:
           RELEASE_TAG: ${{ inputs.release_tag || github.event.release.tag_name }}
         run: |
           set -euo pipefail
           authfile="$RUNNER_TEMP/docker/config.json"
           sha_tag="sha-${GITHUB_SHA}"
-          for image in operator agent; do
+          for image in operator; do
             case "$image" in
               operator) repository=agent-operator ;;
-              agent) repository=agent-runtime ;;
             esac
             for tag in "$RELEASE_TAG" "$sha_tag"; do
               devenv container copy --no-tui \
