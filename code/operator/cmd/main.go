@@ -67,10 +67,28 @@ func main() {
 	flag.StringVar(&metricsCertKey, "metrics-cert-key", "tls.key", "The name of the metrics server key file.")
 	flag.BoolVar(&enableHTTP2, "enable-http2", false,
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
-	flag.StringVar(&agentImage, "agent-image", "agent-runtime:dev",
-		"Agent runtime image. Development tags are allowed locally; deployments should use an immutable digest.")
-	flag.StringVar(&outfitterRevision, "outfitter-revision", "c44205ef35265c893ad9f088772c35c71753bfb7",
-		"Outfitter revision built into the configured agent runtime image.")
+	// The published Outfitter container, not an image this repository builds — see #13.
+	// An Agent needing more than the stock runtime sets spec.image to one derived from it
+	// (`FROM ghcr.io/ai-outfitter/outfitter:<version>`), published from that org's own
+	// <org>/.agents repository.
+	//
+	// 1.4.0 is the first release that can serve as this default at all: earlier images had
+	// no shell, so the setup init containers (which run `sh -c`) could not execute, and no
+	// root account, so no consumer could derive from it. It is also the first that forwards
+	// SIGTERM to the harness, so a resident agent terminates cleanly.
+	//
+	// A tag rather than a digest is deliberate for a default: it tracks the operator release
+	// it shipped with and is legible in `--help`. Deployments should still pin a digest.
+	flag.StringVar(&agentImage, "agent-image", "ghcr.io/ai-outfitter/outfitter:1.4.0",
+		"Default agent runtime image, used when an Agent does not set spec.image. Deployments should pin a digest.")
+	// Reported on Agent.status.outfitterRevision. This is a third hand-maintained pin of one
+	// dependency, after flake.lock and devenv.lock, and it had already drifted: it claimed
+	// c44205ef (2026-07-18) while the image it described was built from 3d73c233
+	// (2026-07-21) — both v0.11.0, so nothing surfaced the disagreement. Now that the runtime
+	// is an upstream release with a version in its reference, this should be derived from
+	// --agent-image or removed; removal changes a status field, so it needs its own change.
+	flag.StringVar(&outfitterRevision, "outfitter-revision", "v1.4.0",
+		"Outfitter revision present in the configured agent runtime image.")
 	opts := zap.Options{
 		Development: true,
 	}
