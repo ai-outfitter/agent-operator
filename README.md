@@ -20,7 +20,10 @@ The agent runtime is the published Outfitter container,
 `ghcr.io/ai-outfitter/outfitter:<version>`. As of Outfitter
 [v1.4.0](https://github.com/ai-outfitter/outfitter/releases/tag/v1.4.0) that
 image is deliberately extensible — it carries a shell and a `root` account — so a
-consumer can build `FROM ghcr.io/ai-outfitter/outfitter:1.4.0`. An agent that
+consumer can build `FROM ghcr.io/ai-outfitter/outfitter:1.4.0`. That release also
+forwards `SIGTERM`, `SIGINT`, and `SIGHUP` to the harness it spawns, so a
+resident agent shuts down cleanly on pod deletion instead of being `SIGKILL`ed
+when the grace period expires. An agent that
 needs more than the stock runtime publishes that derived image from its own
 org's `<org>/.agents` repository, beside the profiles it runs — never from an
 application repository. `Agent.spec.image` selects the image per Agent.
