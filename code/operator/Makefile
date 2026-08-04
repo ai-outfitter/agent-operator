@@ -150,6 +150,26 @@ build-installer: manifests generate kustomize ## Generate a consolidated YAML wi
 	cd config/manager && "$(KUSTOMIZE)" edit set image controller=${IMG}
 	"$(KUSTOMIZE)" build config/default > dist/install.yaml
 
+.PHONY: helm
+helm: manifests generate ## Regenerate dist/chart from config/ via the kubebuilder helm plugin.
+	kubebuilder edit --plugins=helm/v1-alpha
+	@echo
+	@echo "dist/chart regenerated from config/."
+	@echo "The plugin overwrites templates but preserves values.yaml and Chart.yaml,"
+	@echo "so review the diff: hand edits there are intentional and worth keeping."
+
+.PHONY: helm-verify
+helm-verify: ## Lint the chart and assert it renders the CRDs and controller.
+	helm lint dist/chart
+	helm template agent-operator dist/chart > /dev/null
+	@rendered="$$(helm template agent-operator dist/chart)"; \
+	for kind in CustomResourceDefinition Deployment ServiceAccount ClusterRole; do \
+		echo "$$rendered" | grep -q "^kind: $$kind" || { echo "chart renders no $$kind" >&2; exit 1; }; \
+	done; \
+	echo "$$rendered" | grep -q 'image: ghcr.io/ai-outfitter/agent-operator:' \
+		|| { echo "controller image did not resolve from appVersion" >&2; exit 1; }; \
+	echo "chart renders CRDs, controller, and RBAC"
+
 ##@ Deployment
 
 ifndef ignore-not-found

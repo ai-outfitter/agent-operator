@@ -42,9 +42,33 @@ resolution inside the runtime.
 
 ## 1. Install the operator
 
-Install the Agent Operator into your cluster. A Helm chart is planned; it will
-install the controller and the two CRDs. (For a local cluster with the operator
-preinstalled, see [CONTRIBUTING.md](../../CONTRIBUTING.md).)
+Install the controller and the two CRDs with the Helm chart:
+
+```sh
+helm install agent-operator ./code/operator/dist/chart \
+  --namespace agent-operator-system --create-namespace
+```
+
+The controller image defaults to the chart's `appVersion`, so a chart release
+ships the controller it was built for. Pin a digest in production:
+
+```sh
+helm install agent-operator ./code/operator/dist/chart \
+  --namespace agent-operator-system --create-namespace \
+  --set controllerManager.container.image.tag="@sha256:<digest>"
+```
+
+This installs **no agent runtime image**. Agents run the published Outfitter
+container by default; an organization needing more publishes an image derived
+from it (`FROM ghcr.io/ai-outfitter/outfitter:<version>`) from its own
+`<org>/.agents` repository, and selects it per agent with `Agent.spec.image`.
+
+Avoid setting `--agent-image` on the controller. It is cluster-global — it
+changes the runtime for every Agent this controller manages — and
+`Agent.spec.image` expresses the same thing per agent.
+
+(For a local cluster with the operator preinstalled, see
+[CONTRIBUTING.md](../../CONTRIBUTING.md).)
 
 Confirm that the two CRDs are installed:
 
