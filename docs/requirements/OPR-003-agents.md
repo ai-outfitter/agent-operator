@@ -49,9 +49,11 @@ MUST NOT copy those fields into the `Agent` CRD.
 The operator MAY inspect the image reference for one purpose only: deciding
 whether to provision the persistent Nix-store machinery. A tag ending `-nix`
 (the published convention for the Nix closure variant) selects the machinery; a
-plain published version of 1.5.0 or later (the Debian-base primary tag) and a
-bare digest reference omit it; every other reference keeps the machinery as a
-conservative default so existing closure-image deployments continue to work.
+strict `MAJOR.MINOR.PATCH` tag of `1.5.0` or later — no `v` prefix, no
+prerelease or build suffix — (the Debian-base primary tag) and a bare digest
+reference omit it; every other reference, including `v`-prefixed or prerelease
+tags, keeps the machinery as a conservative default so existing closure-image
+deployments continue to work.
 
 The published Outfitter image is the default generic runtime. Users MAY select it
 directly or supply a derivative containing additional tools. Channel and tool
