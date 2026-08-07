@@ -80,12 +80,10 @@ func main() {
 	// A tag rather than a digest is deliberate for a default: it tracks the operator release
 	// it shipped with and is legible in `--help`. Deployments should still pin a digest.
 	//
-	// TODO(outfitter-1.5.0): outfitter 1.5.0 moves the primary tag to a Debian base and
-	// publishes the Nix closure variant behind a `-nix` suffix. Flip this default to the
-	// Debian primary tag (`ghcr.io/ai-outfitter/outfitter:1.5.0`) once that image ships;
-	// the controller already gates the Nix-store machinery on the image reference (see
-	// imageNeedsNixStore), so only the default value changes.
-	flag.StringVar(&agentImage, "agent-image", "ghcr.io/ai-outfitter/outfitter:1.4.0",
+	// 1.5.0 is the first Debian-base primary tag; the Nix closure variant publishes behind
+	// `-nix`. The controller gates the Nix-store machinery on the image reference (see
+	// imageNeedsNixStore), so the default gets no seed init container or store PVC.
+	flag.StringVar(&agentImage, "agent-image", "ghcr.io/ai-outfitter/outfitter:1.5.0",
 		"Default agent runtime image, used when an Agent does not set spec.image. Deployments should pin a digest.")
 	// Reported on Agent.status.outfitterRevision. This is a third hand-maintained pin of one
 	// dependency, after flake.lock and devenv.lock, and it had already drifted: it claimed
@@ -93,7 +91,7 @@ func main() {
 	// (2026-07-21) — both v0.11.0, so nothing surfaced the disagreement. Now that the runtime
 	// is an upstream release with a version in its reference, this should be derived from
 	// --agent-image or removed; removal changes a status field, so it needs its own change.
-	flag.StringVar(&outfitterRevision, "outfitter-revision", "v1.4.0",
+	flag.StringVar(&outfitterRevision, "outfitter-revision", "v1.5.0",
 		"Outfitter revision present in the configured agent runtime image.")
 	opts := zap.Options{
 		Development: true,
