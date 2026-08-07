@@ -299,6 +299,11 @@ func hasComputeDefaults(resources corev1.ResourceList) bool {
 	return cpuFound && memoryFound && cpu.Sign() > 0 && memory.Sign() > 0
 }
 
+// storageQuotaValidationMessage deliberately still budgets for the Nix-store
+// PVC even though non-closure images no longer create it (see
+// imageNeedsNixStore): Accepted must not depend on which default image the
+// controller was started with, and the headroom means an agent that later
+// switches to a `-nix` closure image never fails PVC creation on quota.
 func storageQuotaValidationMessage(agent *aioutfitterv1alpha1.Agent) string {
 	workspaceSize := agent.Spec.Workspace.Volume.Size.DeepCopy()
 	if workspaceSize.IsZero() {

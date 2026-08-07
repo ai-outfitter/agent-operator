@@ -46,6 +46,15 @@ The agent definition supplies identity, skills, subagents, model, thinking
 level, and tool policy according to the pinned Dotagents revision. The operator
 MUST NOT copy those fields into the `Agent` CRD.
 
+The operator MAY inspect the image reference for one purpose only: deciding
+whether to provision the persistent Nix-store machinery. A tag ending `-nix`
+(the published convention for the Nix closure variant) selects the machinery; a
+strict `MAJOR.MINOR.PATCH` tag of `1.5.0` or later — no `v` prefix, no
+prerelease or build suffix — (the Debian-base primary tag) and a bare digest
+reference omit it; every other reference, including `v`-prefixed or prerelease
+tags, keeps the machinery as a conservative default so existing closure-image
+deployments continue to work.
+
 The published Outfitter image is the default generic runtime. Users MAY select it
 directly or supply a derivative containing additional tools. Channel and tool
 dependencies belong to the selected profile or user-owned image, not to the
@@ -135,7 +144,14 @@ see it for the full contract.
 The controller runs the agent as a long-running Deployment and treats it as
 **opaque**. It launches the equivalent of `outfitter run <agent-slug> --harness
 pi` with the resolved catalog and the exposed credentials/config, and does not
-model what the agent does next. Channels (how the agent receives work) and tools
+model what the agent does next.
+
+The runtime MUST be launched with a stable session identity equal to the Agent
+name (`--session-id <agent-name>`) so the resident conversation resumes across
+pod restarts. The session identity MUST NOT be the profile slug: two Agents MAY
+share a profile but MUST NOT share a conversation. The session transcript on
+the durable workspace volume is the one exception to the cache framing in
+OPR-003.3 — it is the canonical record of the resident conversation. Channels (how the agent receives work) and tools
 (how it acts) are supplied by the agent's Dotagents resources and runtime image,
 not by the operator.
 

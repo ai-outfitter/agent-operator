@@ -306,8 +306,13 @@ var _ = Describe("Agent Controller", func() {
 		// entrypoint. That reliance is what forced this repository to publish its own agent
 		// image: the stock Outfitter container's entrypoint is bare `outfitter`, which prints
 		// usage and exits. Stdin keeps the RPC session alive between wakes.
+		//
+		// The session identity is the Agent CR name, not the profile slug: two Agents
+		// sharing the `researcher` profile must not share a conversation, and the stable
+		// id is what lets the durable JSONL transcript on the workspace PVC resume
+		// across pod restarts.
 		Expect(container.Args).To(Equal([]string{
-			"run", "researcher", "--strict", "--", "--mode", "rpc", "--no-session",
+			"run", "researcher", "--strict", "--", "--mode", "rpc", "--session-id", agent.Name,
 		}))
 		Expect(container.Stdin).To(BeTrue())
 		Expect(container.Env).To(ContainElements(
@@ -420,6 +425,122 @@ var _ = Describe("Agent Controller", func() {
 		contents, err := os.ReadFile(persistedPath)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(string(contents)).To(Equal("keep-me"))
+	})
+
+	// The `-nix` tag suffix is the published convention for the Nix closure
+	// variant; the plain published tag becomes a Debian base at 1.5.0. Anything
+	// the operator cannot classify keeps the machinery, so existing closure
+	// deployments (1.4.0 and earlier carry no suffix) and custom downstream
+	// images keep working; the machinery disappears when a deployment moves to
+	// >= 1.5.0 or a bare digest pin.
+	DescribeTable("classifies which runtime images need the nix-store machinery",
+		func(image string, expected bool) {
+			Expect(imageNeedsNixStore(image)).To(Equal(expected))
+		},
+		Entry("published closure image before the suffix convention", "ghcr.io/ai-outfitter/outfitter:1.4.0", true),
+		Entry("earlier published semver", "ghcr.io/ai-outfitter/outfitter:1.3.2", true),
+		Entry("Debian primary tag", "ghcr.io/ai-outfitter/outfitter:1.5.0", false),
+		Entry("later Debian release", "ghcr.io/ai-outfitter/outfitter:2.0.1", false),
+		Entry("closure suffix", "ghcr.io/ai-outfitter/outfitter:1.5.0-nix", true),
+		Entry("closure suffix on a digest-pinned reference",
+			"ghcr.io/ai-outfitter/outfitter:1.5.0-nix@sha256:"+strings.Repeat("a", 64), true),
+		Entry("Debian tag on a digest-pinned reference",
+			"ghcr.io/ai-outfitter/outfitter:1.5.0@sha256:"+strings.Repeat("a", 64), false),
+		Entry("bare digest reference with no tag",
+			"example.test/agent-runtime@sha256:"+strings.Repeat("a", 64), false),
+		Entry("custom downstream image tag fails safe", "ghcr.io/unsupervisedcom/research-agent:latest", true),
+		Entry("dev tag fails safe", "agent-runtime:dev", true),
+		Entry("registry port without a tag fails safe", "localhost:5000/outfitter", true),
+		Entry("registry port with a Debian tag", "localhost:5000/outfitter:1.5.0", false),
+		Entry("v-prefixed semver fails safe", "ghcr.io/ai-outfitter/outfitter:v1.5.0", true),
+		Entry("pre-release tag fails safe", "ghcr.io/ai-outfitter/outfitter:1.5.0-rc.1", true),
+	)
+
+	It("gates the nix-store machinery on the runtime image", func() {
+		organization := createAcceptedOrganization(ctx)
+		agent := validAgent(uniqueTestName("nix-gate"), organization.Name)
+		agent.Spec.Image = "ghcr.io/ai-outfitter/outfitter:1.5.0"
+		agent.Spec.Setup = []aioutfitterv1alpha1.SetupStep{{Name: "bootstrap", Script: "echo ready"}}
+		Expect(k8sClient.Create(ctx, agent)).To(Succeed())
+		DeferCleanup(removeAgent, ctx, agent.Name)
+
+		reconciler := &AgentReconciler{
+			Client: k8sClient, APIReader: k8sClient, Scheme: k8sClient.Scheme(), AgentImage: "agent-runtime:default",
+		}
+		request := reconcile.Request{NamespacedName: types.NamespacedName{Name: agent.Name}}
+		_, err := reconciler.Reconcile(ctx, request)
+		Expect(err).NotTo(HaveOccurred())
+
+		namespaceName := agentNamespace(agent.Name)
+		deploymentKey := types.NamespacedName{Namespace: namespaceName, Name: RuntimeName}
+		nixClaimKey := types.NamespacedName{Namespace: namespaceName, Name: NixStoreName}
+		deployment := &appsv1.Deployment{}
+		expectNixMachinery := func(expected bool) {
+			GinkgoHelper()
+			Expect(k8sClient.Get(ctx, deploymentKey, deployment)).To(Succeed())
+			initNames := make([]string, 0, len(deployment.Spec.Template.Spec.InitContainers))
+			for _, initContainer := range deployment.Spec.Template.Spec.InitContainers {
+				initNames = append(initNames, initContainer.Name)
+				for _, mount := range initContainer.VolumeMounts {
+					if !expected {
+						Expect(mount.Name).NotTo(Equal(NixStoreName))
+					}
+					// seed-nix-store only copies store paths; it must never
+					// carry the API token.
+					if initContainer.Name == "seed-nix-store" {
+						Expect(mount.Name).NotTo(Equal(APITokenVolumeName))
+					}
+				}
+			}
+			volumeNames := make([]string, 0, len(deployment.Spec.Template.Spec.Volumes))
+			for _, volume := range deployment.Spec.Template.Spec.Volumes {
+				volumeNames = append(volumeNames, volume.Name)
+			}
+			agentContainer := deployment.Spec.Template.Spec.Containers[0]
+			mountNames := make([]string, 0, len(agentContainer.VolumeMounts))
+			for _, mount := range agentContainer.VolumeMounts {
+				mountNames = append(mountNames, mount.Name)
+			}
+			if expected {
+				Expect(initNames).To(ContainElement("seed-nix-store"))
+				Expect(volumeNames).To(ContainElement(NixStoreName))
+				Expect(mountNames).To(ContainElement(NixStoreName))
+			} else {
+				Expect(initNames).NotTo(ContainElement("seed-nix-store"))
+				Expect(volumeNames).NotTo(ContainElement(NixStoreName))
+				Expect(mountNames).NotTo(ContainElement(NixStoreName))
+			}
+			// Setup init containers survive the gate either way.
+			Expect(initNames).To(ContainElement("setup-bootstrap"))
+		}
+
+		// Debian primary tag: no seed init container, no /nix mounts, no nix
+		// volume, and the nix-store PVC is never created.
+		expectNixMachinery(false)
+		claim := &corev1.PersistentVolumeClaim{}
+		Expect(k8sClient.Get(ctx, nixClaimKey, claim)).To(Satisfy(apierrors.IsNotFound))
+
+		// Switching to the `-nix` closure variant brings the machinery and the
+		// PVC back.
+		current := &aioutfitterv1alpha1.Agent{}
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: agent.Name}, current)).To(Succeed())
+		current.Spec.Image = "ghcr.io/ai-outfitter/outfitter:1.5.0-nix"
+		Expect(k8sClient.Update(ctx, current)).To(Succeed())
+		_, err = reconciler.Reconcile(ctx, request)
+		Expect(err).NotTo(HaveOccurred())
+		expectNixMachinery(true)
+		Expect(k8sClient.Get(ctx, nixClaimKey, claim)).To(Succeed())
+
+		// Switching back to a non-closure image stops mounting the store but
+		// leaves the pre-existing PVC alone: deleting agent-installed Nix state
+		// on an image switch would be an unrecoverable surprise.
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: agent.Name}, current)).To(Succeed())
+		current.Spec.Image = "ghcr.io/ai-outfitter/outfitter:1.5.0"
+		Expect(k8sClient.Update(ctx, current)).To(Succeed())
+		_, err = reconciler.Reconcile(ctx, request)
+		Expect(err).NotTo(HaveOccurred())
+		expectNixMachinery(false)
+		Expect(k8sClient.Get(ctx, nixClaimKey, claim)).To(Succeed())
 	})
 
 	It("repairs an agent-weakened quota", func() {
