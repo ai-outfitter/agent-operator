@@ -323,6 +323,15 @@ func (r *AgentReconciler) ensureAgentDeployment(
 			// Stdin keeps the RPC session alive: the harness stays available while its
 			// extensions wait for work, with no polling and no initial model turn. A
 			// user-supplied image carrying its own entrypoint ignores these arguments.
+			//
+			// The session identity is the Agent CR name, not the profile slug: two
+			// Agents may share a profile but must never share a conversation. A
+			// resident agent is premised on keeping that conversation across pod
+			// restarts — Channels treats the JSONL transcript on the workspace PVC
+			// as the canonical conversation state. Outfitter 1.3.0 made that
+			// transcript durable by defaulting PI_CODING_AGENT_SESSION_DIR under
+			// $HOME (= /workspace, the PVC) — see outfitter #243 — so a stable
+			// --session-id is all that is needed to resume it.
 			Args: []string{
 				"run",
 				agent.Spec.Profile.Agent,
@@ -330,7 +339,8 @@ func (r *AgentReconciler) ensureAgentDeployment(
 				"--",
 				"--mode",
 				"rpc",
-				"--no-session",
+				"--session-id",
+				agent.Name,
 			},
 			Stdin: true,
 			Env: []corev1.EnvVar{

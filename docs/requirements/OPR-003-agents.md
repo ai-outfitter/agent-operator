@@ -135,7 +135,14 @@ see it for the full contract.
 The controller runs the agent as a long-running Deployment and treats it as
 **opaque**. It launches the equivalent of `outfitter run <agent-slug> --harness
 pi` with the resolved catalog and the exposed credentials/config, and does not
-model what the agent does next. Channels (how the agent receives work) and tools
+model what the agent does next.
+
+The runtime MUST be launched with a stable session identity equal to the Agent
+name (`--session-id <agent-name>`) so the resident conversation resumes across
+pod restarts. The session identity MUST NOT be the profile slug: two Agents MAY
+share a profile but MUST NOT share a conversation. The session transcript on
+the durable workspace volume is the one exception to the cache framing in
+OPR-003.3 — it is the canonical record of the resident conversation. Channels (how the agent receives work) and tools
 (how it acts) are supplied by the agent's Dotagents resources and runtime image,
 not by the operator.
 

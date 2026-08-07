@@ -306,8 +306,13 @@ var _ = Describe("Agent Controller", func() {
 		// entrypoint. That reliance is what forced this repository to publish its own agent
 		// image: the stock Outfitter container's entrypoint is bare `outfitter`, which prints
 		// usage and exits. Stdin keeps the RPC session alive between wakes.
+		//
+		// The session identity is the Agent CR name, not the profile slug: two Agents
+		// sharing the `researcher` profile must not share a conversation, and the stable
+		// id is what lets the durable JSONL transcript on the workspace PVC resume
+		// across pod restarts.
 		Expect(container.Args).To(Equal([]string{
-			"run", "researcher", "--strict", "--", "--mode", "rpc", "--no-session",
+			"run", "researcher", "--strict", "--", "--mode", "rpc", "--session-id", agent.Name,
 		}))
 		Expect(container.Stdin).To(BeTrue())
 		Expect(container.Env).To(ContainElements(
