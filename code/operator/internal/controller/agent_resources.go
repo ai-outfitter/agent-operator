@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"maps"
 	"path"
+	"strconv"
 	"strings"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -203,10 +204,17 @@ func (r *AgentReconciler) ensureWorkspaceResources(
 	if err := r.ensurePVC(ctx, namespace, WorkspaceName, labels, storageClass, workspaceSize); err != nil {
 		return nil, err
 	}
-	// Persistent Nix store: seeded from the image on first boot, then writable so
-	// agents can `nix profile install` tools that survive restarts.
-	if err := r.ensurePVC(ctx, namespace, NixStoreName, labels, storageClass, defaultNixStoreSize.DeepCopy()); err != nil {
-		return nil, err
+	// Persistent Nix store, closure image variant only (see imageNeedsNixStore):
+	// seeded from the image on first boot, then writable so agents can
+	// `nix profile install` tools that survive restarts. The gate applies to
+	// creation only — an agent that switches to a non-closure image keeps any
+	// pre-existing agent-nix-store PVC (it stops being mounted, and namespace
+	// deletion still cleans it up); deleting agent-installed Nix state on an
+	// image switch would be an unrecoverable surprise.
+	if imageNeedsNixStore(r.agentImage(agent)) {
+		if err := r.ensurePVC(ctx, namespace, NixStoreName, labels, storageClass, defaultNixStoreSize.DeepCopy()); err != nil {
+			return nil, err
+		}
 	}
 
 	return quota, nil
@@ -282,6 +290,7 @@ func (r *AgentReconciler) ensureAgentDeployment(
 	namespace := agentNamespace(agent.Name)
 	labels := ownershipLabels(agent)
 	runtimeImage := r.agentImage(agent)
+	needsNixStore := imageNeedsNixStore(runtimeImage)
 	selectorLabels := map[string]string{
 		"app.kubernetes.io/name":     "agent-runtime",
 		"app.kubernetes.io/instance": agent.Name,
@@ -364,14 +373,12 @@ func (r *AgentReconciler) ensureAgentDeployment(
 			},
 			VolumeMounts: []corev1.VolumeMount{
 				{Name: WorkspaceName, MountPath: WorkspaceMount},
-				{Name: NixStoreName, MountPath: NixMount},
 				{Name: SettingsName, MountPath: path.Join(WorkspaceMount, ".agents"), ReadOnly: true},
 				{Name: APITokenVolumeName, MountPath: APITokenMountPath, ReadOnly: true},
 			},
 		}
 		volumes := []corev1.Volume{
 			pvcVolume(WorkspaceName),
-			pvcVolume(NixStoreName),
 			{
 				Name: SettingsName,
 				VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{
@@ -380,15 +387,13 @@ func (r *AgentReconciler) ensureAgentDeployment(
 			},
 			apiTokenVolume(),
 		}
-		// Merge the current image's store paths on every boot. A prior .seeded
-		// marker is informational only: image upgrades can introduce new hashes,
-		// while --no-clobber preserves paths and Nix state already on the PVC.
-		seedInit := corev1.Container{
-			Name:            "seed-nix-store",
-			Image:           runtimeImage,
-			ImagePullPolicy: corev1.PullIfNotPresent,
-			Command:         []string{"sh", "-c", nixStoreSeedScript},
-			VolumeMounts:    []corev1.VolumeMount{{Name: NixStoreName, MountPath: "/mnt/nix"}},
+		// The persistent /nix store exists only for the closure image variant
+		// (see imageNeedsNixStore); the Debian-base images carry their runtime
+		// on the image filesystem and get none of the machinery.
+		if needsNixStore {
+			container.VolumeMounts = append(container.VolumeMounts,
+				corev1.VolumeMount{Name: NixStoreName, MountPath: NixMount})
+			volumes = append(volumes, pvcVolume(NixStoreName))
 		}
 		credentialEnvFrom, credentialMounts, credentialVolumes := credentialProjection(agent)
 		container.EnvFrom = credentialEnvFrom
@@ -396,12 +401,26 @@ func (r *AgentReconciler) ensureAgentDeployment(
 		volumes = append(volumes, credentialVolumes...)
 
 		initContainers := make([]corev1.Container, 0, len(agent.Spec.Setup)+1)
-		initContainers = append(initContainers, seedInit)
+		if needsNixStore {
+			// Merge the current image's store paths on every boot. A prior .seeded
+			// marker is informational only: image upgrades can introduce new hashes,
+			// while --no-clobber preserves paths and Nix state already on the PVC.
+			initContainers = append(initContainers, corev1.Container{
+				Name:            "seed-nix-store",
+				Image:           runtimeImage,
+				ImagePullPolicy: corev1.PullIfNotPresent,
+				Command:         []string{"sh", "-c", nixStoreSeedScript},
+				VolumeMounts:    []corev1.VolumeMount{{Name: NixStoreName, MountPath: "/mnt/nix"}},
+			})
+		}
 		for _, step := range agent.Spec.Setup {
 			mounts := append([]corev1.VolumeMount{}, credentialMounts...)
 			mounts = append(mounts,
-				corev1.VolumeMount{Name: WorkspaceName, MountPath: WorkspaceMount},
-				corev1.VolumeMount{Name: NixStoreName, MountPath: NixMount},
+				corev1.VolumeMount{Name: WorkspaceName, MountPath: WorkspaceMount})
+			if needsNixStore {
+				mounts = append(mounts, corev1.VolumeMount{Name: NixStoreName, MountPath: NixMount})
+			}
+			mounts = append(mounts,
 				// Setup scripts are user-supplied bootstrap and could always
 				// reach the API server; pod-wide automount is off, so the
 				// projection has to be mounted explicitly to preserve that.
@@ -581,4 +600,79 @@ func (r *AgentReconciler) agentImage(agent *aioutfitterv1alpha1.Agent) string {
 		return r.AgentImage
 	}
 	return "agent-runtime:dev"
+}
+
+// imageNeedsNixStore reports whether the resolved runtime image is the Nix
+// closure variant that needs the seeded persistent /nix store (the
+// seed-nix-store init container, the agent-nix-store PVC, and the /nix
+// mounts).
+//
+// The `-nix` tag suffix is the published convention for the closure variant:
+// from outfitter 1.5.0 the primary tag is a Debian base and the Nix closure
+// moves behind `-nix`. The rule, in order:
+//
+//   - the tag ends in `-nix` → machinery;
+//   - the tag is a plain semver >= 1.5.0 → no machinery (Debian primary tag);
+//   - a bare digest ref with no tag → no machinery: pinning by digest alone is
+//     how the Debian-era deployments are expected to pin, and the digest gives
+//     the operator nothing to inspect;
+//   - anything else → machinery, failing safe to today's behavior. This keeps
+//     `1.4.0` and earlier (closure images published before the suffix
+//     convention existed) and custom downstream tags working unchanged; the
+//     machinery disappears when a deployment moves to >= 1.5.0 or drops the
+//     `-nix` suffix.
+func imageNeedsNixStore(image string) bool {
+	reference := image
+	hasDigest := false
+	if at := strings.Index(reference, "@"); at >= 0 {
+		hasDigest = true
+		reference = reference[:at]
+	}
+	// The tag is the part after the last colon, but only when that colon
+	// follows the last slash — `localhost:5000/outfitter` has no tag.
+	lastSlash := strings.LastIndex(reference, "/")
+	colon := strings.LastIndex(reference, ":")
+	if colon <= lastSlash {
+		// No tag at all: a bare digest ref carries no closure marker, while a
+		// ref with neither tag nor digest is unparseable and fails safe.
+		return !hasDigest
+	}
+	tag := reference[colon+1:]
+	if strings.HasSuffix(tag, "-nix") {
+		return true
+	}
+	if major, minor, _, ok := parsePlainSemver(tag); ok {
+		// Published Debian-base images start at 1.5.0; earlier published
+		// semvers are closure images without the suffix.
+		return major < 1 || (major == 1 && minor < 5)
+	}
+	return true
+}
+
+// parsePlainSemver parses a strict `MAJOR.MINOR.PATCH` tag: three dot-separated
+// decimal numbers, nothing else — no `v` prefix, no pre-release or build
+// metadata. Anything looser is treated as unparseable so imageNeedsNixStore
+// fails safe.
+func parsePlainSemver(tag string) (major, minor, patch int, ok bool) {
+	parts := strings.Split(tag, ".")
+	if len(parts) != 3 {
+		return 0, 0, 0, false
+	}
+	numbers := [3]int{}
+	for index, part := range parts {
+		if part == "" {
+			return 0, 0, 0, false
+		}
+		for _, character := range part {
+			if character < '0' || character > '9' {
+				return 0, 0, 0, false
+			}
+		}
+		value, err := strconv.Atoi(part)
+		if err != nil {
+			return 0, 0, 0, false
+		}
+		numbers[index] = value
+	}
+	return numbers[0], numbers[1], numbers[2], true
 }

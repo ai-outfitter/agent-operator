@@ -79,6 +79,12 @@ func main() {
 	//
 	// A tag rather than a digest is deliberate for a default: it tracks the operator release
 	// it shipped with and is legible in `--help`. Deployments should still pin a digest.
+	//
+	// TODO(outfitter-1.5.0): outfitter 1.5.0 moves the primary tag to a Debian base and
+	// publishes the Nix closure variant behind a `-nix` suffix. Flip this default to the
+	// Debian primary tag (`ghcr.io/ai-outfitter/outfitter:1.5.0`) once that image ships;
+	// the controller already gates the Nix-store machinery on the image reference (see
+	// imageNeedsNixStore), so only the default value changes.
 	flag.StringVar(&agentImage, "agent-image", "ghcr.io/ai-outfitter/outfitter:1.4.0",
 		"Default agent runtime image, used when an Agent does not set spec.image. Deployments should pin a digest.")
 	// Reported on Agent.status.outfitterRevision. This is a third hand-maintained pin of one

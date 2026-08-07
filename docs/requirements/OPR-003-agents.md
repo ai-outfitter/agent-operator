@@ -46,6 +46,13 @@ The agent definition supplies identity, skills, subagents, model, thinking
 level, and tool policy according to the pinned Dotagents revision. The operator
 MUST NOT copy those fields into the `Agent` CRD.
 
+The operator MAY inspect the image reference for one purpose only: deciding
+whether to provision the persistent Nix-store machinery. A tag ending `-nix`
+(the published convention for the Nix closure variant) selects the machinery; a
+plain published version of 1.5.0 or later (the Debian-base primary tag) and a
+bare digest reference omit it; every other reference keeps the machinery as a
+conservative default so existing closure-image deployments continue to work.
+
 The published Outfitter image is the default generic runtime. Users MAY select it
 directly or supply a derivative containing additional tools. Channel and tool
 dependencies belong to the selected profile or user-owned image, not to the
