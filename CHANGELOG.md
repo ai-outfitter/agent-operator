@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.0](https://github.com/ai-outfitter/agent-operator/compare/agent-operator-v0.5.0...agent-operator-v0.6.0) (2026-08-07)
+
+
+### Features
+
+* **operator:** stable session identity and closure-gated nix-store machinery ([#34](https://github.com/ai-outfitter/agent-operator/issues/34)) ([6c22238](https://github.com/ai-outfitter/agent-operator/commit/6c22238befeee22bc0044dfc14d9095f6197b62a))
+
 ## [0.5.0](https://github.com/ai-outfitter/agent-operator/compare/agent-operator-v0.4.0...agent-operator-v0.5.0) (2026-08-04)
 
 
