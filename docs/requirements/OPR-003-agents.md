@@ -187,6 +187,37 @@ operator rendered the pinned sources and defaults; it MUST NOT claim that the
 controller resolved a profile. Status reflects only the operator's primitives —
 it says nothing about channel or tool progress, which is the agent's concern.
 
+## OPR-003.8: Deferred provider-attached runtimes
+
+The current Agent runtime is the Outfitter-managed resident process in
+OPR-003.2 and OPR-003.6. Codex cloud environments are provider-hosted task
+containers. They are not Kubernetes-hosted Agent workloads.
+
+The operator MUST NOT add a Codex `exec-server`, Codex Remote Control, or other
+provider-attached runtime to the `Agent` API until a public provider contract
+supports all of these operations:
+
+- create or enroll a remote environment for a named user or workspace;
+- authenticate the Kubernetes workload with a least-privilege identity;
+- let the intended user select and control that environment;
+- reconnect after a Pod restart; and
+- revoke the environment and its workload identity.
+
+The acceptance proof MUST run the provider process in an Agent Pod. It MUST
+show that commands and file operations occur in that Pod. It MUST show that the
+user controls the session from the supported provider surface.
+
+A future provider-attached runtime MUST connect outbound. It MUST NOT require a
+public Service, Ingress, or direct app-server listener. Provider credentials
+MUST use the OPR-004 Secret projection. The operator MUST NOT read the Secret or
+copy credentials, pairing codes, or reusable claim material into status,
+events, or logs.
+
+The future API MUST keep provider runtime selection separate from
+`spec.profile.harness`. The provider runtime selects where the user controls
+the session. The harness selects how Outfitter launches an agent. The operator
+MUST NOT add dormant provider fields before the acceptance proof passes.
+
 ## Example
 
 ```yaml
