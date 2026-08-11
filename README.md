@@ -37,6 +37,9 @@ pointing that default at the Outfitter container is pending follow-up work.
 
 - [Quick start](docs/documentation/quick-start.md) — install the operator and run
   an agent.
+- [deploy-catalog action](actions/deploy-catalog/README.md) — continuous
+  deployment of every agent a catalog's `agents/<id>/deployment.yaml` tree
+  declares, from GitHub or Forgejo Actions.
 - [Use case: researcher wiki maintainer](docs/documentation/usecases.researcher-wiki-maintainer.md)
   — an end-to-end example composition (email a paper, get a wiki commit).
 - [Architecture](docs/architecture.md) — the primitives-vs-composition design.

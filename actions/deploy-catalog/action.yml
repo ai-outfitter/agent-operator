@@ -1,0 +1,54 @@
+name: Deploy agent catalog
+description: >-
+  Deploy every agent-operator Agent a catalog declares. Globs
+  agents/*/deployment.yaml, renders the pinned revision, asserts RBAC in both
+  directions, server-side dry-runs, applies, and waits for each Agent to
+  converge on the pushed revision. Identity is a precondition, not an input:
+  the step before this one must leave kubectl pointing at the target cluster
+  as the deploy identity.
+inputs:
+  catalog-root:
+    description: Path to the catalog checkout (the directory holding agents/).
+    required: false
+    default: .
+  revision:
+    description: >-
+      Full 40-character Git SHA rendered into every __REVISION__ placeholder.
+      Usually github.sha.
+    required: true
+  catalog-source:
+    description: >-
+      Name of the catalog source (Organization spec.catalogSources entry) that
+      this repository publishes. Convergence requires each Agent that consumes
+      this source to report this exact revision resolved. Agents in the tree
+      that pin a different catalog converge on readiness alone.
+    required: true
+  field-manager:
+    description: Server-side-apply field manager name.
+    required: false
+    default: deploy-catalog
+  converge-deadline:
+    description: Seconds to wait for every Agent to converge.
+    required: false
+    default: "600"
+  rollout-timeout:
+    description: kubectl rollout status timeout per agent deployment.
+    required: false
+    default: 10m
+outputs:
+  agents:
+    description: Space-separated names of the agents the tree declared and deployed.
+    value: ${{ steps.deploy.outputs.agents }}
+runs:
+  using: composite
+  steps:
+    - id: deploy
+      shell: bash
+      env:
+        CATALOG_ROOT: ${{ inputs.catalog-root }}
+        CATALOG_REVISION: ${{ inputs.revision }}
+        CATALOG_SOURCE_NAME: ${{ inputs.catalog-source }}
+        FIELD_MANAGER: ${{ inputs.field-manager }}
+        CONVERGE_DEADLINE: ${{ inputs.converge-deadline }}
+        ROLLOUT_TIMEOUT: ${{ inputs.rollout-timeout }}
+      run: "${{ github.action_path }}/deploy.sh"
