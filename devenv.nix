@@ -45,6 +45,11 @@ let
       pkgs.bash
       pkgs.coreutils
       pkgs.gitMinimal
+      # ssh: gitMinimal alone cannot fetch an ssh:// remote — a setup script
+      # cloning a private catalog over ssh fails its init container with no
+      # client on PATH (observed as luce stuck in init on ocean). HTTPS+token
+      # remains the recommended catalog auth; this unbreaks the ssh path.
+      pkgs.openssh
       pkgs.gnutar
       pkgs.cacert
       pkgs.nix
