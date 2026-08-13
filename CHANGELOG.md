@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.7.0](https://github.com/ai-outfitter/agent-operator/compare/agent-operator-v0.6.0...agent-operator-v0.7.0) (2026-08-13)
+
+
+### Features
+
+* **actions:** add the deploy-catalog composite action ([b422849](https://github.com/ai-outfitter/agent-operator/commit/b4228496b6b3dfd26b98c68e49c433f5d631b0c1)), closes [#39](https://github.com/ai-outfitter/agent-operator/issues/39)
+
+
+### Bug Fixes
+
+* **agent-image:** ship an ssh client in the dev runtime image ([a02b604](https://github.com/ai-outfitter/agent-operator/commit/a02b6049c2f60a768700e8103ed07e1991549957))
+
 ## [0.6.0](https://github.com/ai-outfitter/agent-operator/compare/agent-operator-v0.5.0...agent-operator-v0.6.0) (2026-08-07)
 
 
