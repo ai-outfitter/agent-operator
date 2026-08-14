@@ -5,7 +5,10 @@
       "package-name": "agent-operator",
       "include-v-in-tag": true,
       "bump-minor-pre-major": true,
-      "changelog-path": "CHANGELOG.md"
+      "changelog-path": "CHANGELOG.md",
+      "extra-files": [
+        "code/operator/dist/chart/Chart.yaml"
+      ]
     }
   }
 }
