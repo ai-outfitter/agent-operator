@@ -27,7 +27,7 @@ Requires `kubectl` (or `$KUBECTL`) and `jq` on the runner.
 - uses: actions/checkout@v6
 # ... establish cluster identity (e.g. aws-actions/configure-aws-credentials
 #     + aws eks update-kubeconfig) ...
-- uses: ai-outfitter/agent-operator/actions/deploy-catalog@agent-operator-v0.6.0
+- uses: ai-outfitter/agent-operator/actions/deploy-catalog@<full-sha>
   with:
     revision: ${{ github.sha }}
     catalog-source: my-org-agents
@@ -37,10 +37,12 @@ On Forgejo, qualify the reference fully — a bare `uses:` resolves against the
 instance's configured actions host:
 
 ```yaml
-- uses: https://github.com/ai-outfitter/agent-operator/actions/deploy-catalog@agent-operator-v0.6.0
+- uses: https://github.com/ai-outfitter/agent-operator/actions/deploy-catalog@<full-sha>
 ```
 
-Pin an exact `agent-operator-vX.Y.Z` tag. The action patches custom resources
+Pin an exact ref — a full commit SHA, or an exact `agent-operator-vX.Y.Z` tag
+once one containing this action exists (the first is the release after this
+directory landed). The action patches custom resources
 whose API group has already changed once in this repository's tag history
 (`link-operator-v0.3.0` → `agent-operator-v0.4.0`); the exact pin is what
 moves your deploy step and the CRDs it patches as one bump. There is no
