@@ -199,8 +199,9 @@ converged() {
   return 0
 }
 
-deadline=$((SECONDS + converge_deadline))
 for name in "${agents[@]}"; do
+  # Per-agent budget: one slow agent must not starve the checks behind it.
+  deadline=$((SECONDS + converge_deadline))
   while (( SECONDS < deadline )) && ! converged "$name"; do
     sleep 5
   done
