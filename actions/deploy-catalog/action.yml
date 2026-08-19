@@ -2,7 +2,8 @@ name: Deploy agent catalog
 description: >-
   Deploy the agent-operator Agents a catalog declares. Selects them by globbing
   agents/*/deployment.yaml, or by name from the catalog's clusters.yaml when
-  `cluster` is set, then renders the pinned revision, asserts RBAC in both
+  `cluster` is set, then renders the pinned revision and the catalog's GitHub
+  organization into the manifests, asserts RBAC in both
   directions, server-side dry-runs, applies, and waits for each Agent to
   converge on the pushed revision. Identity is a precondition, not an input:
   the step before this one must leave kubectl pointing at the target cluster
@@ -17,8 +18,10 @@ inputs:
       Name of a cluster defined in the catalog's clusters.yaml. When set, that
       entry's agent list is the deploy list and nothing is discovered, so one
       catalog can serve several clusters and a manifest in the tree is inert
-      until a cluster names it. Requires yq on the runner. Leave unset to glob
-      agents/*/deployment.yaml as before.
+      until a cluster names it. The same file may declare a top-level
+      `organization:` key, which is rendered into every __ORG__ placeholder so
+      each Agent is named <organization>-<id>. Requires yq on the runner.
+      Leave unset to glob agents/*/deployment.yaml as before.
     required: false
     default: ""
   clusters-file:
@@ -51,7 +54,9 @@ inputs:
     default: 10m
 outputs:
   agents:
-    description: Space-separated names of the agents selected and deployed.
+    description: >-
+      Space-separated names of the Agent objects deployed. These carry the
+      organization prefix when the cluster table declares one.
     value: ${{ steps.deploy.outputs.agents }}
 runs:
   using: composite

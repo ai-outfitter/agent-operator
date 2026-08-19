@@ -1,0 +1,5 @@
+# The same manifests, selected by a table that declares no organization: the
+# __ORG__ placeholder then survives rendering and the deploy must refuse.
+clusters:
+  prod:
+    agents: [luce, vega]

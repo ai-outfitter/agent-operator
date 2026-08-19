@@ -66,6 +66,10 @@ kube=("$kubectl_bin")
 # glob can only ever confirm what it just discovered.
 declared=()
 sources=()
+# One persona is deployed once per GitHub organization, so an org-scoped
+# catalog declares its login once and every Agent name it renders carries it.
+# Empty on the glob path, and on a cluster table written before this key.
+organization_prefix=""
 
 if [[ -n "$cluster" ]]; then
   temporary_table="$(mktemp -d)"
@@ -89,6 +93,17 @@ if [[ -n "$cluster" ]]; then
   table_json="$temporary_table/clusters.json"
   if ! yaml_to_json "$table" > "$table_json"; then
     echo "deploy-catalog: could not parse $table" >&2
+    exit 1
+  fi
+
+  # A catalog that serves one GitHub organization says so once, at the top of
+  # the table. Every Agent it deploys is then named <organization>-<id>, which
+  # is what keeps two organizations' `luce` from colliding on one cluster: the
+  # operator derives the namespace agent-<name>, so the prefix separates them
+  # all the way down.
+  organization_prefix="$(jq -r '.organization // ""' "$table_json")"
+  if [[ -n "$organization_prefix" && ! "$organization_prefix" =~ ^[a-z0-9][a-z0-9-]*$ ]]; then
+    echo "deploy-catalog: organization must be a lowercase GitHub org login: $organization_prefix" >&2
     exit 1
   fi
 
@@ -122,6 +137,9 @@ if [[ -n "$cluster" ]]; then
     exit 1
   fi
   echo "deploy-catalog: $clusters_file names for '$cluster': ${declared[*]}"
+  if [[ -n "$organization_prefix" ]]; then
+    echo "deploy-catalog: organization: $organization_prefix"
+  fi
 else
   for manifest in "$root"/agents/*/deployment.yaml; do
     [[ -e "$manifest" ]] || break
@@ -141,6 +159,13 @@ fi
 # would apply cleanly and quietly deploy nothing. A file with no placeholder
 # is legal — an agent whose profile a different catalog defines pins that
 # catalog's revision, not this one — but it is worth a line in the log.
+#
+# __ORG__ is the same mechanism with the opposite default. It renders the
+# organization the cluster table declares, and it is required both ways: a
+# placeholder with no organization behind it is refused, and so is an
+# org-scoped manifest that hard-codes its own name. The name is the whole
+# point — the operator derives namespace agent-<name>, so <org>-<id> is what
+# keeps two organizations' `luce` apart on one cluster.
 temporary="$(mktemp -d)"
 trap 'rm -rf "$temporary" "${temporary_table:-}"' EXIT
 
@@ -149,9 +174,26 @@ for index in "${!declared[@]}"; do
   id="${declared[$index]}"
   src="${sources[$index]}"
   out="$temporary/$id.yaml"
-  sed "s#__REVISION__#$revision#g" "$src" > "$out"
+  render=(-e "s#__REVISION__#$revision#g")
+  if [[ -n "$organization_prefix" ]]; then
+    # An org-scoped catalog whose manifest hard-codes its name is the collision
+    # this convention prevents, so the placeholder is required, not optional.
+    if ! grep -Fq '__ORG__' "$src"; then
+      echo "deploy-catalog: $clusters_file declares organization '$organization_prefix', but $src contains no __ORG__ placeholder" >&2
+      echo "deploy-catalog: name the Agent __ORG__-$id so its namespace cannot collide with another organization's" >&2
+      exit 1
+    fi
+    render+=(-e "s#__ORG__#$organization_prefix#g")
+  fi
+  sed "${render[@]}" "$src" > "$out"
   if grep -Fq '__REVISION__' "$out"; then
     echo "deploy-catalog: failed to render the revision into $src" >&2
+    exit 1
+  fi
+  # No organization was declared, so __ORG__ was never substituted. Applying it
+  # literally would create an Agent named __ORG__-<id>; refuse instead.
+  if grep -Fq '__ORG__' "$out"; then
+    echo "deploy-catalog: $src uses __ORG__, but no organization is declared in $clusters_file" >&2
     exit 1
   fi
   if ! grep -Fq "$revision" "$out"; then
@@ -165,7 +207,9 @@ done
 # from it we take the Agent names the convergence loop needs and the
 # Organization names the RBAC preflight asserts. Agent is cluster-scoped and
 # owns its namespace: the operator derives `agent-<name>`, so we derive the
-# same — a manifest never carries it.
+# same — a manifest never carries it. These names are already rendered, so on
+# an org-scoped catalog they carry the prefix and the derived namespace is
+# agent-<organization>-<id>.
 objects="$temporary/objects.json"
 for out in "${rendered[@]}"; do
   "${kube[@]}" apply --dry-run=client --output=json --filename="$out"
@@ -187,8 +231,9 @@ fi
 # create that cascade-deletes every Secret, ConfigMap, and PVC beneath it.
 for index in "${!declared[@]}"; do
   id="${declared[$index]}"
-  if ! printf '%s\n' "${agents[@]}" | grep -Fxq "$id"; then
-    echo "deploy-catalog: ${sources[$index]} declares no Agent named $id" >&2
+  expected="${organization_prefix:+$organization_prefix-}$id"
+  if ! printf '%s\n' "${agents[@]}" | grep -Fxq "$expected"; then
+    echo "deploy-catalog: ${sources[$index]} declares no Agent named $expected" >&2
     exit 1
   fi
 done
@@ -304,6 +349,6 @@ for name in "${agents[@]}"; do
 done
 
 if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
-  echo "agents=${declared[*]}" >> "$GITHUB_OUTPUT"
+  echo "agents=${agents[*]}" >> "$GITHUB_OUTPUT"
 fi
 echo "deploy-catalog: fleet of ${#declared[@]} converged at $revision"

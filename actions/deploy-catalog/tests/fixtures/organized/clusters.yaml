@@ -1,0 +1,8 @@
+# One persona is deployed once per GitHub organization, so the catalog names
+# that organization once and every Agent it renders carries the prefix.
+organization: acme
+clusters:
+  prod:
+    agents: [luce, vega]
+  unprefixed:
+    agents: [bare]

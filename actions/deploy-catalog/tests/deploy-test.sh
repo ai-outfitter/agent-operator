@@ -83,6 +83,31 @@ else
   passed=$((passed + 1))
 fi
 
+# ── An organization prefixes every Agent it deploys ─────────────────────────
+# A persona is deployed once per GitHub org, so the CR name is <org>-<id> and
+# the operator's derived namespace becomes agent-<org>-<id>. The prefix is
+# rendered from clusters.yaml, exactly like __REVISION__.
+contains "the selection log still names bare ids" \
+  "names for 'prod': luce vega" run organized CLUSTER=prod
+contains "the declared organization is logged" \
+  "organization: acme" run organized CLUSTER=prod
+contains "__ORG__ renders into the Agent name" \
+  "acme-luce is ready" run organized CLUSTER=prod
+contains "every selected agent is prefixed" \
+  "acme-vega is ready" run organized CLUSTER=prod
+expect_ok "an organization-scoped deploy succeeds" run organized CLUSTER=prod
+
+# The rendered name is what the preflight and the converge loop use, so a grant
+# scoped to the unprefixed name must not satisfy them.
+expect_fail "the preflight asserts the prefixed name" "expected authorization was denied" \
+  run organized CLUSTER=prod STUB_DENY="patch agents.aioutfitter.com/acme-luce"
+
+# Fail closed in both directions.
+expect_fail "__ORG__ without an organization is refused" "no organization is declared" \
+  run organized CLUSTER=prod CLUSTERS_FILE=clusters-no-org.yaml
+expect_fail "an organization without __ORG__ is refused" "contains no __ORG__ placeholder" \
+  run organized CLUSTER=unprefixed
+
 # ── Refusals ────────────────────────────────────────────────────────────────
 expect_fail "unknown cluster is refused" "defines no cluster 'staging'" \
   run clustered CLUSTER=staging
