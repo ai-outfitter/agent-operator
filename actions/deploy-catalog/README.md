@@ -22,12 +22,9 @@ serves several clusters, and nothing is discovered:
 # clusters.yaml, at the catalog root
 clusters:
   nonprod:
-    # Bare ids keep the agents/<id>/deployment.yaml convention.
     agents: [luce, nonprod-bot]
   prod:
-    # Or name the path, freeing a manifest from the profile layout.
-    manifests:
-      prod-bot: deploy/prod-bot.yaml
+    agents: [prod-bot]
 ```
 
 ```yaml
@@ -38,10 +35,11 @@ clusters:
     catalog-source: my-org-agents
 ```
 
-`agents/<id>/` is where Outfitter resolves a *profile*. It is not obliged to be
-where a deployment manifest lives, and for a catalog serving more than one
-cluster it should not be: a manifest committed to a convenient path would
-otherwise deploy itself to whichever cluster globbed it first.
+The layout does not change: every manifest stays at
+`agents/<id>/deployment.yaml` whichever cluster runs it. **A manifest in the
+tree is inert until a cluster names it**, so a catalog can hold a production
+agent and a nonprod fleet side by side without either reaching the other's
+cluster, and without a second tree to keep a glob honest.
 
 Naming the set is also what lets the permission preflight mean something. A
 deploy role is `resourceNames`-scoped per cluster, so a set that does not match
@@ -110,9 +108,10 @@ catalog's revision instead of this one.
 
 `tests/deploy-test.sh` runs the whole script against a stub `kubectl` and
 fixture catalogs — no cluster and no credentials — covering both selection
-paths and every refusal: an unknown cluster, a named manifest that does not
-exist, an agent named twice, a manifest declaring a different `Agent`, a
-missing grant, and a grant that is too wide.
+paths and every refusal: an unknown cluster, an agent with no manifest in the
+tree, an agent named twice, a manifest declaring a different `Agent`, a missing
+grant, and a grant that is too wide. One case asserts the property the glob
+cannot provide: agents sharing the tree with the selected one are not touched.
 
 ## Adding an agent is a two-person change
 

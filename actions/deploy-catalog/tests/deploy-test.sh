@@ -68,7 +68,7 @@ expect_ok "glob deploy succeeds" run globbed
 # ── The cluster table selects by name ───────────────────────────────────────
 contains "cluster 'nonprod' selects only its named agents" \
   "names for 'nonprod': alpha beta" run clustered CLUSTER=nonprod
-contains "cluster 'prod' selects one agent at an explicit path" \
+contains "cluster 'prod' selects only its own agent" \
   "names for 'prod': gamma" run clustered CLUSTER=prod
 expect_ok "clustered deploy succeeds" run clustered CLUSTER=prod
 
@@ -90,8 +90,8 @@ expect_fail "unknown cluster lists what exists" "nonprod, prod" \
   run clustered CLUSTER=staging
 expect_fail "a missing clusters.yaml is refused" "does not exist" \
   run globbed CLUSTER=nonprod
-expect_fail "a named manifest that does not exist is refused" "which does not exist" \
-  run clustered CLUSTER=broken-path
+expect_fail "an agent with no manifest in the tree is refused" "does not exist" \
+  run clustered CLUSTER=missing-manifest
 expect_fail "an agent named twice is refused" "more than once" \
   run clustered CLUSTER=duplicated
 expect_fail "a manifest declaring a different Agent is refused" "declares no Agent named delta" \

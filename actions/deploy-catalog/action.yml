@@ -15,10 +15,10 @@ inputs:
   cluster:
     description: >-
       Name of a cluster defined in the catalog's clusters.yaml. When set, that
-      entry is the deploy list and nothing is discovered, so one catalog can
-      serve several clusters without a manifest committed to a convenient path
-      deploying itself to the wrong one. Requires yq on the runner. Leave unset
-      to glob agents/*/deployment.yaml as before.
+      entry's agent list is the deploy list and nothing is discovered, so one
+      catalog can serve several clusters and a manifest in the tree is inert
+      until a cluster names it. Requires yq on the runner. Leave unset to glob
+      agents/*/deployment.yaml as before.
     required: false
     default: ""
   clusters-file:

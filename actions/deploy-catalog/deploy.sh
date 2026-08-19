@@ -98,15 +98,15 @@ if [[ -n "$cluster" ]]; then
     exit 1
   fi
 
-  # An entry is either a list of agent ids, which keeps the agents/<id>/
-  # convention, or a map of id → manifest path, which frees a manifest from the
-  # profile layout. `agents/<id>/` is where Outfitter resolves a profile; it is
-  # not obliged to be where a deployment manifest lives.
-  while read -r id path; do
+  # An entry names agent ids, and the layout stays agents/<id>/deployment.yaml
+  # in every cluster. Nothing here needs to move a manifest elsewhere: with the
+  # deploy list named, a manifest sitting in the tree is inert until a cluster
+  # names it, which is the property a path could only approximate.
+  while read -r id; do
     [[ -n "$id" ]] || continue
-    [[ -n "$path" ]] || path="agents/$id/deployment.yaml"
-    if [[ ! -f "$root/$path" ]]; then
-      echo "deploy-catalog: cluster '$cluster' names $id at $path, which does not exist" >&2
+    manifest="agents/$id/deployment.yaml"
+    if [[ ! -f "$root/$manifest" ]]; then
+      echo "deploy-catalog: cluster '$cluster' names $id, but $manifest does not exist" >&2
       exit 1
     fi
     if printf '%s\n' "${declared[@]:-}" | grep -Fxq "$id"; then
@@ -114,12 +114,8 @@ if [[ -n "$cluster" ]]; then
       exit 1
     fi
     declared+=("$id")
-    sources+=("$root/$path")
-  done < <(jq -r --arg c "$cluster" '
-    .clusters[$c] as $entry
-    | if ($entry | has("agents")) then $entry.agents[] | "\(.) "
-      elif ($entry | has("manifests")) then $entry.manifests | to_entries[] | "\(.key) \(.value)"
-      else empty end' "$table_json")
+    sources+=("$root/$manifest")
+  done < <(jq -r --arg c "$cluster" '.clusters[$c].agents // [] | .[]' "$table_json")
 
   if (( ${#declared[@]} == 0 )); then
     echo "deploy-catalog: cluster '$cluster' names no agents" >&2
