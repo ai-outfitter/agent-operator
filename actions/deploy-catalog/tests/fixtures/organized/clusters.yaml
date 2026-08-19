@@ -1,5 +1,6 @@
-# One persona is deployed once per GitHub organization, so the catalog names
-# that organization once and every Agent it renders carries the prefix.
+# One persona is deployed once per catalog, so the catalog names its own
+# short deployment prefix once and every Agent it renders carries it. "acme"
+# is a fixture name, not a forge org login — the value never has to match one.
 organization: acme
 clusters:
   prod:

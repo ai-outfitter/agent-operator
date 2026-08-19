@@ -66,8 +66,11 @@ kube=("$kubectl_bin")
 # glob can only ever confirm what it just discovered.
 declared=()
 sources=()
-# One persona is deployed once per GitHub organization, so an org-scoped
-# catalog declares its login once and every Agent name it renders carries it.
+# One persona is deployed once per catalog, so an org-scoped catalog declares
+# a short deployment prefix once and every Agent name it renders carries it.
+# The catalog chooses the prefix. It does not need to match any forge
+# organization login — it only needs to be unique among the catalogs that
+# deploy to the same cluster.
 # Empty on the glob path, and on a cluster table written before this key.
 organization_prefix=""
 
@@ -96,14 +99,16 @@ if [[ -n "$cluster" ]]; then
     exit 1
   fi
 
-  # A catalog that serves one GitHub organization says so once, at the top of
-  # the table. Every Agent it deploys is then named <organization>-<id>, which
-  # is what keeps two organizations' `luce` from colliding on one cluster: the
-  # operator derives the namespace agent-<name>, so the prefix separates them
-  # all the way down.
+  # A catalog picks its own deployment prefix once, at the top of the table.
+  # Every Agent it deploys is then named <organization>-<id>, which is what
+  # keeps two catalogs' `luce` from colliding on one cluster: the operator
+  # derives the namespace agent-<name>, so the prefix separates them all the
+  # way down. The prefix is chosen for the cluster, not copied from a forge
+  # org login — it only needs to be unique among the catalogs sharing this
+  # cluster.
   organization_prefix="$(jq -r '.organization // ""' "$table_json")"
   if [[ -n "$organization_prefix" && ! "$organization_prefix" =~ ^[a-z0-9][a-z0-9-]*$ ]]; then
-    echo "deploy-catalog: organization must be a lowercase GitHub org login: $organization_prefix" >&2
+    echo "deploy-catalog: organization must be a lowercase deployment prefix: $organization_prefix" >&2
     exit 1
   fi
 
@@ -161,11 +166,11 @@ fi
 # catalog's revision, not this one — but it is worth a line in the log.
 #
 # __ORG__ is the same mechanism with the opposite default. It renders the
-# organization the cluster table declares, and it is required both ways: a
-# placeholder with no organization behind it is refused, and so is an
-# org-scoped manifest that hard-codes its own name. The name is the whole
-# point — the operator derives namespace agent-<name>, so <org>-<id> is what
-# keeps two organizations' `luce` apart on one cluster.
+# deployment prefix the cluster table declares, and it is required both ways:
+# a placeholder with no prefix behind it is refused, and so is a prefixed
+# manifest that hard-codes its own name. The name is the whole point — the
+# operator derives namespace agent-<name>, so <org>-<id> is what keeps two
+# catalogs' `luce` apart on one cluster.
 temporary="$(mktemp -d)"
 trap 'rm -rf "$temporary" "${temporary_table:-}"' EXIT
 
@@ -176,11 +181,11 @@ for index in "${!declared[@]}"; do
   out="$temporary/$id.yaml"
   render=(-e "s#__REVISION__#$revision#g")
   if [[ -n "$organization_prefix" ]]; then
-    # An org-scoped catalog whose manifest hard-codes its name is the collision
+    # A prefixed catalog whose manifest hard-codes its name is the collision
     # this convention prevents, so the placeholder is required, not optional.
     if ! grep -Fq '__ORG__' "$src"; then
       echo "deploy-catalog: $clusters_file declares organization '$organization_prefix', but $src contains no __ORG__ placeholder" >&2
-      echo "deploy-catalog: name the Agent __ORG__-$id so its namespace cannot collide with another organization's" >&2
+      echo "deploy-catalog: name the Agent __ORG__-$id so its namespace cannot collide with another catalog's" >&2
       exit 1
     fi
     render+=(-e "s#__ORG__#$organization_prefix#g")

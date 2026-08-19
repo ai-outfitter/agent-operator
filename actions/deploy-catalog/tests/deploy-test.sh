@@ -84,9 +84,10 @@ else
 fi
 
 # ── An organization prefixes every Agent it deploys ─────────────────────────
-# A persona is deployed once per GitHub org, so the CR name is <org>-<id> and
-# the operator's derived namespace becomes agent-<org>-<id>. The prefix is
-# rendered from clusters.yaml, exactly like __REVISION__.
+# A persona is deployed once per catalog, so the CR name is <org>-<id> and the
+# operator's derived namespace becomes agent-<org>-<id>. The prefix is a
+# catalog-chosen short name (here "acme"), not a forge org login, rendered
+# from clusters.yaml exactly like __REVISION__.
 contains "the selection log still names bare ids" \
   "names for 'prod': luce vega" run organized CLUSTER=prod
 contains "the declared organization is logged" \

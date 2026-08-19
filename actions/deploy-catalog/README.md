@@ -47,21 +47,31 @@ that role fails the positive check before anything is applied — point one
 cluster's manifests at another's endpoint and the deploy stops. A glob can only
 ever confirm what it just discovered.
 
-## One persona per organization
+## One persona per catalog
 
-A persona — `luce`, `vega` — is deployed **once per GitHub organization**,
-from that organization's own catalog. `Agent` is cluster-scoped and the
-operator derives the namespace `agent-<name>` from it, so two organizations
-that both run `luce` would land on the same cluster-scoped object and the same
-namespace. The name is therefore `<organization>-<id>`, and the namespace
-`agent-<organization>-<id>`.
+A persona — `luce`, `vega` — is deployed **once per catalog**. `Agent` is
+cluster-scoped and the operator derives the namespace `agent-<name>` from it,
+so two catalogs that both run `luce` on the same cluster would land on the
+same cluster-scoped object and the same namespace. The name is therefore
+`<organization>-<id>`, and the namespace `agent-<organization>-<id>`.
 
-The prefix is rendered, never hand-written. A catalog declares its organization
-once, at the top of `clusters.yaml`:
+`organization` is a short deployment prefix. The catalog chooses this prefix.
+The prefix does not need to match the catalog's forge organization login. The
+prefix MUST be unique among the catalogs that deploy to the same cluster.
+
+A forge login can be long or awkward as a Kubernetes name. For example, the
+`ai-outfitter` GitHub org's bot login stutters (`ai-outfitter-outfitter-bot`),
+and `unsupervisedcom-luce` reads poorly. So each catalog picks its own short
+prefix instead: the `Unsupervisedcom` GitHub org's catalog declares
+`organization: unsupervised`, and the `ai-outfitter` GitHub org's catalog
+declares `organization: outfitter`.
+
+The prefix is rendered, never hand-written. A catalog declares it once, at the
+top of `clusters.yaml`:
 
 ```yaml
 # clusters.yaml, at the catalog root
-organization: unsupervisedcom      # lowercase GitHub org login
+organization: unsupervised      # this catalog's deployment prefix, unique on this cluster
 clusters:
   prod:
     agents: [luce, vega]
@@ -73,12 +83,12 @@ and each manifest names its `Agent` with the `__ORG__` placeholder:
 apiVersion: aioutfitter.com/v1alpha1
 kind: Agent
 metadata:
-  name: __ORG__-luce            # applied as unsupervisedcom-luce
+  name: __ORG__-luce            # applied as unsupervised-luce
 ```
 
 `agents/luce/deployment.yaml` must then declare exactly
-`Agent/unsupervisedcom-luce`. The RBAC preflight, the convergence loop, the
-derived namespace `agent-unsupervisedcom-luce`, and the action's `agents`
+`Agent/unsupervised-luce`. The RBAC preflight, the convergence loop, the
+derived namespace `agent-unsupervised-luce`, and the action's `agents`
 output all use the rendered name.
 
 The key and the placeholder are required together, and the deploy fails closed
@@ -160,6 +170,9 @@ tree, an agent named twice, a manifest declaring a different `Agent`, `__ORG__`
 with no `organization` behind it, an `organization` with no `__ORG__` in the
 manifest, a missing grant, and a grant that is too wide. One case asserts the property the glob
 cannot provide: agents sharing the tree with the selected one are not touched.
+The organized fixture uses `organization: acme` — a name chosen for the
+fixture, not a real forge org login, which itself demonstrates that the value
+is a free-form prefix.
 
 ## Adding an agent is a two-person change
 
