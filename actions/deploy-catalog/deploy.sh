@@ -22,6 +22,8 @@ set -euo pipefail
 umask 077
 
 root="${CATALOG_ROOT:-.}"
+cluster="${CLUSTER:-}"
+clusters_file="${CLUSTERS_FILE:-clusters.yaml}"
 kubectl_bin="${KUBECTL:-kubectl}"
 revision="${CATALOG_REVISION:?CATALOG_REVISION is required}"
 catalog_source="${CATALOG_SOURCE_NAME:?CATALOG_SOURCE_NAME is required}"
@@ -33,27 +35,109 @@ if [[ ! "$revision" =~ ^[0-9a-f]{40}$ ]]; then
   echo "deploy-catalog: CATALOG_REVISION must be a full 40-character Git SHA" >&2
   exit 1
 fi
-for tool in "$kubectl_bin" jq; do
+required_tools=("$kubectl_bin" jq)
+# yq is required only by the cluster table, so a caller that globs keeps the
+# original two-tool contract and needs no new runner image.
+[[ -n "$cluster" ]] && required_tools+=(yq)
+for tool in "${required_tools[@]}"; do
   if ! command -v "$tool" >/dev/null 2>&1; then
     echo "deploy-catalog: required tool is unavailable: $tool" >&2
+    [[ "$tool" == "yq" ]] && echo "deploy-catalog: yq is needed to read $clusters_file (cluster: $cluster)" >&2
     exit 1
   fi
 done
 
 kube=("$kubectl_bin")
 
-# ── 1. Discover ─────────────────────────────────────────────────────────────
-# The directory name is the agent id; the glob is the whole deploy list.
+# ── 1. Select ───────────────────────────────────────────────────────────────
+# Two ways to decide what deploys, and a catalog picks one.
+#
+# Without `cluster`, the tree decides: each agents/<id>/deployment.yaml is one
+# agent and the glob is the whole deploy list, so an agent added to the tree is
+# an agent added to the fleet and there is no list to fall out of date. Right
+# for a catalog that serves one cluster.
+#
+# With `cluster`, the catalog's clusters.yaml decides. One catalog then serves
+# several clusters — a nonprod fleet and a production one — without a manifest
+# committed to a convenient path deploying itself to the wrong place. Naming
+# the set is also what lets the permission preflight below mean something: a
+# resourceNames-scoped deploy role is written per cluster, so a set that does
+# not match that role fails the positive check before anything is applied. A
+# glob can only ever confirm what it just discovered.
 declared=()
-for manifest in "$root"/agents/*/deployment.yaml; do
-  [[ -e "$manifest" ]] || break
-  declared+=("$(basename "$(dirname "$manifest")")")
-done
-if (( ${#declared[@]} == 0 )); then
-  echo "deploy-catalog: no agents/*/deployment.yaml under $root — nothing to deploy" >&2
-  exit 1
+sources=()
+
+if [[ -n "$cluster" ]]; then
+  temporary_table="$(mktemp -d)"
+  trap 'rm -rf "$temporary_table"' EXIT
+  table="$root/$clusters_file"
+  if [[ ! -f "$table" ]]; then
+    echo "deploy-catalog: cluster '$cluster' was requested but $table does not exist" >&2
+    exit 1
+  fi
+  # Two incompatible programs are called yq: mikefarah's Go implementation
+  # (on the GitHub runner images) and the Python jq wrapper. Their expression
+  # languages differ, so yq is used for exactly one thing — YAML to JSON — and
+  # every selection below is jq, which is already a hard requirement.
+  yaml_to_json() {
+    if yq --version 2>&1 | grep -qi mikefarah; then
+      yq -o=json '.' "$1"
+    else
+      yq '.' "$1"
+    fi
+  }
+  table_json="$temporary_table/clusters.json"
+  if ! yaml_to_json "$table" > "$table_json"; then
+    echo "deploy-catalog: could not parse $table" >&2
+    exit 1
+  fi
+
+  if [[ "$(jq -r --arg c "$cluster" '.clusters | has($c)' "$table_json")" != "true" ]]; then
+    echo "deploy-catalog: $clusters_file defines no cluster '$cluster'" >&2
+    echo "deploy-catalog: it defines: $(jq -r '.clusters | keys | join(", ")' "$table_json")" >&2
+    exit 1
+  fi
+
+  # An entry is either a list of agent ids, which keeps the agents/<id>/
+  # convention, or a map of id → manifest path, which frees a manifest from the
+  # profile layout. `agents/<id>/` is where Outfitter resolves a profile; it is
+  # not obliged to be where a deployment manifest lives.
+  while read -r id path; do
+    [[ -n "$id" ]] || continue
+    [[ -n "$path" ]] || path="agents/$id/deployment.yaml"
+    if [[ ! -f "$root/$path" ]]; then
+      echo "deploy-catalog: cluster '$cluster' names $id at $path, which does not exist" >&2
+      exit 1
+    fi
+    if printf '%s\n' "${declared[@]:-}" | grep -Fxq "$id"; then
+      echo "deploy-catalog: cluster '$cluster' names $id more than once" >&2
+      exit 1
+    fi
+    declared+=("$id")
+    sources+=("$root/$path")
+  done < <(jq -r --arg c "$cluster" '
+    .clusters[$c] as $entry
+    | if ($entry | has("agents")) then $entry.agents[] | "\(.) "
+      elif ($entry | has("manifests")) then $entry.manifests | to_entries[] | "\(.key) \(.value)"
+      else empty end' "$table_json")
+
+  if (( ${#declared[@]} == 0 )); then
+    echo "deploy-catalog: cluster '$cluster' names no agents" >&2
+    exit 1
+  fi
+  echo "deploy-catalog: $clusters_file names for '$cluster': ${declared[*]}"
+else
+  for manifest in "$root"/agents/*/deployment.yaml; do
+    [[ -e "$manifest" ]] || break
+    declared+=("$(basename "$(dirname "$manifest")")")
+    sources+=("$manifest")
+  done
+  if (( ${#declared[@]} == 0 )); then
+    echo "deploy-catalog: no agents/*/deployment.yaml under $root — nothing to deploy" >&2
+    exit 1
+  fi
+  echo "deploy-catalog: tree declares: ${declared[*]}"
 fi
-echo "deploy-catalog: tree declares: ${declared[*]}"
 
 # ── 2. Render ───────────────────────────────────────────────────────────────
 # Every place that pins the revision gets the same one, and a placeholder that
@@ -62,11 +146,12 @@ echo "deploy-catalog: tree declares: ${declared[*]}"
 # is legal — an agent whose profile a different catalog defines pins that
 # catalog's revision, not this one — but it is worth a line in the log.
 temporary="$(mktemp -d)"
-trap 'rm -rf "$temporary"' EXIT
+trap 'rm -rf "$temporary" "${temporary_table:-}"' EXIT
 
 rendered=()
-for id in "${declared[@]}"; do
-  src="$root/agents/$id/deployment.yaml"
+for index in "${!declared[@]}"; do
+  id="${declared[$index]}"
+  src="${sources[$index]}"
   out="$temporary/$id.yaml"
   sed "s#__REVISION__#$revision#g" "$src" > "$out"
   if grep -Fq '__REVISION__' "$out"; then
@@ -99,11 +184,15 @@ if (( ${#agents[@]} == 0 )); then
   exit 1
 fi
 
-# Every directory must declare the Agent its name promises — a mismatch means
-# the tree and the cluster would disagree about what "deployed" means.
-for id in "${declared[@]}"; do
+# Every manifest must declare the Agent its name promises — a mismatch means
+# the deploy list and the cluster would disagree about what "deployed" means.
+# It also catches a rename, which is the dangerous edit: Agent is cluster-scoped
+# and owns its namespace by owner reference, so renaming one is a delete plus a
+# create that cascade-deletes every Secret, ConfigMap, and PVC beneath it.
+for index in "${!declared[@]}"; do
+  id="${declared[$index]}"
   if ! printf '%s\n' "${agents[@]}" | grep -Fxq "$id"; then
-    echo "deploy-catalog: agents/$id/deployment.yaml declares no Agent named $id" >&2
+    echo "deploy-catalog: ${sources[$index]} declares no Agent named $id" >&2
     exit 1
   fi
 done

@@ -1,7 +1,8 @@
 name: Deploy agent catalog
 description: >-
-  Deploy every agent-operator Agent a catalog declares. Globs
-  agents/*/deployment.yaml, renders the pinned revision, asserts RBAC in both
+  Deploy the agent-operator Agents a catalog declares. Selects them by globbing
+  agents/*/deployment.yaml, or by name from the catalog's clusters.yaml when
+  `cluster` is set, then renders the pinned revision, asserts RBAC in both
   directions, server-side dry-runs, applies, and waits for each Agent to
   converge on the pushed revision. Identity is a precondition, not an input:
   the step before this one must leave kubectl pointing at the target cluster
@@ -11,6 +12,19 @@ inputs:
     description: Path to the catalog checkout (the directory holding agents/).
     required: false
     default: .
+  cluster:
+    description: >-
+      Name of a cluster defined in the catalog's clusters.yaml. When set, that
+      entry is the deploy list and nothing is discovered, so one catalog can
+      serve several clusters without a manifest committed to a convenient path
+      deploying itself to the wrong one. Requires yq on the runner. Leave unset
+      to glob agents/*/deployment.yaml as before.
+    required: false
+    default: ""
+  clusters-file:
+    description: Cluster table filename, relative to catalog-root.
+    required: false
+    default: clusters.yaml
   revision:
     description: >-
       Full 40-character Git SHA rendered into every __REVISION__ placeholder.
@@ -37,7 +51,7 @@ inputs:
     default: 10m
 outputs:
   agents:
-    description: Space-separated names of the agents the tree declared and deployed.
+    description: Space-separated names of the agents selected and deployed.
     value: ${{ steps.deploy.outputs.agents }}
 runs:
   using: composite
@@ -46,6 +60,8 @@ runs:
       shell: bash
       env:
         CATALOG_ROOT: ${{ inputs.catalog-root }}
+        CLUSTER: ${{ inputs.cluster }}
+        CLUSTERS_FILE: ${{ inputs.clusters-file }}
         CATALOG_REVISION: ${{ inputs.revision }}
         CATALOG_SOURCE_NAME: ${{ inputs.catalog-source }}
         FIELD_MANAGER: ${{ inputs.field-manager }}

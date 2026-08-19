@@ -1,0 +1,14 @@
+clusters:
+  nonprod:
+    agents: [alpha, beta]
+  prod:
+    manifests:
+      gamma: deploy/gamma.yaml
+  broken-path:
+    manifests:
+      gamma: deploy/nowhere.yaml
+  duplicated:
+    agents: [alpha, alpha]
+  renamed:
+    manifests:
+      delta: agents/delta/deployment.yaml
