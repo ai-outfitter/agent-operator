@@ -37,6 +37,7 @@ const (
 	NixStoreName            = "agent-nix-store"
 	NixMount                = "/nix"
 	HomeEnvName             = "HOME"
+	OutfitterChannelsEnv    = "OUTFITTER_CHANNELS"
 	GitHubNotifyOrgsEnv     = "GITHUB_NOTIFY_ORGS"
 	GitHubNotifyPollMSEnv   = "GITHUB_NOTIFY_POLL_MS"
 	GitHubNotifyFiltersEnv  = "GITHUB_NOTIFY_FILTERS"
@@ -303,7 +304,7 @@ func (r *AgentReconciler) ensureAgentDeployment(
 		"app.kubernetes.io/instance": agent.Name,
 	}
 	maps.Copy(selectorLabels, labels)
-	githubNotifyEnv, err := r.githubNotifyEnvironment(ctx, agent, organization)
+	runtimeConfigEnv, err := r.runtimeConfigurationEnvironment(ctx, agent, organization)
 	if err != nil {
 		return nil, err
 	}
@@ -381,7 +382,7 @@ func (r *AgentReconciler) ensureAgentDeployment(
 					Name:  "AGENT_SPOOL_PATH",
 					Value: path.Join(WorkspaceMount, ".channels", "agent"),
 				},
-			}, githubNotifyEnv...),
+			}, runtimeConfigEnv...),
 			VolumeMounts: []corev1.VolumeMount{
 				{Name: WorkspaceName, MountPath: WorkspaceMount},
 				{Name: SettingsName, MountPath: path.Join(WorkspaceMount, ".agents"), ReadOnly: true},
@@ -522,7 +523,7 @@ func (r *AgentReconciler) ensureOutfitterSettings(
 	return err
 }
 
-func (r *AgentReconciler) githubNotifyEnvironment(
+func (r *AgentReconciler) runtimeConfigurationEnvironment(
 	ctx context.Context,
 	agent *aioutfitterv1alpha1.Agent,
 	organization *aioutfitterv1alpha1.Organization,
@@ -553,6 +554,9 @@ func (r *AgentReconciler) githubNotifyEnvironment(
 	values := []corev1.EnvVar{
 		{Name: GitHubNotifyPollMSEnv, Value: strconv.FormatInt(pollMS, 10)},
 		{Name: GitHubNotifyFiltersEnv, Value: filters},
+	}
+	if len(agent.Spec.Channels) > 0 {
+		values = append(values, corev1.EnvVar{Name: OutfitterChannelsEnv, Value: joinedSet(agent.Spec.Channels)})
 	}
 	if notifyOrgs != "" {
 		values = append(values, corev1.EnvVar{Name: GitHubNotifyOrgsEnv, Value: notifyOrgs})

@@ -30,6 +30,7 @@ var _ = Describe("Agent Controller", func() {
 	It("reconciles the workload while reporting missing referenced objects", func() {
 		organization := createAcceptedOrganization(ctx)
 		agent := validAgent(uniqueTestName("researcher"), organization.Name)
+		agent.Spec.Channels = []string{"slack", "github"}
 		secretName := "model-credentials"
 		configName := "runtime-config"
 		legacyConfigName := "legacy-github-notify"
@@ -122,6 +123,7 @@ var _ = Describe("Agent Controller", func() {
 			corev1.EnvVar{Name: "AGENT_ENDPOINT_ID", Value: "link:" + agent.Name},
 			corev1.EnvVar{Name: "AGENT_PRINCIPAL_ID", Value: "link:" + agent.Name},
 			corev1.EnvVar{Name: "AGENT_SPOOL_PATH", Value: "/workspace/.channels/agent"},
+			corev1.EnvVar{Name: OutfitterChannelsEnv, Value: "github,slack"},
 			corev1.EnvVar{Name: GitHubNotifyOrgsEnv, Value: "ai-outfitter"},
 			corev1.EnvVar{Name: GitHubNotifyPollMSEnv, Value: "60000"},
 			corev1.EnvVar{Name: GitHubNotifyFiltersEnv, Value: DefaultGitHubFilters},
@@ -138,13 +140,17 @@ var _ = Describe("Agent Controller", func() {
 		})).To(Succeed())
 		Expect(k8sClient.Create(ctx, &corev1.ConfigMap{
 			ObjectMeta: metav1.ObjectMeta{Name: legacyConfigName, Namespace: namespaceName},
-			Data:       map[string]string{GitHubNotifyFiltersEnv: "mention"},
+			Data: map[string]string{
+				OutfitterChannelsEnv: "legacy", GitHubNotifyFiltersEnv: "mention",
+			},
 		})).To(Succeed())
 		_, err = reconciler.Reconcile(ctx, request)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: namespaceName, Name: RuntimeName}, deployment)).To(Succeed())
 		for _, value := range deployment.Spec.Template.Spec.Containers[0].Env {
-			Expect(value.Name).NotTo(BeElementOf(GitHubNotifyOrgsEnv, GitHubNotifyPollMSEnv, GitHubNotifyFiltersEnv))
+			Expect(value.Name).NotTo(BeElementOf(
+				OutfitterChannelsEnv, GitHubNotifyOrgsEnv, GitHubNotifyPollMSEnv, GitHubNotifyFiltersEnv,
+			))
 		}
 
 		// Agent-only pods must still get a usable API token: automount is off
@@ -190,9 +196,10 @@ var _ = Describe("Agent Controller", func() {
 		Expect(hasTokenSource).To(BeTrue())
 	})
 
-	It("projects Agent GitHub notification overrides", func() {
+	It("projects Agent channel and GitHub notification overrides", func() {
 		organization := createAcceptedOrganization(ctx)
 		agent := validAgent(uniqueTestName("github-notify"), organization.Name)
+		agent.Spec.Channels = []string{"slack", "github"}
 		pollMS := int64(15000)
 		agent.Spec.GitHub = &aioutfitterv1alpha1.GitHubSpec{
 			NotifyOrgs: []string{"example-one", "example-two"},
@@ -209,6 +216,7 @@ var _ = Describe("Agent Controller", func() {
 		deployment := &appsv1.Deployment{}
 		Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: agentNamespace(agent.Name), Name: RuntimeName}, deployment)).To(Succeed())
 		Expect(deployment.Spec.Template.Spec.Containers[0].Env).To(ContainElements(
+			corev1.EnvVar{Name: OutfitterChannelsEnv, Value: "github,slack"},
 			corev1.EnvVar{Name: GitHubNotifyOrgsEnv, Value: "example-one,example-two"},
 			corev1.EnvVar{Name: GitHubNotifyPollMSEnv, Value: "15000"},
 			corev1.EnvVar{Name: GitHubNotifyFiltersEnv, Value: "mention,review_requested"},

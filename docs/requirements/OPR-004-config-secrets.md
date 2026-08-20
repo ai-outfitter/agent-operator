@@ -62,6 +62,10 @@ channel's default organization reaches the agent without the operator modeling a
 channel-specific field. Anything the agent needs to be told is a ConfigMap the
 agent consumes; anything it must keep private is a Secret.
 
+Typed, cross-runtime controls explicitly defined by the Agent API are the
+exception. `Agent.spec.channels` projects `OUTFITTER_CHANNELS` according to
+OPR-003.5; catalogs do not need a ConfigMap solely for that selector.
+
 ## OPR-004.4: Status
 
 The `CredentialsReady` condition MUST report which referenced objects are still

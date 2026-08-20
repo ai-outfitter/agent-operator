@@ -77,8 +77,8 @@ const (
 )
 
 // CredentialReference identifies one object by name only. The operator checks
-// existence and, for env exposure, reserved GitHub notification migration key
-// names; it does not validate values or other key-level contracts.
+// existence and, for env exposure, reserved runtime-configuration migration
+// key names; it does not validate values or other key-level contracts.
 // +kubebuilder:validation:XValidation:rule="has(self.secret) != has(self.configMap)",message="exactly one of secret or configMap must be set"
 type CredentialReference struct {
 	// +optional
@@ -187,6 +187,15 @@ type AgentSpec struct {
 	Image string `json:"image,omitempty"`
 
 	Profile AgentProfile `json:"profile"`
+
+	// Channels explicitly selects the resident runtime's channel sources. When
+	// omitted, the runtime retains its own source-discovery behavior.
+	// +listType=set
+	// +optional
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:items:MinLength=1
+	// +kubebuilder:validation:items:Pattern=`^[a-z][a-z0-9_-]*$`
+	Channels []string `json:"channels,omitempty"`
 
 	// GitHub configures notification routing and cadence for resident agents.
 	// +optional

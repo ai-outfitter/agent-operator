@@ -130,6 +130,11 @@ func (in *AgentSpec) DeepCopyInto(out *AgentSpec) {
 		}
 	}
 	out.Profile = in.Profile
+	if in.Channels != nil {
+		in, out := &in.Channels, &out.Channels
+		*out = make([]string, len(*in))
+		copy(*out, *in)
+	}
 	if in.GitHub != nil {
 		in, out := &in.GitHub, &out.GitHub
 		*out = new(GitHubSpec)

@@ -1,7 +1,8 @@
 # OPR-003: Agents
 
-An agent runs as a persistent Deployment; its namespace is its workspace, and its
-channels and tools are composed at the agent layer, not by the controller. See
+An agent runs as a persistent Deployment; its namespace is its workspace. Channel
+implementations and tools are composed at the agent layer; the controller only
+projects the typed runtime channel selection. See
 [architecture.md](../architecture.md).
 
 An `Agent` is a cluster-deployed worker and membership identity. Its selected
@@ -135,10 +136,15 @@ quota-violating request indefinitely.
 reports whether they exist (`CredentialsReady`) but always reconciles the
 Deployment, leaving missing non-optional projections to standard Kubernetes
 Pod status. Except for checking whether a referenced env projection defines one
-of the three GitHub notification migration keys below, it does not inspect
+of the four runtime-configuration migration keys below, it does not inspect
 object contents; key-level contracts (for example the email channel adapter's
 JMAP keys) belong to the composed agent, not here. This is the generic primitive
 defined in [OPR-004](OPR-004-config-secrets.md) — see it for the full contract.
+
+`Agent.spec.channels` MAY select a non-empty set of runtime channel IDs. The
+operator MUST project a deterministic comma-separated value as
+`OUTFITTER_CHANNELS`; when omitted, the runtime retains its own source-discovery
+behavior.
 
 `Agent.spec.github` controls the resident GitHub notification source. The
 operator projects `GITHUB_NOTIFY_ORGS`, `GITHUB_NOTIFY_POLL_MS`, and
@@ -146,8 +152,9 @@ operator projects `GITHUB_NOTIFY_ORGS`, `GITHUB_NOTIFY_POLL_MS`, and
 default to `mention,assigned_issue,assigned_pr,review_requested,author`; and
 `notifyOrgs` defaults to the forge owner in the accepted Organization's GitHub
 catalog shorthand. Explicit Agent values override those defaults. During
-migration, the same keys in an env-exposed credential Secret or ConfigMap win
-over the operator values, so existing runtime configuration keeps working.
+migration, the same keys — including `OUTFITTER_CHANNELS` — in an env-exposed
+credential Secret or ConfigMap win over the operator values, so existing runtime
+configuration keeps working.
 
 ## OPR-003.6: Runtime execution and delegation
 
@@ -161,9 +168,10 @@ name (`--session-id <agent-name>`) so the resident conversation resumes across
 pod restarts. The session identity MUST NOT be the profile slug: two Agents MAY
 share a profile but MUST NOT share a conversation. The session transcript on
 the durable workspace volume is the one exception to the cache framing in
-OPR-003.3 — it is the canonical record of the resident conversation. Channels (how the agent receives work) and tools
-(how it acts) are supplied by the agent's Dotagents resources and runtime image,
-not by the operator.
+OPR-003.3 — it is the canonical record of the resident conversation. Channel
+implementations and tools are supplied by the agent's Dotagents resources and
+runtime image, not by the operator; the operator only selects enabled channels
+through `spec.channels`.
 
 A running agent MAY delegate work to **subagents that run as Kubernetes Jobs** in
 its own namespace, using its `admin` rights and bounded by the shared
