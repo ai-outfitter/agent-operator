@@ -42,6 +42,31 @@ type AgentProfile struct {
 	Harness string `json:"harness,omitempty"`
 }
 
+// GitHubSpec configures the resident runtime's GitHub notification source.
+// Values supplied by credential env projections take precedence during
+// migration. When NotifyOrgs is omitted, the operator derives the forge owner
+// from the Organization's GitHub catalog shorthand when available.
+type GitHubSpec struct {
+	// +listType=set
+	// +optional
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:items:MinLength=1
+	// +kubebuilder:validation:items:Pattern=`^[A-Za-z0-9_.-]+$`
+	NotifyOrgs []string `json:"notifyOrgs,omitempty"`
+
+	// +optional
+	// +kubebuilder:validation:Minimum=1000
+	// +kubebuilder:validation:Maximum=86400000
+	PollMS *int64 `json:"pollMs,omitempty"`
+
+	// +listType=set
+	// +optional
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:items:MinLength=1
+	// +kubebuilder:validation:items:Pattern=`^[a-z_]+$`
+	Filters []string `json:"filters,omitempty"`
+}
+
 // CredentialExposure controls how a referenced object reaches the runtime.
 // +kubebuilder:validation:Enum=env;volume
 type CredentialExposure string
@@ -52,7 +77,8 @@ const (
 )
 
 // CredentialReference identifies one object by name only. The operator checks
-// existence but never reads or validates object contents.
+// existence and, for env exposure, reserved GitHub notification migration key
+// names; it does not validate values or other key-level contracts.
 // +kubebuilder:validation:XValidation:rule="has(self.secret) != has(self.configMap)",message="exactly one of secret or configMap must be set"
 type CredentialReference struct {
 	// +optional
@@ -161,6 +187,10 @@ type AgentSpec struct {
 	Image string `json:"image,omitempty"`
 
 	Profile AgentProfile `json:"profile"`
+
+	// GitHub configures notification routing and cadence for resident agents.
+	// +optional
+	GitHub *GitHubSpec `json:"github,omitempty"`
 
 	// Browser adds a headless-Chrome DevTools sidecar to the agent Pod.
 	// +optional

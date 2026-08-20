@@ -15,20 +15,24 @@ spec:
     # This slug must resolve from example-org's pinned catalog.
     agent: researcher
     harness: pi
+  # Optional overrides. By default notifyOrgs comes from the Organization's
+  # GitHub catalog owner, pollMs is 60000, and the operator supplies the
+  # standard resident-agent filters.
+  github:
+    pollMs: 30000
+    filters: [mention, assigned_issue, review_requested]
   credentials:
     # Referenced by name only, in namespace agent-researcher. The controller
-    # creates the namespace and exposes these, but never inspects their contents.
-    # Key-level contracts (e.g. the email adapter's JMAP keys) belong to the
-    # composed agent, not the operator.
+    # creates the namespace and exposes these. It checks only whether an env
+    # projection contains a GITHUB_NOTIFY_* migration override; other key-level
+    # contracts (e.g. the email adapter's JMAP keys) belong to the composed
+    # agent, not the operator.
     - secret: researcher-email
       as: env
     - secret: researcher-model
       as: env
     - secret: researcher-ssh
       as: volume
-    # Non-secret runtime config (e.g. channel default-org routing) via ConfigMap.
-    - configMap: researcher-runtime
-      as: env
   workspace:
     # The entire namespace is this agent's workspace and autonomy boundary.
     resourceQuota:
