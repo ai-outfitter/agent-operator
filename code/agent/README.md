@@ -71,11 +71,9 @@ init and agent containers):
 Optional runtime configuration:
 
 - `OUTFITTER_CHANNELS` — explicit comma-separated channel selection. The mail
-  demo sets `jmap`; composed resident agents can set `jmap,agent`. In an
-  operator-managed deployment this may be a key in the env-exposed Secret that
-  already carries those channels' credentials; a dedicated runtime ConfigMap is
-  not required. The operator deliberately does not model this selector as a
-  typed `Agent` field.
+  demo sets `jmap`; composed resident agents can set `jmap,agent`. The operator
+  derives this value from typed `Agent.spec.channels`. During migration, an
+  existing matching key in an env-exposed Secret or ConfigMap takes precedence.
 - `AGENT_RELAY_URL` and `AGENT_RELAY_TOKEN` — authenticated outbound WSS relay
   connection for the native `agent` channel. Supply both through existing
   Secret/ConfigMap credential references; neither belongs in an `Agent` spec.

@@ -133,12 +133,23 @@ spec:
                         type: object
                     type: object
                 type: object
+              channels:
+                description: |-
+                  Channels explicitly selects the resident runtime's channel sources. When
+                  omitted, the runtime retains its own source-discovery behavior.
+                items:
+                  minLength: 1
+                  pattern: ^[a-z][a-z0-9_-]*$
+                  type: string
+                minItems: 1
+                type: array
+                x-kubernetes-list-type: set
               credentials:
                 items:
                   description: |-
                     CredentialReference identifies one object by name only. The operator checks
-                    existence and, for env exposure, reserved GitHub notification migration key
-                    names; it does not validate values or other key-level contracts.
+                    existence and, for env exposure, reserved runtime-configuration migration
+                    key names; it does not validate values or other key-level contracts.
                   properties:
                     as:
                       description: CredentialExposure controls how a referenced object

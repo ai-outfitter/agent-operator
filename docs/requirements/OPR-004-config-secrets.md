@@ -57,17 +57,14 @@ Cross-namespace references are forbidden.
 ## OPR-004.3: Configuration rides the same mechanism
 
 Non-secret runtime configuration — channel routing, endpoints, feature flags —
-uses the same projection primitive. ConfigMaps are the default when configuration
-has its own lifecycle. Configuration MAY instead be colocated in an env-exposed
-Secret when it configures the same runtime integration as that Secret's
-credentials and a separate per-agent ConfigMap would add no ownership boundary.
+uses the same primitive via ConfigMaps. This is how a value such as an email
+channel's default organization reaches the agent without the operator modeling a
+channel-specific field. Anything the agent needs to be told is a ConfigMap the
+agent consumes; anything it must keep private is a Secret.
 
-`OUTFITTER_CHANNELS` specifically remains an opaque runtime selector, not a typed
-`Agent` field. A catalog MAY place it in the env-exposed Secret that already
-carries the selected channels' credentials. The operator forwards the key through
-Kubernetes `envFrom` without reading it. This keeps channel composition outside
-the CRD while allowing catalogs to retire ConfigMaps created only for that one
-selector.
+Typed, cross-runtime controls explicitly defined by the Agent API are the
+exception. `Agent.spec.channels` projects `OUTFITTER_CHANNELS` according to
+OPR-003.5; catalogs do not need a ConfigMap solely for that selector.
 
 ## OPR-004.4: Status
 
