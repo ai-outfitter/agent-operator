@@ -134,10 +134,20 @@ quota-violating request indefinitely.
 **by name only** and declares how each is exposed to the runtime. The operator
 reports whether they exist (`CredentialsReady`) but always reconciles the
 Deployment, leaving missing non-optional projections to standard Kubernetes
-Pod status. It never inspects object contents; key-level contracts (for example
-the email channel adapter's JMAP keys) belong to the composed agent, not here.
-This is the generic primitive defined in [OPR-004](OPR-004-config-secrets.md) —
-see it for the full contract.
+Pod status. Except for checking whether a referenced env projection defines one
+of the three GitHub notification migration keys below, it does not inspect
+object contents; key-level contracts (for example the email channel adapter's
+JMAP keys) belong to the composed agent, not here. This is the generic primitive
+defined in [OPR-004](OPR-004-config-secrets.md) — see it for the full contract.
+
+`Agent.spec.github` controls the resident GitHub notification source. The
+operator projects `GITHUB_NOTIFY_ORGS`, `GITHUB_NOTIFY_POLL_MS`, and
+`GITHUB_NOTIFY_FILTERS` into the runtime. `pollMs` defaults to `60000`; filters
+default to `mention,assigned_issue,assigned_pr,review_requested,author`; and
+`notifyOrgs` defaults to the forge owner in the accepted Organization's GitHub
+catalog shorthand. Explicit Agent values override those defaults. During
+migration, the same keys in an env-exposed credential Secret or ConfigMap win
+over the operator values, so existing runtime configuration keeps working.
 
 ## OPR-003.6: Runtime execution and delegation
 

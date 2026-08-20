@@ -137,7 +137,8 @@ spec:
                 items:
                   description: |-
                     CredentialReference identifies one object by name only. The operator checks
-                    existence but never reads or validates object contents.
+                    existence and, for env exposure, reserved GitHub notification migration key
+                    names; it does not validate values or other key-level contracts.
                   properties:
                     as:
                       description: CredentialExposure controls how a referenced object
@@ -160,6 +161,32 @@ spec:
                     rule: has(self.secret) != has(self.configMap)
                 type: array
                 x-kubernetes-list-type: atomic
+              github:
+                description: GitHub configures notification routing and cadence for
+                  resident agents.
+                properties:
+                  filters:
+                    items:
+                      minLength: 1
+                      pattern: ^[a-z_]+$
+                      type: string
+                    minItems: 1
+                    type: array
+                    x-kubernetes-list-type: set
+                  notifyOrgs:
+                    items:
+                      minLength: 1
+                      pattern: ^[A-Za-z0-9_.-]+$
+                      type: string
+                    minItems: 1
+                    type: array
+                    x-kubernetes-list-type: set
+                  pollMs:
+                    format: int64
+                    maximum: 86400000
+                    minimum: 1000
+                    type: integer
+                type: object
               image:
                 description: |-
                   Image selects the user-owned runtime image. When omitted, the operator's

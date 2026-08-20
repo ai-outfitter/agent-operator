@@ -5,12 +5,14 @@ import (
 	"fmt"
 	"maps"
 	"path"
+	"slices"
 	"strconv"
 	"strings"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -23,18 +25,23 @@ import (
 )
 
 const (
-	AgentNameLabel  = "aioutfitter.com/agent"
-	AgentUIDLabel   = "aioutfitter.com/agent-uid"
-	ManagedByLabel  = "app.kubernetes.io/managed-by"
-	RuntimeName     = "agent-runtime"
-	WorkspaceName   = "agent-workspace"
-	LimitRangeName  = "agent-workspace-defaults"
-	SettingsName    = "outfitter-settings"
-	WorkspaceMount  = "/workspace"
-	CredentialsRoot = "/var/run/agent/credentials"
-	NixStoreName    = "agent-nix-store"
-	NixMount        = "/nix"
-	HomeEnvName     = "HOME"
+	AgentNameLabel          = "aioutfitter.com/agent"
+	AgentUIDLabel           = "aioutfitter.com/agent-uid"
+	ManagedByLabel          = "app.kubernetes.io/managed-by"
+	RuntimeName             = "agent-runtime"
+	WorkspaceName           = "agent-workspace"
+	LimitRangeName          = "agent-workspace-defaults"
+	SettingsName            = "outfitter-settings"
+	WorkspaceMount          = "/workspace"
+	CredentialsRoot         = "/var/run/agent/credentials"
+	NixStoreName            = "agent-nix-store"
+	NixMount                = "/nix"
+	HomeEnvName             = "HOME"
+	GitHubNotifyOrgsEnv     = "GITHUB_NOTIFY_ORGS"
+	GitHubNotifyPollMSEnv   = "GITHUB_NOTIFY_POLL_MS"
+	GitHubNotifyFiltersEnv  = "GITHUB_NOTIFY_FILTERS"
+	DefaultGitHubNotifyPoll = int64(60000)
+	DefaultGitHubFilters    = "mention,assigned_issue,assigned_pr,review_requested,author"
 	// BakedCatalogPath is the agent image's built-in Outfitter payload. The
 	// entrypoint launches from $HOME, so this directory only enters the layer
 	// stack through the trailing settings source rendered below — never as
@@ -296,9 +303,13 @@ func (r *AgentReconciler) ensureAgentDeployment(
 		"app.kubernetes.io/instance": agent.Name,
 	}
 	maps.Copy(selectorLabels, labels)
+	githubNotifyEnv, err := r.githubNotifyEnvironment(ctx, agent, organization)
+	if err != nil {
+		return nil, err
+	}
 
 	deployment := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: RuntimeName, Namespace: namespace}}
-	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, deployment, func() error {
+	_, err = controllerutil.CreateOrUpdate(ctx, r.Client, deployment, func() error {
 		deployment.Labels = mergeLabels(deployment.Labels, labels)
 		deployment.Spec.Replicas = ptr.To[int32](1)
 		deployment.Spec.Strategy.Type = appsv1.RecreateDeploymentStrategyType
@@ -352,7 +363,7 @@ func (r *AgentReconciler) ensureAgentDeployment(
 				agent.Name,
 			},
 			Stdin: true,
-			Env: []corev1.EnvVar{
+			Env: append([]corev1.EnvVar{
 				{Name: HomeEnvName, Value: WorkspaceMount},
 				{Name: "AGENT_NAME", Value: agent.Name},
 				{Name: "AGENT_SLUG", Value: agent.Spec.Profile.Agent},
@@ -370,7 +381,7 @@ func (r *AgentReconciler) ensureAgentDeployment(
 					Name:  "AGENT_SPOOL_PATH",
 					Value: path.Join(WorkspaceMount, ".channels", "agent"),
 				},
-			},
+			}, githubNotifyEnv...),
 			VolumeMounts: []corev1.VolumeMount{
 				{Name: WorkspaceName, MountPath: WorkspaceMount},
 				{Name: SettingsName, MountPath: path.Join(WorkspaceMount, ".agents"), ReadOnly: true},
@@ -509,6 +520,96 @@ func (r *AgentReconciler) ensureOutfitterSettings(
 		return nil
 	})
 	return err
+}
+
+func (r *AgentReconciler) githubNotifyEnvironment(
+	ctx context.Context,
+	agent *aioutfitterv1alpha1.Agent,
+	organization *aioutfitterv1alpha1.Organization,
+) ([]corev1.EnvVar, error) {
+	explicit, err := r.credentialEnvironmentKeys(ctx, agent)
+	if err != nil {
+		return nil, err
+	}
+
+	pollMS := DefaultGitHubNotifyPoll
+	filters := DefaultGitHubFilters
+	notifyOrgs := ""
+	if catalog := organization.Spec.AgentCatalogs[0]; catalog.GitHub != nil {
+		notifyOrgs = strings.SplitN(*catalog.GitHub, "/", 2)[0]
+	}
+	if github := agent.Spec.GitHub; github != nil {
+		if len(github.NotifyOrgs) > 0 {
+			notifyOrgs = joinedSet(github.NotifyOrgs)
+		}
+		if github.PollMS != nil {
+			pollMS = *github.PollMS
+		}
+		if len(github.Filters) > 0 {
+			filters = joinedSet(github.Filters)
+		}
+	}
+
+	values := []corev1.EnvVar{
+		{Name: GitHubNotifyPollMSEnv, Value: strconv.FormatInt(pollMS, 10)},
+		{Name: GitHubNotifyFiltersEnv, Value: filters},
+	}
+	if notifyOrgs != "" {
+		values = append(values, corev1.EnvVar{Name: GitHubNotifyOrgsEnv, Value: notifyOrgs})
+	}
+	return slices.DeleteFunc(values, func(value corev1.EnvVar) bool { return explicit[value.Name] }), nil
+}
+
+func joinedSet(values []string) string {
+	ordered := slices.Clone(values)
+	slices.Sort(ordered)
+	return strings.Join(ordered, ",")
+}
+
+func (r *AgentReconciler) credentialEnvironmentKeys(
+	ctx context.Context,
+	agent *aioutfitterv1alpha1.Agent,
+) (map[string]bool, error) {
+	reader := r.APIReader
+	if reader == nil {
+		reader = r.Client
+	}
+	keys := make(map[string]bool)
+	for _, reference := range agent.Spec.Credentials {
+		if reference.As != aioutfitterv1alpha1.CredentialExposureEnv {
+			continue
+		}
+		objectKey := types.NamespacedName{Namespace: agentNamespace(agent.Name)}
+		if reference.Secret != nil {
+			secret := &corev1.Secret{}
+			objectKey.Name = *reference.Secret
+			if err := reader.Get(ctx, objectKey, secret); err != nil {
+				if apierrors.IsNotFound(err) {
+					continue
+				}
+				return nil, err
+			}
+			for key := range secret.Data {
+				keys[key] = true
+			}
+			continue
+		}
+		config := &corev1.ConfigMap{}
+		objectKey.Name = *reference.ConfigMap
+		if err := reader.Get(ctx, objectKey, config); err != nil {
+			if apierrors.IsNotFound(err) {
+				continue
+			}
+			return nil, err
+		}
+		for key := range config.Data {
+			keys[key] = true
+		}
+		for key := range config.BinaryData {
+			keys[key] = true
+		}
+	}
+	return keys, nil
 }
 
 func credentialProjection(

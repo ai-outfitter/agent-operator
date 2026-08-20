@@ -32,9 +32,11 @@ var _ = Describe("Agent Controller", func() {
 		agent := validAgent(uniqueTestName("researcher"), organization.Name)
 		secretName := "model-credentials"
 		configName := "runtime-config"
+		legacyConfigName := "legacy-github-notify"
 		agent.Spec.Credentials = []aioutfitterv1alpha1.CredentialReference{
 			{Secret: &secretName, As: aioutfitterv1alpha1.CredentialExposureEnv},
 			{ConfigMap: &configName, As: aioutfitterv1alpha1.CredentialExposureVolume},
+			{ConfigMap: &legacyConfigName, As: aioutfitterv1alpha1.CredentialExposureEnv},
 		}
 		Expect(k8sClient.Create(ctx, agent)).To(Succeed())
 		DeferCleanup(removeAgent, ctx, agent.Name)
@@ -120,7 +122,30 @@ var _ = Describe("Agent Controller", func() {
 			corev1.EnvVar{Name: "AGENT_ENDPOINT_ID", Value: "link:" + agent.Name},
 			corev1.EnvVar{Name: "AGENT_PRINCIPAL_ID", Value: "link:" + agent.Name},
 			corev1.EnvVar{Name: "AGENT_SPOOL_PATH", Value: "/workspace/.channels/agent"},
+			corev1.EnvVar{Name: GitHubNotifyOrgsEnv, Value: "ai-outfitter"},
+			corev1.EnvVar{Name: GitHubNotifyPollMSEnv, Value: "60000"},
+			corev1.EnvVar{Name: GitHubNotifyFiltersEnv, Value: DefaultGitHubFilters},
 		))
+
+		// Existing env-projected values win during migration: once the referenced
+		// Secret appears, the operator stops emitting explicit values that would
+		// otherwise override EnvFrom.
+		Expect(k8sClient.Create(ctx, &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: secretName, Namespace: namespaceName},
+			StringData: map[string]string{
+				GitHubNotifyOrgsEnv: "legacy-org", GitHubNotifyPollMSEnv: "30000",
+			},
+		})).To(Succeed())
+		Expect(k8sClient.Create(ctx, &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{Name: legacyConfigName, Namespace: namespaceName},
+			Data:       map[string]string{GitHubNotifyFiltersEnv: "mention"},
+		})).To(Succeed())
+		_, err = reconciler.Reconcile(ctx, request)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: namespaceName, Name: RuntimeName}, deployment)).To(Succeed())
+		for _, value := range deployment.Spec.Template.Spec.Containers[0].Env {
+			Expect(value.Name).NotTo(BeElementOf(GitHubNotifyOrgsEnv, GitHubNotifyPollMSEnv, GitHubNotifyFiltersEnv))
+		}
 
 		// Agent-only pods must still get a usable API token: automount is off
 		// pod-wide, replaced by an explicit projection into the agent
@@ -163,6 +188,31 @@ var _ = Describe("Agent Controller", func() {
 			}
 		}
 		Expect(hasTokenSource).To(BeTrue())
+	})
+
+	It("projects Agent GitHub notification overrides", func() {
+		organization := createAcceptedOrganization(ctx)
+		agent := validAgent(uniqueTestName("github-notify"), organization.Name)
+		pollMS := int64(15000)
+		agent.Spec.GitHub = &aioutfitterv1alpha1.GitHubSpec{
+			NotifyOrgs: []string{"example-one", "example-two"},
+			PollMS:     &pollMS,
+			Filters:    []string{"review_requested", "mention"},
+		}
+		Expect(k8sClient.Create(ctx, agent)).To(Succeed())
+		DeferCleanup(removeAgent, ctx, agent.Name)
+
+		reconciler := &AgentReconciler{Client: k8sClient, APIReader: k8sClient, Scheme: k8sClient.Scheme()}
+		_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: agent.Name}})
+		Expect(err).NotTo(HaveOccurred())
+
+		deployment := &appsv1.Deployment{}
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: agentNamespace(agent.Name), Name: RuntimeName}, deployment)).To(Succeed())
+		Expect(deployment.Spec.Template.Spec.Containers[0].Env).To(ContainElements(
+			corev1.EnvVar{Name: GitHubNotifyOrgsEnv, Value: "example-one,example-two"},
+			corev1.EnvVar{Name: GitHubNotifyPollMSEnv, Value: "15000"},
+			corev1.EnvVar{Name: GitHubNotifyFiltersEnv, Value: "mention,review_requested"},
+		))
 	})
 
 	It("rolls out a new user-owned runtime image", func() {
