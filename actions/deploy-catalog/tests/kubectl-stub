@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+# A kubectl that answers from fixtures, so deploy.sh can be exercised whole
+# without a cluster. Every response is deliberate: STUB_DENY names verbs the
+# identity must lack, so a test can prove the preflight fails closed.
+set -euo pipefail
+
+args=("$@")
+joined="${args[*]}"
+
+case "$joined" in
+  "apply --dry-run=client --output=json --filename="*)
+    file="${joined##*--filename=}"
+    # Emit one JSON object per document. Enough of the shape for jq to read
+    # kind and metadata.name, which is all deploy.sh takes from here.
+    awk '
+      /^apiVersion:/ { if (kind != "") emit(); kind=""; name="" }
+      /^kind:/       { kind=$2 }
+      /^  name:/     { if (name == "") name=$2 }
+      END { if (kind != "") emit() }
+      function emit() { printf "{\"kind\":\"%s\",\"metadata\":{\"name\":\"%s\"}}\n", kind, name }
+    ' "$file"
+    ;;
+  "auth whoami"*)
+    echo "stub: username=test-deploy groups=[test-deploy]"
+    ;;
+  "auth can-i "*)
+    verb_resource="${joined#auth can-i }"
+    for denied in ${STUB_DENY:-}; do
+      case "$verb_resource" in $denied*) echo no; exit 0 ;; esac
+    done
+    for allowed in ${STUB_ALLOW:-}; do
+      case "$verb_resource" in $allowed*) echo yes; exit 0 ;; esac
+    done
+    # Default posture models a correctly scoped deploy role: get and patch on
+    # a *named* object, and nothing else. Delete is refused even when named,
+    # because deleting a cluster-scoped Agent destroys its namespace.
+    case "$verb_resource" in
+      delete\ *|create\ *)                        echo no ;;
+      get\ secrets*)                              echo no ;;
+      *--namespace=agent-operator-system*)        echo no ;;
+      get\ *"/"*|patch\ *"/"*)                     echo yes ;;
+      *)                                          echo no ;;
+    esac
+    ;;
+  "apply --server-side"*)
+    echo "stub: applied"
+    ;;
+  "get agents.aioutfitter.com "*)
+    name="$(printf '%s\n' "${args[@]}" | sed -n '3p')"
+    path="${joined##*-o jsonpath=}"
+    case "$path" in
+      *metadata.generation*) echo 1 ;;
+      *observedGeneration*)  echo 1 ;;
+      *Ready*)               echo True ;;
+      *catalogSources*name*) echo "${STUB_CATALOG_SOURCE:-}" ;;
+      *catalogSources*revision*) echo "${STUB_RESOLVED_REVISION:-}" ;;
+      *) echo "" ;;
+    esac
+    echo "$name" >> "${STUB_CONVERGED_LOG:-/dev/null}"
+    ;;
+  "rollout status"*)
+    echo "stub: rolled out"
+    ;;
+  *)
+    echo "kubectl-stub: unhandled invocation: $joined" >&2
+    exit 64
+    ;;
+esac

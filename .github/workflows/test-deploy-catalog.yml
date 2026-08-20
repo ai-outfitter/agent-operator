@@ -1,0 +1,27 @@
+# The deploy-catalog action decides what a deploy is allowed to touch, so its
+# selection and its permission preflight are tested on every change to them.
+# The suite runs against a stub kubectl: no cluster, no credentials, and the
+# assertions are exercised whole rather than reasoned about.
+name: test deploy-catalog
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - actions/deploy-catalog/**
+      - .github/workflows/test-deploy-catalog.yml
+  pull_request:
+    paths:
+      - actions/deploy-catalog/**
+      - .github/workflows/test-deploy-catalog.yml
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      # jq and yq are both on the runner image. The action needs jq always and
+      # yq only for the cluster table, and the suite covers both paths.
+      - name: Run the suite
+        run: ./actions/deploy-catalog/tests/deploy-test.sh

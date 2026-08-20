@@ -1,0 +1,9 @@
+# One persona is deployed once per catalog, so the catalog names its own
+# short deployment prefix once and every Agent it renders carries it. "acme"
+# is a fixture name, not a forge org login — the value never has to match one.
+organization: acme
+clusters:
+  prod:
+    agents: [luce, vega]
+  unprefixed:
+    agents: [bare]

@@ -22,6 +22,8 @@ set -euo pipefail
 umask 077
 
 root="${CATALOG_ROOT:-.}"
+cluster="${CLUSTER:-}"
+clusters_file="${CLUSTERS_FILE:-clusters.yaml}"
 kubectl_bin="${KUBECTL:-kubectl}"
 revision="${CATALOG_REVISION:?CATALOG_REVISION is required}"
 catalog_source="${CATALOG_SOURCE_NAME:?CATALOG_SOURCE_NAME is required}"
@@ -33,27 +35,128 @@ if [[ ! "$revision" =~ ^[0-9a-f]{40}$ ]]; then
   echo "deploy-catalog: CATALOG_REVISION must be a full 40-character Git SHA" >&2
   exit 1
 fi
-for tool in "$kubectl_bin" jq; do
+required_tools=("$kubectl_bin" jq)
+# yq is required only by the cluster table, so a caller that globs keeps the
+# original two-tool contract and needs no new runner image.
+[[ -n "$cluster" ]] && required_tools+=(yq)
+for tool in "${required_tools[@]}"; do
   if ! command -v "$tool" >/dev/null 2>&1; then
     echo "deploy-catalog: required tool is unavailable: $tool" >&2
+    [[ "$tool" == "yq" ]] && echo "deploy-catalog: yq is needed to read $clusters_file (cluster: $cluster)" >&2
     exit 1
   fi
 done
 
 kube=("$kubectl_bin")
 
-# ── 1. Discover ─────────────────────────────────────────────────────────────
-# The directory name is the agent id; the glob is the whole deploy list.
+# ── 1. Select ───────────────────────────────────────────────────────────────
+# Two ways to decide what deploys, and a catalog picks one.
+#
+# Without `cluster`, the tree decides: each agents/<id>/deployment.yaml is one
+# agent and the glob is the whole deploy list, so an agent added to the tree is
+# an agent added to the fleet and there is no list to fall out of date. Right
+# for a catalog that serves one cluster.
+#
+# With `cluster`, the catalog's clusters.yaml decides. One catalog then serves
+# several clusters — a nonprod fleet and a production one — without a manifest
+# committed to a convenient path deploying itself to the wrong place. Naming
+# the set is also what lets the permission preflight below mean something: a
+# resourceNames-scoped deploy role is written per cluster, so a set that does
+# not match that role fails the positive check before anything is applied. A
+# glob can only ever confirm what it just discovered.
 declared=()
-for manifest in "$root"/agents/*/deployment.yaml; do
-  [[ -e "$manifest" ]] || break
-  declared+=("$(basename "$(dirname "$manifest")")")
-done
-if (( ${#declared[@]} == 0 )); then
-  echo "deploy-catalog: no agents/*/deployment.yaml under $root — nothing to deploy" >&2
-  exit 1
+sources=()
+# One persona is deployed once per catalog, so an org-scoped catalog declares
+# a short deployment prefix once and every Agent name it renders carries it.
+# The catalog chooses the prefix. It does not need to match any forge
+# organization login — it only needs to be unique among the catalogs that
+# deploy to the same cluster.
+# Empty on the glob path, and on a cluster table written before this key.
+organization_prefix=""
+
+if [[ -n "$cluster" ]]; then
+  temporary_table="$(mktemp -d)"
+  trap 'rm -rf "$temporary_table"' EXIT
+  table="$root/$clusters_file"
+  if [[ ! -f "$table" ]]; then
+    echo "deploy-catalog: cluster '$cluster' was requested but $table does not exist" >&2
+    exit 1
+  fi
+  # Two incompatible programs are called yq: mikefarah's Go implementation
+  # (on the GitHub runner images) and the Python jq wrapper. Their expression
+  # languages differ, so yq is used for exactly one thing — YAML to JSON — and
+  # every selection below is jq, which is already a hard requirement.
+  yaml_to_json() {
+    if yq --version 2>&1 | grep -qi mikefarah; then
+      yq -o=json '.' "$1"
+    else
+      yq '.' "$1"
+    fi
+  }
+  table_json="$temporary_table/clusters.json"
+  if ! yaml_to_json "$table" > "$table_json"; then
+    echo "deploy-catalog: could not parse $table" >&2
+    exit 1
+  fi
+
+  # A catalog picks its own deployment prefix once, at the top of the table.
+  # Every Agent it deploys is then named <organization>-<id>, which is what
+  # keeps two catalogs' `luce` from colliding on one cluster: the operator
+  # derives the namespace agent-<name>, so the prefix separates them all the
+  # way down. The prefix is chosen for the cluster, not copied from a forge
+  # org login — it only needs to be unique among the catalogs sharing this
+  # cluster.
+  organization_prefix="$(jq -r '.organization // ""' "$table_json")"
+  if [[ -n "$organization_prefix" && ! "$organization_prefix" =~ ^[a-z0-9][a-z0-9-]*$ ]]; then
+    echo "deploy-catalog: organization must be a lowercase deployment prefix: $organization_prefix" >&2
+    exit 1
+  fi
+
+  if [[ "$(jq -r --arg c "$cluster" '.clusters | has($c)' "$table_json")" != "true" ]]; then
+    echo "deploy-catalog: $clusters_file defines no cluster '$cluster'" >&2
+    echo "deploy-catalog: it defines: $(jq -r '.clusters | keys | join(", ")' "$table_json")" >&2
+    exit 1
+  fi
+
+  # An entry names agent ids, and the layout stays agents/<id>/deployment.yaml
+  # in every cluster. Nothing here needs to move a manifest elsewhere: with the
+  # deploy list named, a manifest sitting in the tree is inert until a cluster
+  # names it, which is the property a path could only approximate.
+  while read -r id; do
+    [[ -n "$id" ]] || continue
+    manifest="agents/$id/deployment.yaml"
+    if [[ ! -f "$root/$manifest" ]]; then
+      echo "deploy-catalog: cluster '$cluster' names $id, but $manifest does not exist" >&2
+      exit 1
+    fi
+    if printf '%s\n' "${declared[@]:-}" | grep -Fxq "$id"; then
+      echo "deploy-catalog: cluster '$cluster' names $id more than once" >&2
+      exit 1
+    fi
+    declared+=("$id")
+    sources+=("$root/$manifest")
+  done < <(jq -r --arg c "$cluster" '.clusters[$c].agents // [] | .[]' "$table_json")
+
+  if (( ${#declared[@]} == 0 )); then
+    echo "deploy-catalog: cluster '$cluster' names no agents" >&2
+    exit 1
+  fi
+  echo "deploy-catalog: $clusters_file names for '$cluster': ${declared[*]}"
+  if [[ -n "$organization_prefix" ]]; then
+    echo "deploy-catalog: organization: $organization_prefix"
+  fi
+else
+  for manifest in "$root"/agents/*/deployment.yaml; do
+    [[ -e "$manifest" ]] || break
+    declared+=("$(basename "$(dirname "$manifest")")")
+    sources+=("$manifest")
+  done
+  if (( ${#declared[@]} == 0 )); then
+    echo "deploy-catalog: no agents/*/deployment.yaml under $root — nothing to deploy" >&2
+    exit 1
+  fi
+  echo "deploy-catalog: tree declares: ${declared[*]}"
 fi
-echo "deploy-catalog: tree declares: ${declared[*]}"
 
 # ── 2. Render ───────────────────────────────────────────────────────────────
 # Every place that pins the revision gets the same one, and a placeholder that
@@ -61,16 +164,41 @@ echo "deploy-catalog: tree declares: ${declared[*]}"
 # would apply cleanly and quietly deploy nothing. A file with no placeholder
 # is legal — an agent whose profile a different catalog defines pins that
 # catalog's revision, not this one — but it is worth a line in the log.
+#
+# __ORG__ is the same mechanism with the opposite default. It renders the
+# deployment prefix the cluster table declares, and it is required both ways:
+# a placeholder with no prefix behind it is refused, and so is a prefixed
+# manifest that hard-codes its own name. The name is the whole point — the
+# operator derives namespace agent-<name>, so <org>-<id> is what keeps two
+# catalogs' `luce` apart on one cluster.
 temporary="$(mktemp -d)"
-trap 'rm -rf "$temporary"' EXIT
+trap 'rm -rf "$temporary" "${temporary_table:-}"' EXIT
 
 rendered=()
-for id in "${declared[@]}"; do
-  src="$root/agents/$id/deployment.yaml"
+for index in "${!declared[@]}"; do
+  id="${declared[$index]}"
+  src="${sources[$index]}"
   out="$temporary/$id.yaml"
-  sed "s#__REVISION__#$revision#g" "$src" > "$out"
+  render=(-e "s#__REVISION__#$revision#g")
+  if [[ -n "$organization_prefix" ]]; then
+    # A prefixed catalog whose manifest hard-codes its name is the collision
+    # this convention prevents, so the placeholder is required, not optional.
+    if ! grep -Fq '__ORG__' "$src"; then
+      echo "deploy-catalog: $clusters_file declares organization '$organization_prefix', but $src contains no __ORG__ placeholder" >&2
+      echo "deploy-catalog: name the Agent __ORG__-$id so its namespace cannot collide with another catalog's" >&2
+      exit 1
+    fi
+    render+=(-e "s#__ORG__#$organization_prefix#g")
+  fi
+  sed "${render[@]}" "$src" > "$out"
   if grep -Fq '__REVISION__' "$out"; then
     echo "deploy-catalog: failed to render the revision into $src" >&2
+    exit 1
+  fi
+  # No organization was declared, so __ORG__ was never substituted. Applying it
+  # literally would create an Agent named __ORG__-<id>; refuse instead.
+  if grep -Fq '__ORG__' "$out"; then
+    echo "deploy-catalog: $src uses __ORG__, but no organization is declared in $clusters_file" >&2
     exit 1
   fi
   if ! grep -Fq "$revision" "$out"; then
@@ -84,7 +212,9 @@ done
 # from it we take the Agent names the convergence loop needs and the
 # Organization names the RBAC preflight asserts. Agent is cluster-scoped and
 # owns its namespace: the operator derives `agent-<name>`, so we derive the
-# same — a manifest never carries it.
+# same — a manifest never carries it. These names are already rendered, so on
+# an org-scoped catalog they carry the prefix and the derived namespace is
+# agent-<organization>-<id>.
 objects="$temporary/objects.json"
 for out in "${rendered[@]}"; do
   "${kube[@]}" apply --dry-run=client --output=json --filename="$out"
@@ -99,11 +229,16 @@ if (( ${#agents[@]} == 0 )); then
   exit 1
 fi
 
-# Every directory must declare the Agent its name promises — a mismatch means
-# the tree and the cluster would disagree about what "deployed" means.
-for id in "${declared[@]}"; do
-  if ! printf '%s\n' "${agents[@]}" | grep -Fxq "$id"; then
-    echo "deploy-catalog: agents/$id/deployment.yaml declares no Agent named $id" >&2
+# Every manifest must declare the Agent its name promises — a mismatch means
+# the deploy list and the cluster would disagree about what "deployed" means.
+# It also catches a rename, which is the dangerous edit: Agent is cluster-scoped
+# and owns its namespace by owner reference, so renaming one is a delete plus a
+# create that cascade-deletes every Secret, ConfigMap, and PVC beneath it.
+for index in "${!declared[@]}"; do
+  id="${declared[$index]}"
+  expected="${organization_prefix:+$organization_prefix-}$id"
+  if ! printf '%s\n' "${agents[@]}" | grep -Fxq "$expected"; then
+    echo "deploy-catalog: ${sources[$index]} declares no Agent named $expected" >&2
     exit 1
   fi
 done
@@ -219,6 +354,6 @@ for name in "${agents[@]}"; do
 done
 
 if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
-  echo "agents=${declared[*]}" >> "$GITHUB_OUTPUT"
+  echo "agents=${agents[*]}" >> "$GITHUB_OUTPUT"
 fi
 echo "deploy-catalog: fleet of ${#declared[@]} converged at $revision"

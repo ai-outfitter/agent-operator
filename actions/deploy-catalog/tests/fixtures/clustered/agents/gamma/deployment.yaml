@@ -1,0 +1,16 @@
+apiVersion: aioutfitter.com/v1alpha1
+kind: Organization
+metadata:
+  name: org-p
+spec:
+  agentCatalogs:
+    - name: this-catalog
+      revision: __REVISION__
+---
+apiVersion: aioutfitter.com/v1alpha1
+kind: Agent
+metadata:
+  name: gamma
+spec:
+  profile:
+    agent: gamma

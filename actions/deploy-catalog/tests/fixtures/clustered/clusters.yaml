@@ -1,0 +1,11 @@
+clusters:
+  nonprod:
+    agents: [alpha, beta]
+  prod:
+    agents: [gamma]
+  missing-manifest:
+    agents: [nowhere]
+  duplicated:
+    agents: [alpha, alpha]
+  renamed:
+    agents: [delta]

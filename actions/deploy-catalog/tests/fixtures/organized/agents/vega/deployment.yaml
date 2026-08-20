@@ -1,0 +1,7 @@
+apiVersion: aioutfitter.com/v1alpha1
+kind: Agent
+metadata:
+  name: __ORG__-vega
+spec:
+  profile:
+    agent: vega
