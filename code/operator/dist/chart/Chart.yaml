@@ -8,9 +8,8 @@ description: |
   container by default, or an image derived from it that an organization
   publishes from its own <org>/.agents repository.
 type: application
-# Chart version tracks the operator release it ships. release-please owns both.
-version: 0.7.0 # x-release-please-version
-appVersion: "0.7.0" # x-release-please-version
+version: 0.8.0
+appVersion: 0.7.0
 home: https://github.com/ai-outfitter/agent-operator
 sources:
   - https://github.com/ai-outfitter/agent-operator

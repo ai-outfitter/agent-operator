@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.8.0](https://github.com/ai-outfitter/agent-operator/compare/agent-operator-v0.7.0...agent-operator-v0.8.0) (2026-08-20)
+
+
+### Features
+
+* add a Helm chart for the operator ([466dac2](https://github.com/ai-outfitter/agent-operator/commit/466dac2d3b80f419f34463dbf82b899454885e95))
+* **agent:** project GitHub notification settings ([#48](https://github.com/ai-outfitter/agent-operator/issues/48)) ([7c0ce5b](https://github.com/ai-outfitter/agent-operator/commit/7c0ce5b4a03491a4f0b30fcccce57d941c99d76e))
+* **agent:** project typed channel selection ([#50](https://github.com/ai-outfitter/agent-operator/issues/50)) ([eabe25a](https://github.com/ai-outfitter/agent-operator/commit/eabe25a00c941bade1b9dacd52f6802ab914c332))
+* **deploy-catalog:** select agents by cluster, not only by glob ([#46](https://github.com/ai-outfitter/agent-operator/issues/46)) ([ea7e070](https://github.com/ai-outfitter/agent-operator/commit/ea7e0706297d4884a457df0cc6236011a349f021))
+* **operator:** add Helm chart ([ab9ed9a](https://github.com/ai-outfitter/agent-operator/commit/ab9ed9a654eea196767c0c89e20ff0f951dcd38c))
+
+
+### Bug Fixes
+
+* **deploy-catalog:** budget the converge wait per agent ([#43](https://github.com/ai-outfitter/agent-operator/issues/43)) ([b861cfa](https://github.com/ai-outfitter/agent-operator/commit/b861cfa2aad35cc9a0fc21a2d08ff136f0760fef))
+
 ## [0.7.0](https://github.com/ai-outfitter/agent-operator/compare/agent-operator-v0.6.0...agent-operator-v0.7.0) (2026-08-13)
 
 
