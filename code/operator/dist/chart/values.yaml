@@ -46,6 +46,10 @@ controllerManager:
           - "ALL"
   securityContext:
     runAsNonRoot: true
+    # The published Nix image names this user `user`. Keep the numeric identity
+    # explicit so kubelet can enforce runAsNonRoot without image lookup.
+    runAsUser: 1000
+    runAsGroup: 1000
     seccompProfile:
       type: RuntimeDefault
   terminationGracePeriodSeconds: 10

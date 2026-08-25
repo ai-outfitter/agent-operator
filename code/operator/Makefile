@@ -168,6 +168,10 @@ helm-verify: ## Lint the chart and assert it renders the CRDs and controller.
 	done; \
 	echo "$$rendered" | grep -q 'image: ghcr.io/ai-outfitter/agent-operator:' \
 		|| { echo "controller image did not resolve from appVersion" >&2; exit 1; }; \
+	echo "$$rendered" | grep -q -- '- /bin/manager' \
+		|| { echo "controller command does not match the published image" >&2; exit 1; }; \
+	echo "$$rendered" | grep -q 'runAsUser: 1000' \
+		|| { echo "controller does not declare its numeric non-root user" >&2; exit 1; }; \
 	echo "chart renders CRDs, controller, and RBAC"
 
 ##@ Deployment
