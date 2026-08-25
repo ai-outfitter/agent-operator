@@ -32,7 +32,7 @@ spec:
             - {{ . }}
             {{- end }}
           command:
-            - /manager
+            - /bin/manager
           {{- /*
             Fall back to appVersion so a chart release ships the controller it was
             built for. A hardcoded default would drift from Chart.yaml on every
