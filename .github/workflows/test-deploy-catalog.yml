@@ -24,4 +24,6 @@ jobs:
       # jq and yq are both on the runner image. The action needs jq always and
       # yq only for the cluster table, and the suite covers both paths.
       - name: Run the suite
-        run: ./actions/deploy-catalog/tests/deploy-test.sh
+        run: |
+          ./actions/deploy-catalog/tests/deploy-test.sh
+          ./actions/deploy-catalog/tests/identity-stack-test.sh
