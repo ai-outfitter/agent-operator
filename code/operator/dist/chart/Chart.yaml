@@ -8,7 +8,7 @@ description: |
   container by default, or an image derived from it that an organization
   publishes from its own <org>/.agents repository.
 type: application
-version: 0.8.0
+version: 0.9.0
 appVersion: 0.7.0
 home: https://github.com/ai-outfitter/agent-operator
 sources:
