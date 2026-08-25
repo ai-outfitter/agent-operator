@@ -42,6 +42,9 @@ contains "web identity is the only trust action" "Action: sts:AssumeRoleWithWebI
 contains "the AWS STS audience is exact" "token.actions.githubusercontent.com:aud: sts.amazonaws.com"
 contains "the GitHub subject is repository and ref exact" \
   'repo:${GitHubOrganization}/${GitHubRepository}:ref:${GitHubRef}'
+contains "the customized GitHub subject is immutable-ID and ref exact" \
+  'repo:${GitHubOrganization}@${GitHubOrganizationId}/${GitHubRepository}@${GitHubRepositoryId}:ref:${GitHubRef}'
+contains "the GitHub organization ID is numeric" 'AllowedPattern: "^[0-9]+$"'
 contains "the role can describe the cluster" "Action: eks:DescribeCluster"
 contains "cluster permission is scoped to the exact ARN" \
   'arn:${AWS::Partition}:eks:${AWS::Region}:${AWS::AccountId}:cluster/${ClusterName}'
