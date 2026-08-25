@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.2](https://github.com/ai-outfitter/agent-operator/compare/agent-operator-v0.9.1...agent-operator-v0.9.2) (2026-08-25)
+
+
+### Bug Fixes
+
+* **deploy-catalog:** support customized OIDC subjects ([#57](https://github.com/ai-outfitter/agent-operator/issues/57)) ([145a913](https://github.com/ai-outfitter/agent-operator/commit/145a913e5be8f7a0a11b6035393f331ffd3749db))
+
 ## [0.9.1](https://github.com/ai-outfitter/agent-operator/compare/agent-operator-v0.9.0...agent-operator-v0.9.1) (2026-08-25)
 
 
