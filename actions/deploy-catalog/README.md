@@ -136,9 +136,11 @@ names Kubernetes `Agent` objects.
 [`aws/identity-stack.yaml`](aws/identity-stack.yaml) is the canonical
 CloudFormation template. It creates the IAM role, trusts one exact GitHub
 repository and ref through the account's existing GitHub OIDC provider, and
-grants only `eks:DescribeCluster` on one exact cluster. It does not create the
-account-wide OIDC provider, alter EKS authentication, or create Kubernetes
-RBAC. The action inputs do not change.
+grants only `eks:DescribeCluster` on one exact cluster. The trust accepts both
+GitHub's repository-name subject and its immutable organization/repository-ID
+subject; organization owners can customize OIDC claims to require the latter.
+Both remain ref-exact. It does not create the account-wide OIDC provider, alter
+EKS authentication, or create Kubernetes RBAC. The action inputs do not change.
 
 Each catalog keeps its non-secret values in
 `deploy/identity/<environment>.parameters.json`, using CloudFormation's
@@ -149,7 +151,9 @@ parameter-array format:
   { "ParameterKey": "OrganizationSlug", "ParameterValue": "example-org" },
   { "ParameterKey": "Environment", "ParameterValue": "nonprod" },
   { "ParameterKey": "GitHubOrganization", "ParameterValue": "example-org" },
+  { "ParameterKey": "GitHubOrganizationId", "ParameterValue": "1234567" },
   { "ParameterKey": "GitHubRepository", "ParameterValue": ".agents" },
+  { "ParameterKey": "GitHubRepositoryId", "ParameterValue": "7654321" },
   { "ParameterKey": "GitHubRef", "ParameterValue": "refs/heads/main" },
   { "ParameterKey": "ClusterName", "ParameterValue": "nonprod" },
   { "ParameterKey": "OidcProviderArn", "ParameterValue": "arn:aws:iam::123456789012:oidc-provider/token.actions.githubusercontent.com" }

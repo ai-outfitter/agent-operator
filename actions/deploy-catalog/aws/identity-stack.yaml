@@ -15,9 +15,17 @@ Parameters:
   GitHubOrganization:
     Type: String
     Description: GitHub organization that owns the catalog repository.
+  GitHubOrganizationId:
+    Type: String
+    Description: Immutable numeric GitHub organization ID used by customized OIDC subjects.
+    AllowedPattern: "^[0-9]+$"
   GitHubRepository:
     Type: String
     Description: Catalog repository name, normally .agents.
+  GitHubRepositoryId:
+    Type: String
+    Description: Immutable numeric GitHub repository ID used by customized OIDC subjects.
+    AllowedPattern: "^[0-9]+$"
   GitHubRef:
     Type: String
     Description: Exact trusted Git ref, for example refs/heads/main.
@@ -44,8 +52,11 @@ Resources:
             Condition:
               StringEquals:
                 token.actions.githubusercontent.com:aud: sts.amazonaws.com
-                token.actions.githubusercontent.com:sub: !Sub >-
-                  repo:${GitHubOrganization}/${GitHubRepository}:ref:${GitHubRef}
+                token.actions.githubusercontent.com:sub:
+                  - !Sub >-
+                    repo:${GitHubOrganization}/${GitHubRepository}:ref:${GitHubRef}
+                  - !Sub >-
+                    repo:${GitHubOrganization}@${GitHubOrganizationId}/${GitHubRepository}@${GitHubRepositoryId}:ref:${GitHubRef}
       Policies:
         - PolicyName: DescribeTargetEksCluster
           PolicyDocument:
