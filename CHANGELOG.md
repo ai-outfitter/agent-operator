@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.9.0](https://github.com/ai-outfitter/agent-operator/compare/agent-operator-v0.8.0...agent-operator-v0.9.0) (2026-08-25)
+
+
+### Features
+
+* **deploy-catalog:** add IAM bootstrap template ([fb3aff5](https://github.com/ai-outfitter/agent-operator/commit/fb3aff586ace19d91f661e13ab8ac29f8b73f2c2))
+* **deploy-catalog:** standardize AWS identities ([2467310](https://github.com/ai-outfitter/agent-operator/commit/2467310eff3bc805d74ca1e72f0f7e9c7c59b8f0))
+
 ## [0.8.0](https://github.com/ai-outfitter/agent-operator/compare/agent-operator-v0.7.0...agent-operator-v0.8.0) (2026-08-20)
 
 
