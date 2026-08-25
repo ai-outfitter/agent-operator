@@ -118,6 +118,109 @@ and cannot do; it never establishes it.
 
 Requires `kubectl` (or `$KUBECTL`) and `jq` on the runner.
 
+### Standard AWS identity
+
+An AWS-hosted catalog has exactly one deploy identity for each repository and
+environment, shared by every agent that catalog selects there. Its IAM role,
+Kubernetes username, and Kubernetes group are all named:
+
+```text
+<organization-slug>-catalog-deploy-<environment>
+```
+
+`organization-slug` identifies the catalog owner (for example,
+`ai-outfitter`), and `environment` is `nonprod` or `prod`. This identity slug
+is independent of the shorter `organization` prefix in `clusters.yaml`, which
+names Kubernetes `Agent` objects.
+
+[`aws/identity-stack.yaml`](aws/identity-stack.yaml) is the canonical
+CloudFormation template. It creates the IAM role, trusts one exact GitHub
+repository and ref through the account's existing GitHub OIDC provider, and
+grants only `eks:DescribeCluster` on one exact cluster. It does not create the
+account-wide OIDC provider, alter EKS authentication, or create Kubernetes
+RBAC. The action inputs do not change.
+
+Each catalog keeps its non-secret values in
+`deploy/identity/<environment>.parameters.json`, using CloudFormation's
+parameter-array format:
+
+```json
+[
+  { "ParameterKey": "OrganizationSlug", "ParameterValue": "example-org" },
+  { "ParameterKey": "Environment", "ParameterValue": "nonprod" },
+  { "ParameterKey": "GitHubOrganization", "ParameterValue": "example-org" },
+  { "ParameterKey": "GitHubRepository", "ParameterValue": ".agents" },
+  { "ParameterKey": "GitHubRef", "ParameterValue": "refs/heads/main" },
+  { "ParameterKey": "ClusterName", "ParameterValue": "nonprod" },
+  { "ParameterKey": "OidcProviderArn", "ParameterValue": "arn:aws:iam::123456789012:oidc-provider/token.actions.githubusercontent.com" }
+]
+```
+
+An administrator deploys the pinned template with the standardized stack name
+`catalog-deploy-<organization-slug>-<environment>`:
+
+```sh
+aws cloudformation deploy \
+  --stack-name catalog-deploy-example-org-nonprod \
+  --template-file <agent-operator-checkout>/actions/deploy-catalog/aws/identity-stack.yaml \
+  --parameter-overrides file://deploy/identity/nonprod.parameters.json \
+  --capabilities CAPABILITY_NAMED_IAM
+```
+
+Pin `<agent-operator-checkout>` to the same exact release tag or commit policy
+used for the action. Do not copy the shared template into the catalog.
+
+### Map the identity through `aws-auth`
+
+GitHub OIDC authenticates the workflow to AWS; it does not authorize the IAM
+role in Kubernetes. For clusters that use `aws-auth`, each catalog therefore
+keeps an eksctl `ClusterConfig` alongside the parameters, for example
+`deploy/identity/nonprod.aws-auth.yaml`:
+
+```yaml
+apiVersion: eksctl.io/v1alpha5
+kind: ClusterConfig
+metadata:
+  name: nonprod
+  region: us-east-1
+iamIdentityMappings:
+  - arn: arn:aws:iam::123456789012:role/example-org-catalog-deploy-nonprod
+    username: example-org-catalog-deploy-nonprod
+    groups:
+      - example-org-catalog-deploy-nonprod
+    noDuplicateARNs: true
+```
+
+Apply it as an administrator with
+`eksctl create iamidentitymapping -f deploy/identity/nonprod.aws-auth.yaml`.
+The catalog's reviewed `RoleBinding` binds that exact group; its `Role` remains
+responsible for the fine-grained, `resourceNames`-scoped authorization.
+
+Before changing a mapping, inspect the cluster authentication mode:
+
+```sh
+aws eks describe-cluster --name nonprod \
+  --query 'cluster.accessConfig.authenticationMode' --output text
+```
+
+`CONFIG_MAP` and `API_AND_CONFIG_MAP` support this procedure. If the result is
+`API`, stop: do not improvise an EKS Access Entry or change the cluster's
+authentication mode as part of a catalog rollout. That requires a separately
+tested cluster-owner migration.
+
+### Migrate without cutting off rollback
+
+Create the new IAM role first, add its `aws-auth` mapping, and bind its group
+alongside the old group before changing the workflow role ARN. Verify both the
+expected permissions and the action's forbidden-permission preflight in two
+fresh OIDC runs. During this overlap, rollback is only a workflow ARN change.
+
+Remove the old RoleBinding subject, `aws-auth` mapping, and IAM role only after
+the new identity has converged the full environment twice. To revoke the new
+path during an incident, switch the workflow back first, then remove the new
+RoleBinding subject and mapping. Keep an independent administrator kubeconfig
+throughout.
+
 ## Usage
 
 ```yaml

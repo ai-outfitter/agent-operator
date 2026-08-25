@@ -1,0 +1,71 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  GitHub Actions IAM identity for one catalog and one EKS environment.
+
+Parameters:
+  OrganizationSlug:
+    Type: String
+    Description: Short catalog organization slug used in the deployment identity name.
+    AllowedPattern: "^[a-z0-9][a-z0-9-]*[a-z0-9]$"
+  Environment:
+    Type: String
+    AllowedValues:
+      - nonprod
+      - prod
+  GitHubOrganization:
+    Type: String
+    Description: GitHub organization that owns the catalog repository.
+  GitHubRepository:
+    Type: String
+    Description: Catalog repository name, normally .agents.
+  GitHubRef:
+    Type: String
+    Description: Exact trusted Git ref, for example refs/heads/main.
+  ClusterName:
+    Type: String
+    Description: Exact EKS cluster this identity may discover.
+  OidcProviderArn:
+    Type: String
+    Description: ARN of the account's existing token.actions.githubusercontent.com provider.
+
+Resources:
+  CatalogDeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${OrganizationSlug}-catalog-deploy-${Environment}"
+      Description: !Sub "Deploy ${OrganizationSlug} catalog resources to ${Environment}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !Ref OidcProviderArn
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+                token.actions.githubusercontent.com:sub: !Sub >-
+                  repo:${GitHubOrganization}/${GitHubRepository}:ref:${GitHubRef}
+      Policies:
+        - PolicyName: DescribeTargetEksCluster
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: eks:DescribeCluster
+                Resource: !Sub >-
+                  arn:${AWS::Partition}:eks:${AWS::Region}:${AWS::AccountId}:cluster/${ClusterName}
+
+Outputs:
+  RoleArn:
+    Description: IAM role ARN for aws-actions/configure-aws-credentials.
+    Value: !GetAtt CatalogDeployRole.Arn
+  RoleName:
+    Description: Standard deployment role name.
+    Value: !Ref CatalogDeployRole
+  KubernetesUsername:
+    Description: Username for the cluster's eksctl iamIdentityMappings entry.
+    Value: !Ref CatalogDeployRole
+  KubernetesGroup:
+    Description: Group for aws-auth and the catalog RoleBinding subject.
+    Value: !Ref CatalogDeployRole
