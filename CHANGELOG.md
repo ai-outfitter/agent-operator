@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.1](https://github.com/ai-outfitter/agent-operator/compare/agent-operator-v0.9.0...agent-operator-v0.9.1) (2026-08-25)
+
+
+### Bug Fixes
+
+* **operator:** align Helm chart with image runtime ([#55](https://github.com/ai-outfitter/agent-operator/issues/55)) ([0b7e228](https://github.com/ai-outfitter/agent-operator/commit/0b7e22870330c3c920dc009ca7fe487d3a7928f3))
+
 ## [0.9.0](https://github.com/ai-outfitter/agent-operator/compare/agent-operator-v0.8.0...agent-operator-v0.9.0) (2026-08-25)
 
 

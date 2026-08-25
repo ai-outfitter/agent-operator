@@ -7,7 +7,16 @@
       "bump-minor-pre-major": true,
       "changelog-path": "CHANGELOG.md",
       "extra-files": [
-        "code/operator/dist/chart/Chart.yaml"
+        {
+          "type": "yaml",
+          "path": "code/operator/dist/chart/Chart.yaml",
+          "jsonpath": "$.version"
+        },
+        {
+          "type": "yaml",
+          "path": "code/operator/dist/chart/Chart.yaml",
+          "jsonpath": "$.appVersion"
+        }
       ]
     }
   }
