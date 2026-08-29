@@ -133,6 +133,14 @@ type SetupStep struct {
 	Script string `json:"script"`
 }
 
+// CatalogSyncSpec configures operator-managed synchronization of the resolved
+// Organization catalog before the resident runtime starts.
+type CatalogSyncSpec struct {
+	// Enabled adds a dedicated init container that runs outfitter sync with the
+	// Agent's settings, workspace, and credential projections.
+	Enabled bool `json:"enabled"`
+}
+
 // ResourceQuotaSpec contains the aggregate namespace hard limits.
 // +kubebuilder:validation:XValidation:rule="self.hard.size() > 0",message="resourceQuota.hard must not be empty"
 type ResourceQuotaSpec struct {
@@ -208,6 +216,13 @@ type AgentSpec struct {
 	// +listType=atomic
 	// +optional
 	Credentials []CredentialReference `json:"credentials,omitempty"`
+
+	// CatalogSync asks the operator to synchronize the resolved Organization
+	// catalog before user setup steps and the resident runtime start. The sync
+	// init container receives the Agent's generic credential projections, but
+	// it does not receive the Kubernetes API token.
+	// +optional
+	CatalogSync *CatalogSyncSpec `json:"catalogSync,omitempty"`
 
 	// Setup steps run as ordered init containers before the agent starts, with
 	// the agent's credentials and workspace mounted. Use them for usecase

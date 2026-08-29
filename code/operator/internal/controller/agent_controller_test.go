@@ -24,12 +24,14 @@ import (
 	aioutfitterv1alpha1 "github.com/ai-outfitter/agent-operator/code/operator/api/v1alpha1"
 )
 
+const researcherAgentSlug = "researcher"
+
 var _ = Describe("Agent Controller", func() {
 	ctx := context.Background()
 
 	It("reconciles the workload while reporting missing referenced objects", func() {
 		organization := createAcceptedOrganization(ctx)
-		agent := validAgent(uniqueTestName("researcher"), organization.Name)
+		agent := validAgent(uniqueTestName(researcherAgentSlug), organization.Name)
 		agent.Spec.Channels = []string{"slack", "github"}
 		secretName := "model-credentials"
 		configName := "runtime-config"
@@ -292,7 +294,7 @@ var _ = Describe("Agent Controller", func() {
 			Expect(mount.Name).NotTo(Equal(APITokenVolumeName))
 			Expect(mount.MountPath).NotTo(HavePrefix("/var/run/secrets/kubernetes.io"))
 		}
-		agentMountNames := []string{}
+		agentMountNames := make([]string, 0, len(containers[0].VolumeMounts))
 		for _, mount := range containers[0].VolumeMounts {
 			agentMountNames = append(agentMountNames, mount.Name)
 		}
@@ -300,7 +302,7 @@ var _ = Describe("Agent Controller", func() {
 		Expect(containers[0].Env).To(ContainElement(corev1.EnvVar{
 			Name: BrowserCDPURLEnvName, Value: BrowserCDPURL,
 		}))
-		volumeNames := []string{}
+		volumeNames := make([]string, 0, len(deployment.Spec.Template.Spec.Volumes))
 		for _, volume := range deployment.Spec.Template.Spec.Volumes {
 			volumeNames = append(volumeNames, volume.Name)
 		}
@@ -319,7 +321,7 @@ var _ = Describe("Agent Controller", func() {
 
 	It("projects references and becomes ready after the agent runtime starts", func() {
 		organization := createAcceptedOrganization(ctx)
-		agent := validAgent(uniqueTestName("researcher"), organization.Name)
+		agent := validAgent(uniqueTestName(researcherAgentSlug), organization.Name)
 		agent.Spec.Image = "example.test/user-owned-agent:v1"
 		secretName := "model-credentials"
 		configName := "runtime-config"
@@ -327,6 +329,7 @@ var _ = Describe("Agent Controller", func() {
 			{Secret: &secretName, As: aioutfitterv1alpha1.CredentialExposureEnv},
 			{ConfigMap: &configName, As: aioutfitterv1alpha1.CredentialExposureVolume},
 		}
+		agent.Spec.CatalogSync = &aioutfitterv1alpha1.CatalogSyncSpec{Enabled: true}
 		agent.Spec.Setup = []aioutfitterv1alpha1.SetupStep{
 			{Name: "wait-for-mail", Script: "echo mail-ready"},
 			{Name: "mail-bootstrap", Script: "echo setup-ready"},
@@ -370,11 +373,11 @@ var _ = Describe("Agent Controller", func() {
 		// id is what lets the durable JSONL transcript on the workspace PVC resume
 		// across pod restarts.
 		Expect(container.Args).To(Equal([]string{
-			"run", "researcher", "--strict", "--", "--mode", "rpc", "--session-id", agent.Name,
+			"run", researcherAgentSlug, "--strict", "--", "--mode", "rpc", "--session-id", agent.Name,
 		}))
 		Expect(container.Stdin).To(BeTrue())
 		Expect(container.Env).To(ContainElements(
-			corev1.EnvVar{Name: "AGENT_SLUG", Value: "researcher"},
+			corev1.EnvVar{Name: "AGENT_SLUG", Value: researcherAgentSlug},
 			corev1.EnvVar{Name: "AGENT_HARNESS", Value: "pi"},
 		))
 		Expect(container.ReadinessProbe).To(BeNil())
@@ -387,13 +390,26 @@ var _ = Describe("Agent Controller", func() {
 		Expect(container.VolumeMounts).To(ContainElement(corev1.VolumeMount{
 			Name: SettingsName, MountPath: WorkspaceMount + "/.agents", ReadOnly: true,
 		}))
-		Expect(deployment.Spec.Template.Spec.InitContainers).To(HaveLen(3))
+		Expect(deployment.Spec.Template.Spec.InitContainers).To(HaveLen(4))
 		for _, initContainer := range deployment.Spec.Template.Spec.InitContainers {
 			Expect(initContainer.Image).To(Equal(agent.Spec.Image))
 		}
-		Expect(deployment.Spec.Template.Spec.InitContainers[1].Name).To(Equal("setup-wait-for-mail"))
-		Expect(deployment.Spec.Template.Spec.InitContainers[1].Command).To(Equal([]string{"sh", "-c", "echo mail-ready"}))
-		Expect(deployment.Spec.Template.Spec.InitContainers[2].Name).To(Equal("setup-mail-bootstrap"))
+		Expect(deployment.Spec.Template.Spec.InitContainers[1].Name).To(Equal("sync-agent-catalog"))
+		Expect(deployment.Spec.Template.Spec.InitContainers[1].Command).To(Equal([]string{"sh", "-c", catalogSyncScript}))
+		Expect(deployment.Spec.Template.Spec.InitContainers[1].EnvFrom).To(ContainElement(corev1.EnvFromSource{
+			SecretRef: &corev1.SecretEnvSource{LocalObjectReference: corev1.LocalObjectReference{Name: secretName}},
+		}))
+		Expect(deployment.Spec.Template.Spec.InitContainers[1].VolumeMounts).To(ContainElements(
+			corev1.VolumeMount{Name: WorkspaceName, MountPath: WorkspaceMount},
+			corev1.VolumeMount{Name: SettingsName, MountPath: WorkspaceMount + "/.agents", ReadOnly: true},
+			corev1.VolumeMount{Name: NixStoreName, MountPath: NixMount},
+		))
+		Expect(deployment.Spec.Template.Spec.InitContainers[1].VolumeMounts).NotTo(ContainElement(
+			corev1.VolumeMount{Name: APITokenVolumeName, MountPath: APITokenMountPath, ReadOnly: true},
+		))
+		Expect(deployment.Spec.Template.Spec.InitContainers[2].Name).To(Equal("setup-wait-for-mail"))
+		Expect(deployment.Spec.Template.Spec.InitContainers[2].Command).To(Equal([]string{"sh", "-c", "echo mail-ready"}))
+		Expect(deployment.Spec.Template.Spec.InitContainers[3].Name).To(Equal("setup-mail-bootstrap"))
 		Expect(deployment.Spec.Template.Spec.InitContainers).To(ContainElement(MatchFields(IgnoreExtras, Fields{
 			"Name":    Equal("setup-mail-bootstrap"),
 			"Image":   Equal(agent.Spec.Image),
@@ -647,7 +663,7 @@ func validAgent(name, organization string) *aioutfitterv1alpha1.Agent {
 		ObjectMeta: metav1.ObjectMeta{Name: name},
 		Spec: aioutfitterv1alpha1.AgentSpec{
 			Memberships: []aioutfitterv1alpha1.Membership{{Organization: organization}},
-			Profile:     aioutfitterv1alpha1.AgentProfile{Agent: "researcher", Harness: "pi"},
+			Profile:     aioutfitterv1alpha1.AgentProfile{Agent: researcherAgentSlug, Harness: "pi"},
 			Workspace: aioutfitterv1alpha1.WorkspaceSpec{
 				ResourceQuota: aioutfitterv1alpha1.ResourceQuotaSpec{Hard: corev1.ResourceList{
 					corev1.ResourceRequestsCPU:              resource.MustParse("4"),

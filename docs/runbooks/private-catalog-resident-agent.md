@@ -389,14 +389,15 @@ It does NOT prove that the forge notification channel is configured or that a
 notification wake reaches the resident agent; verify that round trip separately
 for the composed channel.
 
-## Known gap
+## Operator-managed synchronization
 
-This hand-written setup step is scaffolding. First-class private-catalog support
-SHOULD replace it with a credential binding on `Agent` that names a Secret and
-transport mode. The named Secret SHOULD be projected into a catalog-sync init
-container that runs `outfitter sync` before the resident runtime starts. Under
-OPR-004.2, the key-level contract MUST belong to the composed agent; the
-controller MUST NOT depend on the referenced Secret's contents. The generic
-credential projection currently mounts the catalog Secret into both setup
-containers and the resident runtime; the replacement SHOULD limit that
-credential to catalog synchronization.
+Set `Agent.spec.catalogSync.enabled: true` to have the operator add a dedicated
+`sync-agent-catalog` init container. It runs `outfitter sync` with the rendered
+settings, durable workspace, and the Agent's generic credential projections
+before user setup steps and the resident runtime. The sync container does not
+receive the Agent's Kubernetes API token.
+
+The generic credential projection still exposes a catalog credential to the
+resident runtime when the same reference is declared under `spec.credentials`.
+A future credential binding MAY narrow a named credential to catalog sync only;
+under OPR-004.2, that binding MUST remain content-agnostic.
