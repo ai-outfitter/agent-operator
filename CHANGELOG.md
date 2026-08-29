@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.0](https://github.com/ai-outfitter/agent-operator/compare/agent-operator-v0.9.2...agent-operator-v0.10.0) (2026-08-29)
+
+
+### Features
+
+* **agent:** add managed catalog synchronization ([604143d](https://github.com/ai-outfitter/agent-operator/commit/604143d3f1af4e57da3217977aca6d1af9116e51))
+
 ## [0.9.2](https://github.com/ai-outfitter/agent-operator/compare/agent-operator-v0.9.1...agent-operator-v0.9.2) (2026-08-25)
 
 
