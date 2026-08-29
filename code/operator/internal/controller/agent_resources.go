@@ -116,6 +116,9 @@ mkdir -p "$destination_nix/store"
 cp -a --no-clobber "$source_nix/store/." "$destination_nix/store/"
 touch "$destination_nix/.seeded"`
 
+const catalogSyncScript = `set -eu
+outfitter sync`
+
 func agentNamespace(agentName string) string { return "agent-" + agentName }
 
 func ownershipLabels(agent *aioutfitterv1alpha1.Agent) map[string]string {
@@ -412,7 +415,7 @@ func (r *AgentReconciler) ensureAgentDeployment(
 		container.VolumeMounts = append(container.VolumeMounts, credentialMounts...)
 		volumes = append(volumes, credentialVolumes...)
 
-		initContainers := make([]corev1.Container, 0, len(agent.Spec.Setup)+1)
+		initContainers := make([]corev1.Container, 0, len(agent.Spec.Setup)+2)
 		if needsNixStore {
 			// Merge the current image's store paths on every boot. A prior .seeded
 			// marker is informational only: image upgrades can introduce new hashes,
@@ -423,6 +426,25 @@ func (r *AgentReconciler) ensureAgentDeployment(
 				ImagePullPolicy: corev1.PullIfNotPresent,
 				Command:         []string{"sh", "-c", nixStoreSeedScript},
 				VolumeMounts:    []corev1.VolumeMount{{Name: NixStoreName, MountPath: "/mnt/nix"}},
+			})
+		}
+		if sync := agent.Spec.CatalogSync; sync != nil && sync.Enabled {
+			mounts := append([]corev1.VolumeMount{}, credentialMounts...)
+			mounts = append(mounts,
+				corev1.VolumeMount{Name: WorkspaceName, MountPath: WorkspaceMount},
+				corev1.VolumeMount{Name: SettingsName, MountPath: path.Join(WorkspaceMount, ".agents"), ReadOnly: true},
+			)
+			if needsNixStore {
+				mounts = append(mounts, corev1.VolumeMount{Name: NixStoreName, MountPath: NixMount})
+			}
+			initContainers = append(initContainers, corev1.Container{
+				Name:            "sync-agent-catalog",
+				Image:           runtimeImage,
+				ImagePullPolicy: corev1.PullIfNotPresent,
+				Command:         []string{"sh", "-c", catalogSyncScript},
+				EnvFrom:         credentialEnvFrom,
+				Env:             []corev1.EnvVar{{Name: HomeEnvName, Value: WorkspaceMount}},
+				VolumeMounts:    mounts,
 			})
 		}
 		for _, step := range agent.Spec.Setup {

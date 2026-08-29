@@ -133,6 +133,21 @@ spec:
                         type: object
                     type: object
                 type: object
+              catalogSync:
+                description: |-
+                  CatalogSync asks the operator to synchronize the resolved Organization
+                  catalog before user setup steps and the resident runtime start. The sync
+                  init container receives the Agent's generic credential projections, but
+                  it does not receive the Kubernetes API token.
+                properties:
+                  enabled:
+                    description: |-
+                      Enabled adds a dedicated init container that runs outfitter sync with the
+                      Agent's settings, workspace, and credential projections.
+                    type: boolean
+                required:
+                - enabled
+                type: object
               channels:
                 description: |-
                   Channels explicitly selects the resident runtime's channel sources. When

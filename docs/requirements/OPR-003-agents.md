@@ -146,6 +146,13 @@ operator MUST project a deterministic comma-separated value as
 `OUTFITTER_CHANNELS`; when omitted, the runtime retains its own source-discovery
 behavior.
 
+`Agent.spec.catalogSync.enabled: true` MUST add a dedicated init container that
+runs `outfitter sync` before user-supplied setup steps and the resident runtime.
+The container MUST receive the rendered Outfitter settings, durable workspace,
+and generic Agent credential projections. It MUST NOT receive the Agent's
+Kubernetes API token. Omitting the option or setting it to false MUST preserve
+the existing runtime behavior.
+
 `Agent.spec.github` controls the resident GitHub notification source. The
 operator projects `GITHUB_NOTIFY_ORGS`, `GITHUB_NOTIFY_POLL_MS`, and
 `GITHUB_NOTIFY_FILTERS` into the runtime. `pollMs` defaults to `60000`; filters
