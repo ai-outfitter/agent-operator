@@ -26,8 +26,9 @@ import (
 // OrganizationReconciler reconciles an Organization object.
 type OrganizationReconciler struct {
 	client.Client
-	Scheme     *runtime.Scheme
-	AgentImage string
+	Scheme       *runtime.Scheme
+	AgentImage   string
+	GatewayImage string
 }
 
 // +kubebuilder:rbac:groups=aioutfitter.com,resources=organizations,verbs=get;list;watch;create;update;patch;delete
