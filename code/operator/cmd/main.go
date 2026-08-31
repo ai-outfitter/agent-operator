@@ -51,6 +51,7 @@ func main() {
 	}
 	var metricsAddr string
 	var agentImage string
+	var gatewayImage string
 	var outfitterRevision string
 	var metricsCertPath, metricsCertName, metricsCertKey string
 	var webhookCertPath, webhookCertName, webhookCertKey string
@@ -94,6 +95,8 @@ func main() {
 	// imageNeedsNixStore), so the default gets no seed init container or store PVC.
 	flag.StringVar(&agentImage, "agent-image", "ghcr.io/ai-outfitter/outfitter:1.5.0",
 		"Default agent runtime image, used when an Agent does not set spec.image. Deployments should pin a digest.")
+	flag.StringVar(&gatewayImage, "gateway-image", "ghcr.io/ai-outfitter/agent-operator:agent-operator-v0.11.1",
+		"Agent Operator image used by organization forge gateways.")
 	// Reported on Agent.status.outfitterRevision. This is a third hand-maintained pin of one
 	// dependency, after flake.lock and devenv.lock, and it had already drifted: it claimed
 	// c44205ef (2026-07-18) while the image it described was built from 3d73c233
@@ -206,7 +209,7 @@ func main() {
 	}
 
 	if err := (&controller.OrganizationReconciler{
-		Client: mgr.GetClient(), Scheme: mgr.GetScheme(), AgentImage: agentImage,
+		Client: mgr.GetClient(), Scheme: mgr.GetScheme(), AgentImage: agentImage, GatewayImage: gatewayImage,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "organization")
 		os.Exit(1)
