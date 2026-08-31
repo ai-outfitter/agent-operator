@@ -8,19 +8,13 @@ rules:
   - ""
   resources:
   - configmaps
-  verbs:
-  - create
-  - get
-  - patch
-  - update
-- apiGroups:
-  - ""
-  resources:
   - limitranges
   - namespaces
   - persistentvolumeclaims
   - resourcequotas
+  - secrets
   - serviceaccounts
+  - services
   verbs:
   - create
   - delete
@@ -29,12 +23,6 @@ rules:
   - patch
   - update
   - watch
-- apiGroups:
-  - ""
-  resources:
-  - secrets
-  verbs:
-  - get
 - apiGroups:
   - aioutfitter.com
   resources:
@@ -68,6 +56,19 @@ rules:
   - apps
   resources:
   - deployments
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - networking.k8s.io
+  resources:
+  - ingresses
+  - networkpolicies
   verbs:
   - create
   - delete

@@ -8,6 +8,9 @@ import (
 	"slices"
 	"strings"
 
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apiMeta "k8s.io/apimachinery/pkg/api/meta"
@@ -23,12 +26,17 @@ import (
 // OrganizationReconciler reconciles an Organization object.
 type OrganizationReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme     *runtime.Scheme
+	AgentImage string
 }
 
 // +kubebuilder:rbac:groups=aioutfitter.com,resources=organizations,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=aioutfitter.com,resources=organizations/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=aioutfitter.com,resources=organizations/finalizers,verbs=update
+// +kubebuilder:rbac:groups=aioutfitter.com,resources=agents,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=namespaces;configmaps;secrets;services;persistentvolumeclaims,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=networking.k8s.io,resources=ingresses;networkpolicies,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile validates the organization source declaration without resolving it.
 func (r *OrganizationReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -70,9 +78,25 @@ func (r *OrganizationReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		Revision: revision,
 	}}
 	setOrganizationCondition(organization, aioutfitterv1alpha1.OrganizationConditionCatalogSourcesReady, metav1.ConditionTrue, "DelegatedToOutfitter", "Catalog source is pinned and ready for Outfitter settings")
-	setOrganizationCondition(organization, aioutfitterv1alpha1.OrganizationConditionReady, metav1.ConditionTrue, "Ready", "Organization is ready for agents")
+	result, err := r.reconcileForgeGateway(ctx, organization)
+	if err != nil {
+		setOrganizationCondition(organization, aioutfitterv1alpha1.OrganizationConditionReady, metav1.ConditionFalse, "ForgeReconcileFailed", "Forge gateway reconciliation failed")
+		_ = r.patchOrganizationStatus(ctx, statusBase, organization)
+		return ctrl.Result{}, err
+	}
+	ready := organization.Spec.Forge == nil || (conditionTrue(organization, aioutfitterv1alpha1.OrganizationConditionForgeGatewayReady) && conditionTrue(organization, aioutfitterv1alpha1.OrganizationConditionForgeRoutesReady) && conditionTrue(organization, aioutfitterv1alpha1.OrganizationConditionWebhookEndpointReady))
+	if ready {
+		setOrganizationCondition(organization, aioutfitterv1alpha1.OrganizationConditionReady, metav1.ConditionTrue, "Ready", "Organization is ready for agents")
+	} else {
+		setOrganizationCondition(organization, aioutfitterv1alpha1.OrganizationConditionReady, metav1.ConditionFalse, "ForgeNotReady", "Organization forge gateway is not ready")
+	}
 
-	return ctrl.Result{}, r.patchOrganizationStatus(ctx, statusBase, organization)
+	return result, r.patchOrganizationStatus(ctx, statusBase, organization)
+}
+
+func conditionTrue(organization *aioutfitterv1alpha1.Organization, conditionType string) bool {
+	condition := apiMeta.FindStatusCondition(organization.Status.Conditions, conditionType)
+	return condition != nil && condition.Status == metav1.ConditionTrue
 }
 
 func (r *OrganizationReconciler) finalize(
@@ -88,6 +112,7 @@ func (r *OrganizationReconciler) finalize(
 }
 
 func validateOrganization(organization *aioutfitterv1alpha1.Organization) string {
+	const httpScheme = "http"
 	if len(organization.Spec.AgentCatalogs) != 1 {
 		return "M1 organizations must declare exactly one agent catalog"
 	}
@@ -96,7 +121,7 @@ func validateOrganization(organization *aioutfitterv1alpha1.Organization) string
 		if err != nil || parsed.Scheme == "" {
 			return fmt.Sprintf("Repository %q must use a valid clone URI", repository.Name)
 		}
-		if (parsed.Scheme == "http" || parsed.Scheme == "https") && parsed.User != nil {
+		if (parsed.Scheme == httpScheme || parsed.Scheme == "https") && parsed.User != nil {
 			return fmt.Sprintf("Repository %q URI must not contain credentials", repository.Name)
 		}
 	}
@@ -106,7 +131,7 @@ func validateOrganization(organization *aioutfitterv1alpha1.Organization) string
 		if err != nil || parsed.Scheme == "" {
 			return fmt.Sprintf("Catalog %q must use a valid clone URI", catalogSource.Name)
 		}
-		if (parsed.Scheme == "http" || parsed.Scheme == "https") && parsed.User != nil {
+		if (parsed.Scheme == httpScheme || parsed.Scheme == "https") && parsed.User != nil {
 			return fmt.Sprintf("Catalog %q URI must not contain credentials", catalogSource.Name)
 		}
 	}
@@ -177,6 +202,14 @@ func (r *OrganizationReconciler) patchOrganizationStatus(
 func (r *OrganizationReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&aioutfitterv1alpha1.Organization{}).
+		Owns(&corev1.Namespace{}).
+		Owns(&corev1.ConfigMap{}).
+		Owns(&corev1.Secret{}).
+		Owns(&appsv1.Deployment{}).
+		Owns(&corev1.Service{}).
+		Owns(&corev1.PersistentVolumeClaim{}).
+		Owns(&networkingv1.Ingress{}).
+		Owns(&networkingv1.NetworkPolicy{}).
 		Named("organization").
 		Complete(r)
 }
