@@ -24,23 +24,98 @@ import (
 	aioutfitterv1alpha1 "github.com/ai-outfitter/agent-operator/code/operator/api/v1alpha1"
 )
 
-const researcherAgentSlug = "researcher"
+const (
+	researcherAgentSlug        = "researcher"
+	testRuntimeConfigName      = "runtime-config"
+	testRuntimeConfigMountPath = "/var/run/agent/inputs/runtime-config"
+	testInputConfigName        = "config"
+)
 
 var _ = Describe("Agent Controller", func() {
 	ctx := context.Background()
+
+	It("inherits Organization defaults while preserving Agent overrides", func() {
+		organization := createAcceptedOrganization(ctx)
+		organizationCredentials := &corev1.Secret{}
+		organizationKey := types.NamespacedName{Namespace: organizationNamespace(organization.Name), Name: defaultOrgCredentials}
+		Expect(k8sClient.Get(ctx, organizationKey, organizationCredentials)).To(Succeed())
+		organizationCredentials.Data = map[string][]byte{
+			"default.SPARK_AUTHORIZATION": []byte("spark-v1"),
+			"default.OPENAI_BASE_URL":     []byte("https://models.example.test/v1"),
+			forgeWebhookSecretKey:         []byte("must-not-inherit"),
+		}
+		Expect(k8sClient.Update(ctx, organizationCredentials)).To(Succeed())
+
+		agent := validAgent(uniqueTestName(researcherAgentSlug), organization.Name)
+		Expect(k8sClient.Create(ctx, agent)).To(Succeed())
+		DeferCleanup(removeAgent, ctx, agent.Name)
+		namespace := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: agentNamespace(agent.Name)}}
+		Expect(k8sClient.Create(ctx, namespace)).To(Succeed())
+		DeferCleanup(func() { _ = k8sClient.Delete(ctx, namespace) })
+		agentCredentials := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: defaultAgentCredentials, Namespace: namespace.Name}, Data: map[string][]byte{
+			"OPENAI_BASE_URL": []byte("https://agent.example.test/v1"),
+		}}
+		Expect(k8sClient.Create(ctx, agentCredentials)).To(Succeed())
+
+		reconciler := &AgentReconciler{Client: k8sClient}
+		missing, err := reconciler.ensureStandardAgentCredentials(ctx, agent, organization)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(missing).To(BeEmpty())
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: namespace.Name, Name: defaultAgentCredentials}, agentCredentials)).To(Succeed())
+		Expect(agentCredentials.Data).To(HaveKeyWithValue("SPARK_AUTHORIZATION", []byte("spark-v1")))
+		Expect(agentCredentials.Data).To(HaveKeyWithValue("OPENAI_BASE_URL", []byte("https://agent.example.test/v1")))
+		Expect(agentCredentials.Data).NotTo(HaveKey(forgeWebhookSecretKey))
+
+		Expect(k8sClient.Get(ctx, organizationKey, organizationCredentials)).To(Succeed())
+		organizationCredentials.Data["default.SPARK_AUTHORIZATION"] = []byte("spark-v2")
+		Expect(k8sClient.Update(ctx, organizationCredentials)).To(Succeed())
+		_, err = reconciler.ensureStandardAgentCredentials(ctx, agent, organization)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: namespace.Name, Name: defaultAgentCredentials}, agentCredentials)).To(Succeed())
+		Expect(agentCredentials.Data).To(HaveKeyWithValue("SPARK_AUTHORIZATION", []byte("spark-v2")))
+
+		agentCredentials.Data["SPARK_AUTHORIZATION"] = []byte("agent-spark")
+		Expect(k8sClient.Update(ctx, agentCredentials)).To(Succeed())
+		Expect(k8sClient.Get(ctx, organizationKey, organizationCredentials)).To(Succeed())
+		organizationCredentials.Data["default.SPARK_AUTHORIZATION"] = []byte("spark-v3")
+		Expect(k8sClient.Update(ctx, organizationCredentials)).To(Succeed())
+		_, err = reconciler.ensureStandardAgentCredentials(ctx, agent, organization)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: namespace.Name, Name: defaultAgentCredentials}, agentCredentials)).To(Succeed())
+		Expect(agentCredentials.Data).To(HaveKeyWithValue("SPARK_AUTHORIZATION", []byte("agent-spark")))
+
+		delete(agentCredentials.Data, "SPARK_AUTHORIZATION")
+		Expect(k8sClient.Update(ctx, agentCredentials)).To(Succeed())
+		_, err = reconciler.ensureStandardAgentCredentials(ctx, agent, organization)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: namespace.Name, Name: defaultAgentCredentials}, agentCredentials)).To(Succeed())
+		Expect(agentCredentials.Data).To(HaveKeyWithValue("SPARK_AUTHORIZATION", []byte("spark-v3")))
+	})
+
+	It("rejects unsafe generalized input projections", func() {
+		agent := &aioutfitterv1alpha1.Agent{Spec: aioutfitterv1alpha1.AgentSpec{
+			Volumes:      []corev1.Volume{{Name: "host", VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{Path: "/"}}}},
+			VolumeMounts: []corev1.VolumeMount{{Name: "host", MountPath: "/host", ReadOnly: true}},
+		}}
+		Expect(inputValidationMessage(agent)).To(ContainSubstring("exactly one Secret or ConfigMap"))
+		agent.Spec.Volumes = []corev1.Volume{{Name: testInputConfigName, VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{LocalObjectReference: corev1.LocalObjectReference{Name: testInputConfigName}}}}}
+		agent.Spec.VolumeMounts = []corev1.VolumeMount{{Name: testInputConfigName, MountPath: WorkspaceMount + "/config", ReadOnly: true}}
+		Expect(inputValidationMessage(agent)).To(ContainSubstring("overlaps reserved path"))
+	})
 
 	It("reconciles the workload while reporting missing referenced objects", func() {
 		organization := createAcceptedOrganization(ctx)
 		agent := validAgent(uniqueTestName(researcherAgentSlug), organization.Name)
 		agent.Spec.Channels = []string{"slack", "github"}
 		secretName := "model-credentials"
-		configName := "runtime-config"
+		configName := testRuntimeConfigName
 		legacyConfigName := "legacy-github-notify"
-		agent.Spec.Credentials = []aioutfitterv1alpha1.CredentialReference{
-			{Secret: &secretName, As: aioutfitterv1alpha1.CredentialExposureEnv},
-			{ConfigMap: &configName, As: aioutfitterv1alpha1.CredentialExposureVolume},
-			{ConfigMap: &legacyConfigName, As: aioutfitterv1alpha1.CredentialExposureEnv},
+		agent.Spec.EnvFrom = []corev1.EnvFromSource{
+			{SecretRef: &corev1.SecretEnvSource{LocalObjectReference: corev1.LocalObjectReference{Name: secretName}}},
+			{ConfigMapRef: &corev1.ConfigMapEnvSource{LocalObjectReference: corev1.LocalObjectReference{Name: legacyConfigName}}},
 		}
+		agent.Spec.Volumes = []corev1.Volume{{Name: testRuntimeConfigName, VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{LocalObjectReference: corev1.LocalObjectReference{Name: configName}}}}}
+		agent.Spec.VolumeMounts = []corev1.VolumeMount{{Name: testRuntimeConfigName, MountPath: testRuntimeConfigMountPath, ReadOnly: true}}
 		Expect(k8sClient.Create(ctx, agent)).To(Succeed())
 		DeferCleanup(removeAgent, ctx, agent.Name)
 
@@ -106,7 +181,7 @@ var _ = Describe("Agent Controller", func() {
 		}))
 		var configVolume *corev1.Volume
 		for index := range deployment.Spec.Template.Spec.Volumes {
-			if deployment.Spec.Template.Spec.Volumes[index].Name == credentialVolumeName(credentialKindConfig, configName) {
+			if deployment.Spec.Template.Spec.Volumes[index].Name == testRuntimeConfigName {
 				configVolume = &deployment.Spec.Template.Spec.Volumes[index]
 				break
 			}
@@ -126,7 +201,7 @@ var _ = Describe("Agent Controller", func() {
 			corev1.EnvVar{Name: "AGENT_PRINCIPAL_ID", Value: "link:" + agent.Name},
 			corev1.EnvVar{Name: "AGENT_SPOOL_PATH", Value: "/workspace/.channels/agent"},
 			corev1.EnvVar{Name: OutfitterChannelsEnv, Value: "github,slack"},
-			corev1.EnvVar{Name: GitHubNotifyOrgsEnv, Value: "ai-outfitter"},
+			corev1.EnvVar{Name: GitHubNotifyOrgsEnv, Value: testOutfitterOrg},
 			corev1.EnvVar{Name: GitHubNotifyPollMSEnv, Value: "60000"},
 			corev1.EnvVar{Name: GitHubNotifyFiltersEnv, Value: DefaultGitHubFilters},
 		))
@@ -324,11 +399,10 @@ var _ = Describe("Agent Controller", func() {
 		agent := validAgent(uniqueTestName(researcherAgentSlug), organization.Name)
 		agent.Spec.Image = "example.test/user-owned-agent:v1"
 		secretName := "model-credentials"
-		configName := "runtime-config"
-		agent.Spec.Credentials = []aioutfitterv1alpha1.CredentialReference{
-			{Secret: &secretName, As: aioutfitterv1alpha1.CredentialExposureEnv},
-			{ConfigMap: &configName, As: aioutfitterv1alpha1.CredentialExposureVolume},
-		}
+		configName := testRuntimeConfigName
+		agent.Spec.EnvFrom = []corev1.EnvFromSource{{SecretRef: &corev1.SecretEnvSource{LocalObjectReference: corev1.LocalObjectReference{Name: secretName}}}}
+		agent.Spec.Volumes = []corev1.Volume{{Name: testRuntimeConfigName, VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{LocalObjectReference: corev1.LocalObjectReference{Name: configName}}}}}
+		agent.Spec.VolumeMounts = []corev1.VolumeMount{{Name: testRuntimeConfigName, MountPath: testRuntimeConfigMountPath, ReadOnly: true}}
 		agent.Spec.CatalogSync = &aioutfitterv1alpha1.CatalogSyncSpec{Enabled: true}
 		agent.Spec.Setup = []aioutfitterv1alpha1.SetupStep{
 			{Name: "wait-for-mail", Script: "echo mail-ready"},
@@ -385,7 +459,7 @@ var _ = Describe("Agent Controller", func() {
 			SecretRef: &corev1.SecretEnvSource{LocalObjectReference: corev1.LocalObjectReference{Name: secretName}},
 		}))
 		Expect(container.VolumeMounts).To(ContainElement(corev1.VolumeMount{
-			Name: "config-runtime-config", MountPath: CredentialsRoot + "/configmaps/runtime-config", ReadOnly: true,
+			Name: testRuntimeConfigName, MountPath: testRuntimeConfigMountPath, ReadOnly: true,
 		}))
 		Expect(container.VolumeMounts).To(ContainElement(corev1.VolumeMount{
 			Name: SettingsName, MountPath: WorkspaceMount + "/.agents", ReadOnly: true,
@@ -424,7 +498,7 @@ var _ = Describe("Agent Controller", func() {
 				corev1.VolumeMount{Name: WorkspaceName, MountPath: WorkspaceMount},
 				corev1.VolumeMount{Name: NixStoreName, MountPath: NixMount},
 				corev1.VolumeMount{
-					Name: "config-runtime-config", MountPath: CredentialsRoot + "/configmaps/runtime-config", ReadOnly: true,
+					Name: testRuntimeConfigName, MountPath: testRuntimeConfigMountPath, ReadOnly: true,
 				},
 			),
 		})))
@@ -653,6 +727,9 @@ func createAcceptedOrganization(ctx context.Context) *aioutfitterv1alpha1.Organi
 	reconciler := &OrganizationReconciler{Client: k8sClient, Scheme: k8sClient.Scheme()}
 	_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: name}})
 	Expect(err).NotTo(HaveOccurred())
+	Expect(k8sClient.Create(ctx, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{
+		Name: defaultOrgCredentials, Namespace: organizationNamespace(name),
+	}})).To(Succeed())
 	Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name}, organization)).To(Succeed())
 	DeferCleanup(removeOrganization, ctx, name)
 	return organization
