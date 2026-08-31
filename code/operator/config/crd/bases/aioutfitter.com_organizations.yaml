@@ -97,6 +97,13 @@ spec:
                 x-kubernetes-list-map-keys:
                 - name
                 x-kubernetes-list-type: map
+              credentialSecretName:
+                default: organization-credentials
+                description: |-
+                  CredentialSecretName selects the Organization's single standard Secret.
+                  Keys prefixed with default. are inherited by member Agents.
+                minLength: 1
+                type: string
               displayName:
                 type: string
               forge:
@@ -127,30 +134,11 @@ spec:
                       storageClassName:
                         type: string
                     type: object
-                  webhook:
-                    description: ForgeWebhookSpec configures the public signed-webhook
-                      endpoint.
-                    properties:
-                      host:
-                        minLength: 1
-                        type: string
-                      ingressClassName:
-                        type: string
-                      secretName:
-                        minLength: 1
-                        type: string
-                      tlsSecretName:
-                        type: string
-                    required:
-                    - host
-                    - secretName
-                    type: object
                 required:
                 - owner
                 - provider
                 - serverURL
                 - spool
-                - webhook
                 type: object
               projects:
                 items:

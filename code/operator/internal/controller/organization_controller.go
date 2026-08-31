@@ -19,6 +19,8 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	aioutfitterv1alpha1 "github.com/ai-outfitter/agent-operator/code/operator/api/v1alpha1"
 )
@@ -85,7 +87,7 @@ func (r *OrganizationReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		_ = r.patchOrganizationStatus(ctx, statusBase, organization)
 		return ctrl.Result{}, err
 	}
-	ready := organization.Spec.Forge == nil || (conditionTrue(organization, aioutfitterv1alpha1.OrganizationConditionForgeGatewayReady) && conditionTrue(organization, aioutfitterv1alpha1.OrganizationConditionForgeRoutesReady) && conditionTrue(organization, aioutfitterv1alpha1.OrganizationConditionWebhookEndpointReady))
+	ready := organization.Spec.Forge == nil || (conditionTrue(organization, aioutfitterv1alpha1.OrganizationConditionForgeGatewayReady) && conditionTrue(organization, aioutfitterv1alpha1.OrganizationConditionForgeRoutesReady))
 	if ready {
 		setOrganizationCondition(organization, aioutfitterv1alpha1.OrganizationConditionReady, metav1.ConditionTrue, "Ready", "Organization is ready for agents")
 	} else {
@@ -203,14 +205,48 @@ func (r *OrganizationReconciler) patchOrganizationStatus(
 func (r *OrganizationReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&aioutfitterv1alpha1.Organization{}).
+		Watches(&aioutfitterv1alpha1.Agent{}, handler.EnqueueRequestsFromMapFunc(r.organizationsForAgent)).
+		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(r.organizationForCredentialSecret)).
 		Owns(&corev1.Namespace{}).
 		Owns(&corev1.ConfigMap{}).
 		Owns(&corev1.Secret{}).
 		Owns(&appsv1.Deployment{}).
 		Owns(&corev1.Service{}).
 		Owns(&corev1.PersistentVolumeClaim{}).
-		Owns(&networkingv1.Ingress{}).
 		Owns(&networkingv1.NetworkPolicy{}).
 		Named("organization").
 		Complete(r)
+}
+
+func (r *OrganizationReconciler) organizationsForAgent(_ context.Context, object client.Object) []reconcile.Request {
+	agent, ok := object.(*aioutfitterv1alpha1.Agent)
+	if !ok {
+		return nil
+	}
+	requests := make([]reconcile.Request, 0, len(agent.Spec.Memberships))
+	seen := map[string]struct{}{}
+	for _, membership := range agent.Spec.Memberships {
+		if _, exists := seen[membership.Organization]; exists {
+			continue
+		}
+		seen[membership.Organization] = struct{}{}
+		requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKey{Name: membership.Organization}})
+	}
+	return requests
+}
+
+func (r *OrganizationReconciler) organizationForCredentialSecret(ctx context.Context, object client.Object) []reconcile.Request {
+	secret, ok := object.(*corev1.Secret)
+	if !ok || !strings.HasPrefix(secret.Namespace, "org-") {
+		return nil
+	}
+	name := strings.TrimPrefix(secret.Namespace, "org-")
+	organization := &aioutfitterv1alpha1.Organization{}
+	if err := r.Get(ctx, client.ObjectKey{Name: name}, organization); err != nil || organization.Spec.Forge == nil {
+		return nil
+	}
+	if organizationCredentialSecretName(organization) != secret.Name {
+		return nil
+	}
+	return []reconcile.Request{{NamespacedName: client.ObjectKey{Name: name}}}
 }

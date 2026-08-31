@@ -75,7 +75,8 @@ const (
 	// libraries expect.
 	APITokenVolumeName             = "agent-api-access"
 	APITokenMountPath              = "/var/run/secrets/kubernetes.io/serviceaccount"
-	A2ACredentialsSecretName       = "agent-runtime-a2a"
+	A2ACredentialsSecretName       = "agent-runtime-a2a" // legacy v0.11 migration source
+	A2ACredentialsVolumeName       = "a2a-credentials"
 	A2ACredentialsMount            = "/var/run/agent/a2a"
 	A2APort                  int32 = 8788
 )
@@ -413,8 +414,11 @@ func (r *AgentReconciler) ensureAgentDeployment(
 				corev1.EnvVar{Name: "A2A_CREDENTIALS_PATH", Value: path.Join(A2ACredentialsMount, "credentials.json")},
 			)
 			container.Ports = append(container.Ports, corev1.ContainerPort{Name: "a2a", ContainerPort: A2APort})
-			container.VolumeMounts = append(container.VolumeMounts, corev1.VolumeMount{Name: "a2a-credentials", MountPath: A2ACredentialsMount, ReadOnly: true})
-			volumes = append(volumes, corev1.Volume{Name: "a2a-credentials", VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{SecretName: A2ACredentialsSecretName}}})
+			container.VolumeMounts = append(container.VolumeMounts, corev1.VolumeMount{Name: A2ACredentialsVolumeName, MountPath: A2ACredentialsMount, ReadOnly: true})
+			volumes = append(volumes, corev1.Volume{Name: A2ACredentialsVolumeName, VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{
+				SecretName: agentCredentialSecretName(agent),
+				Items:      []corev1.KeyToPath{{Key: agentA2ACredentialsKey, Path: "credentials.json"}},
+			}}})
 		}
 		// The persistent /nix store exists only for the closure image variant
 		// (see imageNeedsNixStore); the Debian-base images carry their runtime
@@ -424,10 +428,10 @@ func (r *AgentReconciler) ensureAgentDeployment(
 				corev1.VolumeMount{Name: NixStoreName, MountPath: NixMount})
 			volumes = append(volumes, pvcVolume(NixStoreName))
 		}
-		credentialEnvFrom, credentialMounts, credentialVolumes := credentialProjection(agent)
-		container.EnvFrom = credentialEnvFrom
-		container.VolumeMounts = append(container.VolumeMounts, credentialMounts...)
-		volumes = append(volumes, credentialVolumes...)
+		inputEnvFrom, inputMounts, inputVolumes := inputProjection(agent)
+		container.EnvFrom = inputEnvFrom
+		container.VolumeMounts = append(container.VolumeMounts, inputMounts...)
+		volumes = append(volumes, inputVolumes...)
 
 		initContainers := make([]corev1.Container, 0, len(agent.Spec.Setup)+2)
 		if needsNixStore {
@@ -443,7 +447,7 @@ func (r *AgentReconciler) ensureAgentDeployment(
 			})
 		}
 		if sync := agent.Spec.CatalogSync; sync != nil && sync.Enabled {
-			mounts := append([]corev1.VolumeMount{}, credentialMounts...)
+			mounts := append([]corev1.VolumeMount{}, inputMounts...)
 			mounts = append(mounts,
 				corev1.VolumeMount{Name: WorkspaceName, MountPath: WorkspaceMount},
 				corev1.VolumeMount{Name: SettingsName, MountPath: path.Join(WorkspaceMount, ".agents"), ReadOnly: true},
@@ -456,13 +460,13 @@ func (r *AgentReconciler) ensureAgentDeployment(
 				Image:           runtimeImage,
 				ImagePullPolicy: corev1.PullIfNotPresent,
 				Command:         []string{"sh", "-c", catalogSyncScript},
-				EnvFrom:         credentialEnvFrom,
+				EnvFrom:         inputEnvFrom,
 				Env:             []corev1.EnvVar{{Name: HomeEnvName, Value: WorkspaceMount}},
 				VolumeMounts:    mounts,
 			})
 		}
 		for _, step := range agent.Spec.Setup {
-			mounts := append([]corev1.VolumeMount{}, credentialMounts...)
+			mounts := append([]corev1.VolumeMount{}, inputMounts...)
 			mounts = append(mounts,
 				corev1.VolumeMount{Name: WorkspaceName, MountPath: WorkspaceMount})
 			if needsNixStore {
@@ -481,7 +485,7 @@ func (r *AgentReconciler) ensureAgentDeployment(
 				Image:           runtimeImage,
 				ImagePullPolicy: corev1.PullIfNotPresent,
 				Command:         []string{"sh", "-c", step.Script},
-				EnvFrom:         credentialEnvFrom,
+				EnvFrom:         inputEnvFrom,
 				Env:             []corev1.EnvVar{{Name: HomeEnvName, Value: WorkspaceMount}},
 				VolumeMounts:    mounts,
 			})
@@ -615,14 +619,23 @@ func (r *AgentReconciler) credentialEnvironmentKeys(
 		reader = r.Client
 	}
 	keys := make(map[string]bool)
-	for _, reference := range agent.Spec.Credentials {
-		if reference.As != aioutfitterv1alpha1.CredentialExposureEnv {
-			continue
+	objectKey := types.NamespacedName{Namespace: agentNamespace(agent.Name), Name: agentCredentialSecretName(agent)}
+	standard := &corev1.Secret{}
+	if err := reader.Get(ctx, objectKey, standard); err != nil {
+		if !apierrors.IsNotFound(err) {
+			return nil, err
 		}
+	} else {
+		for key := range standard.Data {
+			keys[key] = true
+		}
+	}
+	for i := range agent.Spec.EnvFrom {
+		reference := &agent.Spec.EnvFrom[i]
 		objectKey := types.NamespacedName{Namespace: agentNamespace(agent.Name)}
-		if reference.Secret != nil {
+		if reference.SecretRef != nil {
 			secret := &corev1.Secret{}
-			objectKey.Name = *reference.Secret
+			objectKey.Name = reference.SecretRef.Name
 			if err := reader.Get(ctx, objectKey, secret); err != nil {
 				if apierrors.IsNotFound(err) {
 					continue
@@ -635,7 +648,7 @@ func (r *AgentReconciler) credentialEnvironmentKeys(
 			continue
 		}
 		config := &corev1.ConfigMap{}
-		objectKey.Name = *reference.ConfigMap
+		objectKey.Name = reference.ConfigMapRef.Name
 		if err := reader.Get(ctx, objectKey, config); err != nil {
 			if apierrors.IsNotFound(err) {
 				continue
@@ -652,51 +665,18 @@ func (r *AgentReconciler) credentialEnvironmentKeys(
 	return keys, nil
 }
 
-func credentialProjection(
+func inputProjection(
 	agent *aioutfitterv1alpha1.Agent,
 ) (envFrom []corev1.EnvFromSource, mounts []corev1.VolumeMount, volumes []corev1.Volume) {
-	for _, reference := range agent.Spec.Credentials {
-		name, kind := credentialObject(reference)
-		if reference.As == aioutfitterv1alpha1.CredentialExposureEnv {
-			envSource := corev1.EnvFromSource{}
-			if kind == credentialKindSecret {
-				envSource.SecretRef = &corev1.SecretEnvSource{LocalObjectReference: corev1.LocalObjectReference{Name: name}}
-			} else {
-				envSource.ConfigMapRef = &corev1.ConfigMapEnvSource{LocalObjectReference: corev1.LocalObjectReference{Name: name}}
-			}
-			envFrom = append(envFrom, envSource)
-			continue
-		}
-
-		volumeName := credentialVolumeName(kind, name)
-		volume := corev1.Volume{Name: volumeName}
-		mountPath := path.Join(CredentialsRoot, strings.ToLower(kind)+"s", name)
-		if kind == credentialKindSecret {
-			volume.Secret = &corev1.SecretVolumeSource{SecretName: name}
-		} else {
-			volume.ConfigMap = &corev1.ConfigMapVolumeSource{LocalObjectReference: corev1.LocalObjectReference{Name: name}}
-		}
-		volumes = append(volumes, volume)
-		mounts = append(mounts, corev1.VolumeMount{
-			Name:      volumeName,
-			MountPath: mountPath,
-			ReadOnly:  true,
-		})
+	envFrom = append(envFrom, corev1.EnvFromSource{SecretRef: &corev1.SecretEnvSource{
+		LocalObjectReference: corev1.LocalObjectReference{Name: agentCredentialSecretName(agent)},
+	}})
+	envFrom = append(envFrom, agent.Spec.EnvFrom...)
+	mounts = append(mounts, agent.Spec.VolumeMounts...)
+	for i := range agent.Spec.Volumes {
+		volumes = append(volumes, *agent.Spec.Volumes[i].DeepCopy())
 	}
 	return envFrom, mounts, volumes
-}
-
-func credentialVolumeName(kind, name string) string {
-	prefix := "config-"
-	if kind == credentialKindSecret {
-		prefix = "secret-"
-	}
-	value := prefix + name
-	if len(value) > 63 {
-		value = value[:63]
-		value = strings.TrimRight(value, "-")
-	}
-	return value
 }
 
 const browserDataName = "browser-data"

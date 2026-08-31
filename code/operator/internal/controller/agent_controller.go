@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"path"
 	"slices"
 	"strings"
 	"time"
@@ -15,7 +16,6 @@ import (
 	apiMeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -117,12 +117,19 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	}
 	setAgentCondition(agent, aioutfitterv1alpha1.AgentConditionWorkspaceReady, metav1.ConditionTrue, "Ready", "Agent workspace guardrails are ready")
 
+	credentialInheritanceMissing, err := r.ensureStandardAgentCredentials(ctx, agent, organization)
+	if err != nil {
+		setAgentCondition(agent, aioutfitterv1alpha1.AgentConditionCredentialsReady, metav1.ConditionFalse, "CredentialReconcileFailed", "Standard credentials could not be reconciled")
+		return r.finishAgent(ctx, statusBase, agent, ctrl.Result{}, err)
+	}
 	missingCredentials, err := r.missingCredentialReferences(ctx, agent)
 	if err != nil {
 		setAgentCondition(agent, aioutfitterv1alpha1.AgentConditionCredentialsReady, metav1.ConditionFalse, "CredentialCheckFailed", "Referenced objects could not be checked")
 		blockAgentConditions(agent, aioutfitterv1alpha1.AgentConditionOutfitterSettingsReady, "CredentialsUnknown", "Credential readiness is unknown")
 		return r.finishAgent(ctx, statusBase, agent, ctrl.Result{}, err)
 	}
+	missingCredentials = append(missingCredentials, credentialInheritanceMissing...)
+	slices.Sort(missingCredentials)
 	if len(missingCredentials) > 0 {
 		setAgentCondition(agent, aioutfitterv1alpha1.AgentConditionCredentialsReady, metav1.ConditionFalse, "ObjectsMissing", "Missing referenced objects: "+strings.Join(missingCredentials, ", "))
 	} else {
@@ -187,6 +194,9 @@ func (r *AgentReconciler) validateAgent(
 		!hasComputeDefaults(agent.Spec.Workspace.LimitRange.Container.Default) {
 		return nil, "LimitRange defaults must include CPU and memory requests and limits", nil
 	}
+	if message := inputValidationMessage(agent); message != "" {
+		return nil, message, nil
+	}
 
 	membership := agent.Spec.Memberships[0]
 	organization := &aioutfitterv1alpha1.Organization{}
@@ -211,6 +221,49 @@ func (r *AgentReconciler) validateAgent(
 	return organization, "", nil
 }
 
+func inputValidationMessage(agent *aioutfitterv1alpha1.Agent) string {
+	for i := range agent.Spec.EnvFrom {
+		source := &agent.Spec.EnvFrom[i]
+		if (source.SecretRef == nil) == (source.ConfigMapRef == nil) {
+			return fmt.Sprintf("envFrom[%d] must select exactly one Secret or ConfigMap", i)
+		}
+	}
+	reservedVolumes := map[string]struct{}{
+		WorkspaceName: {}, SettingsName: {}, NixStoreName: {}, APITokenVolumeName: {}, A2ACredentialsVolumeName: {}, browserDataName: {},
+	}
+	volumeNames := map[string]struct{}{}
+	for i := range agent.Spec.Volumes {
+		volume := &agent.Spec.Volumes[i]
+		if _, reserved := reservedVolumes[volume.Name]; reserved {
+			return fmt.Sprintf("Volume %q uses a reserved name", volume.Name)
+		}
+		if (volume.Secret == nil) == (volume.ConfigMap == nil) {
+			return fmt.Sprintf("Volume %q must select exactly one Secret or ConfigMap", volume.Name)
+		}
+		volumeNames[volume.Name] = struct{}{}
+	}
+	reservedPaths := []string{WorkspaceMount, NixMount, A2ACredentialsMount, CredentialsRoot, APITokenMountPath}
+	for i := range agent.Spec.VolumeMounts {
+		mount := &agent.Spec.VolumeMounts[i]
+		if _, declared := volumeNames[mount.Name]; !declared {
+			return fmt.Sprintf("VolumeMount %q does not reference a declared input volume", mount.Name)
+		}
+		if !mount.ReadOnly {
+			return fmt.Sprintf("VolumeMount %q must be read-only", mount.Name)
+		}
+		cleaned := path.Clean(mount.MountPath)
+		if !path.IsAbs(cleaned) {
+			return fmt.Sprintf("VolumeMount %q must use an absolute mount path", mount.Name)
+		}
+		for _, reserved := range reservedPaths {
+			if cleaned == reserved || strings.HasPrefix(cleaned, reserved+"/") || strings.HasPrefix(reserved, cleaned+"/") {
+				return fmt.Sprintf("VolumeMount %q overlaps reserved path %q", mount.Name, reserved)
+			}
+		}
+	}
+	return ""
+}
+
 func (r *AgentReconciler) missingCredentialReferences(
 	ctx context.Context,
 	agent *aioutfitterv1alpha1.Agent,
@@ -220,31 +273,46 @@ func (r *AgentReconciler) missingCredentialReferences(
 		reader = r.Client
 	}
 	missing := make([]string, 0)
-	for _, reference := range agent.Spec.Credentials {
-		name, kind := credentialObject(reference)
-		metadata := &metav1.PartialObjectMetadata{}
-		metadata.SetGroupVersionKind(schema.GroupVersionKind{Group: "", Version: "v1", Kind: kind})
-		err := reader.Get(ctx, types.NamespacedName{Namespace: agentNamespace(agent.Name), Name: name}, metadata)
+	namespace := agentNamespace(agent.Name)
+	check := func(kind, name string, object client.Object) error {
+		err := reader.Get(ctx, types.NamespacedName{Namespace: namespace, Name: name}, object)
 		if apierrors.IsNotFound(err) {
 			missing = append(missing, kind+"/"+name)
-			continue
+			return nil
 		}
-		if err != nil {
-			return nil, err
+		return err
+	}
+	if err := check(credentialKindSecret, agentCredentialSecretName(agent), &corev1.Secret{}); err != nil {
+		return nil, err
+	}
+	for i := range agent.Spec.EnvFrom {
+		source := &agent.Spec.EnvFrom[i]
+		if source.SecretRef != nil {
+			if err := check(credentialKindSecret, source.SecretRef.Name, &corev1.Secret{}); err != nil {
+				return nil, err
+			}
+		}
+		if source.ConfigMapRef != nil {
+			if err := check(credentialKindConfig, source.ConfigMapRef.Name, &corev1.ConfigMap{}); err != nil {
+				return nil, err
+			}
+		}
+	}
+	for i := range agent.Spec.Volumes {
+		volume := &agent.Spec.Volumes[i]
+		if volume.Secret != nil {
+			if err := check(credentialKindSecret, volume.Secret.SecretName, &corev1.Secret{}); err != nil {
+				return nil, err
+			}
+		}
+		if volume.ConfigMap != nil {
+			if err := check(credentialKindConfig, volume.ConfigMap.Name, &corev1.ConfigMap{}); err != nil {
+				return nil, err
+			}
 		}
 	}
 	slices.Sort(missing)
 	return missing, nil
-}
-
-func credentialObject(reference aioutfitterv1alpha1.CredentialReference) (string, string) {
-	if reference.Secret != nil {
-		return *reference.Secret, credentialKindSecret
-	}
-	if reference.ConfigMap != nil {
-		return *reference.ConfigMap, credentialKindConfig
-	}
-	return "", "Unknown"
 }
 
 func (r *AgentReconciler) finalizeAgent(ctx context.Context, agent *aioutfitterv1alpha1.Agent) (ctrl.Result, error) {
@@ -408,6 +476,8 @@ func (r *AgentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(&corev1.ResourceQuota{}, managed).
 		Watches(&corev1.LimitRange{}, managed).
 		Watches(&corev1.PersistentVolumeClaim{}, managed).
+		Watches(&corev1.Secret{}, managed).
+		Watches(&corev1.ConfigMap{}, managed).
 		Watches(&rbacv1.RoleBinding{}, managed).
 		Watches(&appsv1.Deployment{}, managed).
 		Named("agent").

@@ -95,7 +95,7 @@ func main() {
 	// imageNeedsNixStore), so the default gets no seed init container or store PVC.
 	flag.StringVar(&agentImage, "agent-image", "ghcr.io/ai-outfitter/outfitter:1.5.0",
 		"Default agent runtime image, used when an Agent does not set spec.image. Deployments should pin a digest.")
-	flag.StringVar(&gatewayImage, "gateway-image", "ghcr.io/ai-outfitter/agent-operator:agent-operator-v0.11.1",
+	flag.StringVar(&gatewayImage, "gateway-image", "ghcr.io/ai-outfitter/agent-operator:agent-operator-v0.12.0",
 		"Agent Operator image used by organization forge gateways.")
 	// Reported on Agent.status.outfitterRevision. This is a third hand-maintained pin of one
 	// dependency, after flake.lock and devenv.lock, and it had already drifted: it claimed

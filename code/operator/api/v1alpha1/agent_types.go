@@ -67,31 +67,6 @@ type GitHubSpec struct {
 	Filters []string `json:"filters,omitempty"`
 }
 
-// CredentialExposure controls how a referenced object reaches the runtime.
-// +kubebuilder:validation:Enum=env;volume
-type CredentialExposure string
-
-const (
-	CredentialExposureEnv    CredentialExposure = "env"
-	CredentialExposureVolume CredentialExposure = "volume"
-)
-
-// CredentialReference identifies one object by name only. The operator checks
-// existence and, for env exposure, reserved runtime-configuration migration
-// key names; it does not validate values or other key-level contracts.
-// +kubebuilder:validation:XValidation:rule="has(self.secret) != has(self.configMap)",message="exactly one of secret or configMap must be set"
-type CredentialReference struct {
-	// +optional
-	// +kubebuilder:validation:MinLength=1
-	Secret *string `json:"secret,omitempty"`
-
-	// +optional
-	// +kubebuilder:validation:MinLength=1
-	ConfigMap *string `json:"configMap,omitempty"`
-
-	As CredentialExposure `json:"as"`
-}
-
 // BrowserSpec configures an optional headless-Chrome sidecar container. The
 // sidecar serves the Chrome DevTools Protocol on 127.0.0.1:9222 inside the
 // Pod, so a browser MCP server in the agent container attaches over pod-shared
@@ -204,6 +179,11 @@ type AgentSpec struct {
 
 	Profile AgentProfile `json:"profile"`
 
+	// CredentialSecretName selects the Agent's single standard Secret.
+	// +kubebuilder:default="agent-credentials"
+	// +kubebuilder:validation:MinLength=1
+	CredentialSecretName string `json:"credentialSecretName,omitempty"`
+
 	// Forge declares this resident's identity on its Organization forge.
 	// +optional
 	Forge *AgentForgeSpec `json:"forge,omitempty"`
@@ -225,9 +205,24 @@ type AgentSpec struct {
 	// +optional
 	Browser *BrowserSpec `json:"browser,omitempty"`
 
-	// +listType=atomic
+	// EnvFrom adds Kubernetes-native Secret and ConfigMap environment sources
+	// after the standard credential Secret.
 	// +optional
-	Credentials []CredentialReference `json:"credentials,omitempty"`
+	EnvFrom []corev1.EnvFromSource `json:"envFrom,omitempty"`
+
+	// Volumes accepts read-only Secret and ConfigMap inputs for the Agent and
+	// its setup containers. Other Kubernetes volume sources are rejected.
+	// +listType=map
+	// +listMapKey=name
+	// +optional
+	Volumes []corev1.Volume `json:"volumes,omitempty"`
+
+	// VolumeMounts attaches declared input volumes to the Agent and setup
+	// containers.
+	// +listType=map
+	// +listMapKey=name
+	// +optional
+	VolumeMounts []corev1.VolumeMount `json:"volumeMounts,omitempty"`
 
 	// CatalogSync asks the operator to synchronize the resolved Organization
 	// catalog before user setup steps and the resident runtime start. The sync
