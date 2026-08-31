@@ -141,6 +141,14 @@ type CatalogSyncSpec struct {
 	Enabled bool `json:"enabled"`
 }
 
+// AgentForgeSpec declares the case-preserving login used to route forge events.
+type AgentForgeSpec struct {
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=255
+	// +kubebuilder:validation:Pattern=`^[A-Za-z0-9_.-]+$`
+	Username string `json:"username"`
+}
+
 // ResourceQuotaSpec contains the aggregate namespace hard limits.
 // +kubebuilder:validation:XValidation:rule="self.hard.size() > 0",message="resourceQuota.hard must not be empty"
 type ResourceQuotaSpec struct {
@@ -195,6 +203,10 @@ type AgentSpec struct {
 	Image string `json:"image,omitempty"`
 
 	Profile AgentProfile `json:"profile"`
+
+	// Forge declares this resident's identity on its Organization forge.
+	// +optional
+	Forge *AgentForgeSpec `json:"forge,omitempty"`
 
 	// Channels explicitly selects the resident runtime's channel sources. When
 	// omitted, the runtime retains its own source-discovery behavior.

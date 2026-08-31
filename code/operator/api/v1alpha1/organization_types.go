@@ -1,6 +1,7 @@
 package v1alpha1
 
 import (
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
@@ -8,10 +9,45 @@ import (
 const (
 	OrganizationFinalizer = "organizations.aioutfitter.com/finalizer"
 
-	OrganizationConditionAccepted            = "Accepted"
-	OrganizationConditionCatalogSourcesReady = "CatalogSourcesReady"
-	OrganizationConditionReady               = "Ready"
+	OrganizationConditionAccepted             = "Accepted"
+	OrganizationConditionCatalogSourcesReady  = "CatalogSourcesReady"
+	OrganizationConditionForgeGatewayReady    = "ForgeGatewayReady"
+	OrganizationConditionForgeRoutesReady     = "ForgeRoutesReady"
+	OrganizationConditionWebhookEndpointReady = "WebhookEndpointReady"
+	OrganizationConditionReady                = "Ready"
 )
+
+// ForgeWebhookSpec configures the public signed-webhook endpoint.
+type ForgeWebhookSpec struct {
+	// +kubebuilder:validation:MinLength=1
+	Host string `json:"host"`
+	// +kubebuilder:validation:MinLength=1
+	SecretName string `json:"secretName"`
+	// +optional
+	IngressClassName *string `json:"ingressClassName,omitempty"`
+	// +optional
+	TLSSecretName *string `json:"tlsSecretName,omitempty"`
+}
+
+// ForgeSpoolSpec configures the durable SQLite delivery spool.
+type ForgeSpoolSpec struct {
+	// +kubebuilder:default="1Gi"
+	Size resource.Quantity `json:"size,omitempty"`
+	// +optional
+	StorageClassName *string `json:"storageClassName,omitempty"`
+}
+
+// OrganizationForgeSpec configures one isolated organization gateway.
+type OrganizationForgeSpec struct {
+	// +kubebuilder:validation:Enum=forgejo
+	Provider string `json:"provider"`
+	// +kubebuilder:validation:MinLength=1
+	Owner string `json:"owner"`
+	// +kubebuilder:validation:Format=uri
+	ServerURL string           `json:"serverURL"`
+	Webhook   ForgeWebhookSpec `json:"webhook"`
+	Spool     ForgeSpoolSpec   `json:"spool"`
+}
 
 // Repository declares a generic Git repository owned by an organization.
 type Repository struct {
@@ -94,6 +130,10 @@ type Project struct {
 type OrganizationSpec struct {
 	// +optional
 	DisplayName string `json:"displayName,omitempty"`
+
+	// Forge configures signed event delivery to Organization members.
+	// +optional
+	Forge *OrganizationForgeSpec `json:"forge,omitempty"`
 
 	// +listType=map
 	// +listMapKey=name

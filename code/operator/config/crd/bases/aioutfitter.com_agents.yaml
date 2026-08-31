@@ -187,6 +187,18 @@ spec:
                     rule: has(self.secret) != has(self.configMap)
                 type: array
                 x-kubernetes-list-type: atomic
+              forge:
+                description: Forge declares this resident's identity on its Organization
+                  forge.
+                properties:
+                  username:
+                    maxLength: 255
+                    minLength: 1
+                    pattern: ^[A-Za-z0-9_.-]+$
+                    type: string
+                required:
+                - username
+                type: object
               github:
                 description: GitHub configures notification routing and cadence for
                   resident agents.
