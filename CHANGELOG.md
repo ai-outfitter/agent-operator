@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.11.1](https://github.com/ai-outfitter/agent-operator/compare/agent-operator-v0.11.0...agent-operator-v0.11.1) (2026-08-31)
+
+
+### Bug Fixes
+
+* **forge:** run gateway from operator image ([8a1ee31](https://github.com/ai-outfitter/agent-operator/commit/8a1ee31f23df11b0c2f5b471cdab775c2ee61227))
+* **forge:** run gateway from operator image ([bf4e40a](https://github.com/ai-outfitter/agent-operator/commit/bf4e40a30f65e63469b1acbebf68f7a88f91408d))
+
 ## [0.11.0](https://github.com/ai-outfitter/agent-operator/compare/agent-operator-v0.10.0...agent-operator-v0.11.0) (2026-08-31)
 
 
