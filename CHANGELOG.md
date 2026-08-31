@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.12.0](https://github.com/ai-outfitter/agent-operator/compare/agent-operator-v0.11.1...agent-operator-v0.12.0) (2026-08-31)
+
+
+### ⚠ BREAKING CHANGES
+
+* **api:** standardize organization and agent credentials
+
+### Features
+
+* **api:** standardize organization and agent credentials ([d796f28](https://github.com/ai-outfitter/agent-operator/commit/d796f2883a77b557899b741e88e9f6fd0e235d12))
+
 ## [0.11.1](https://github.com/ai-outfitter/agent-operator/compare/agent-operator-v0.11.0...agent-operator-v0.11.1) (2026-08-31)
 
 
