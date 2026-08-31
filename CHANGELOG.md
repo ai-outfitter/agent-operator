@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.11.0](https://github.com/ai-outfitter/agent-operator/compare/agent-operator-v0.10.0...agent-operator-v0.11.0) (2026-08-31)
+
+
+### Features
+
+* **api:** declare per-Agent forge identity ([a30b046](https://github.com/ai-outfitter/agent-operator/commit/a30b0464160c101daf0eee89c445392c28f118a8))
+* ForgeIntegration — per-org forge-app, AgentTask queue, scale-to-zero, task bridge, provisioner ([76c0716](https://github.com/ai-outfitter/agent-operator/commit/76c0716df7fb302278969c310d71880dcd440983))
+* **forgejo:** route signed organization events over A2A ([0530802](https://github.com/ai-outfitter/agent-operator/commit/0530802995a80b23605ee523139fbc770f61129c))
+* **forge:** reconcile isolated multi-agent gateways ([de4549b](https://github.com/ai-outfitter/agent-operator/commit/de4549bf3c337a3e3d8b8345356a9e26b66c6037))
+
 ## [0.10.0](https://github.com/ai-outfitter/agent-operator/compare/agent-operator-v0.9.2...agent-operator-v0.10.0) (2026-08-29)
 
 
