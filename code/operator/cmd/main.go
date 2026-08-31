@@ -2,8 +2,12 @@ package main
 
 import (
 	"crypto/tls"
+	"encoding/json"
 	"flag"
+	"log/slog"
+	"net/http"
 	"os"
+	"time"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -23,6 +27,7 @@ import (
 
 	aioutfitterv1alpha1 "github.com/ai-outfitter/agent-operator/code/operator/api/v1alpha1"
 	"github.com/ai-outfitter/agent-operator/code/operator/internal/controller"
+	"github.com/ai-outfitter/agent-operator/code/operator/internal/forgegateway"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -40,6 +45,10 @@ func init() {
 
 // nolint:gocyclo
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "forge-gateway" {
+		runForgeGateway()
+		return
+	}
 	var metricsAddr string
 	var agentImage string
 	var outfitterRevision string
@@ -197,8 +206,7 @@ func main() {
 	}
 
 	if err := (&controller.OrganizationReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client: mgr.GetClient(), Scheme: mgr.GetScheme(), AgentImage: agentImage,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "organization")
 		os.Exit(1)
@@ -227,6 +235,32 @@ func main() {
 	setupLog.Info("Starting manager")
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
 		setupLog.Error(err, "Failed to run manager")
+		os.Exit(1)
+	}
+}
+
+func runForgeGateway() {
+	var routes []forgegateway.Route
+	if err := json.Unmarshal([]byte(os.Getenv("FORGE_ROUTES")), &routes); err != nil {
+		slog.Error("invalid FORGE_ROUTES", "error", err)
+		os.Exit(2)
+	}
+	gateway, err := forgegateway.Open(forgegateway.Config{
+		Organization: os.Getenv("ORGANIZATION"), Owner: os.Getenv("FORGE_OWNER"),
+		Secret: os.Getenv("FORGE_WEBHOOK_SECRET"), SpoolPath: os.Getenv("SPOOL_PATH"), Routes: routes,
+	})
+	if err != nil {
+		slog.Error("open forge gateway", "error", err)
+		os.Exit(1)
+	}
+	defer func() { _ = gateway.Close() }()
+	address := os.Getenv("LISTEN_ADDR")
+	if address == "" {
+		address = ":8080"
+	}
+	server := &http.Server{Addr: address, Handler: gateway.Handler(), ReadHeaderTimeout: 10 * time.Second}
+	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		slog.Error("serve forge gateway", "error", err)
 		os.Exit(1)
 	}
 }

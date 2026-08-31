@@ -73,8 +73,11 @@ const (
 	// unsandboxed browser) never see the agent-runtime credentials; the token
 	// is mounted into the agent container only, at the well-known path client
 	// libraries expect.
-	APITokenVolumeName = "agent-api-access"
-	APITokenMountPath  = "/var/run/secrets/kubernetes.io/serviceaccount"
+	APITokenVolumeName             = "agent-api-access"
+	APITokenMountPath              = "/var/run/secrets/kubernetes.io/serviceaccount"
+	A2ACredentialsSecretName       = "agent-runtime-a2a"
+	A2ACredentialsMount            = "/var/run/agent/a2a"
+	A2APort                  int32 = 8788
 )
 
 // apiTokenExpirationSeconds matches the kubelet-managed kube-api-access
@@ -303,8 +306,8 @@ func (r *AgentReconciler) ensureAgentDeployment(
 	runtimeImage := r.agentImage(agent)
 	needsNixStore := imageNeedsNixStore(runtimeImage)
 	selectorLabels := map[string]string{
-		"app.kubernetes.io/name":     "agent-runtime",
-		"app.kubernetes.io/instance": agent.Name,
+		appNameLabel:     RuntimeName,
+		appInstanceLabel: agent.Name,
 	}
 	maps.Copy(selectorLabels, labels)
 	runtimeConfigEnv, err := r.runtimeConfigurationEnvironment(ctx, agent, organization)
@@ -401,6 +404,17 @@ func (r *AgentReconciler) ensureAgentDeployment(
 				}},
 			},
 			apiTokenVolume(),
+		}
+		if agent.Spec.Forge != nil {
+			container.Env = append(container.Env,
+				corev1.EnvVar{Name: "A2A_SERVER", Value: "1"},
+				corev1.EnvVar{Name: "A2A_HOST", Value: "0.0.0.0"},
+				corev1.EnvVar{Name: "A2A_PORT", Value: strconv.Itoa(int(A2APort))},
+				corev1.EnvVar{Name: "A2A_CREDENTIALS_PATH", Value: path.Join(A2ACredentialsMount, "credentials.json")},
+			)
+			container.Ports = append(container.Ports, corev1.ContainerPort{Name: "a2a", ContainerPort: A2APort})
+			container.VolumeMounts = append(container.VolumeMounts, corev1.VolumeMount{Name: "a2a-credentials", MountPath: A2ACredentialsMount, ReadOnly: true})
+			volumes = append(volumes, corev1.Volume{Name: "a2a-credentials", VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{SecretName: A2ACredentialsSecretName}}})
 		}
 		// The persistent /nix store exists only for the closure image variant
 		// (see imageNeedsNixStore); the Debian-base images carry their runtime

@@ -99,6 +99,59 @@ spec:
                 x-kubernetes-list-type: map
               displayName:
                 type: string
+              forge:
+                description: Forge configures signed event delivery to Organization
+                  members.
+                properties:
+                  owner:
+                    minLength: 1
+                    type: string
+                  provider:
+                    enum:
+                    - forgejo
+                    type: string
+                  serverURL:
+                    format: uri
+                    type: string
+                  spool:
+                    description: ForgeSpoolSpec configures the durable SQLite delivery
+                      spool.
+                    properties:
+                      size:
+                        anyOf:
+                        - type: integer
+                        - type: string
+                        default: 1Gi
+                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                        x-kubernetes-int-or-string: true
+                      storageClassName:
+                        type: string
+                    type: object
+                  webhook:
+                    description: ForgeWebhookSpec configures the public signed-webhook
+                      endpoint.
+                    properties:
+                      host:
+                        minLength: 1
+                        type: string
+                      ingressClassName:
+                        type: string
+                      secretName:
+                        minLength: 1
+                        type: string
+                      tlsSecretName:
+                        type: string
+                    required:
+                    - host
+                    - secretName
+                    type: object
+                required:
+                - owner
+                - provider
+                - serverURL
+                - spool
+                - webhook
+                type: object
               projects:
                 items:
                   description: |-
