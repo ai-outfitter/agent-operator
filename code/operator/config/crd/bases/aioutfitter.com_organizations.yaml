@@ -140,6 +140,22 @@ spec:
                 - serverURL
                 - spool
                 type: object
+              networkPolicy:
+                description: |-
+                  NetworkPolicy supplies the default for member Agents that do not declare
+                  their own setting. When omitted, Agent Pod networking is unmanaged.
+                properties:
+                  mode:
+                    description: |-
+                      Mode defaults to Unmanaged. Isolated denies all ingress and egress except
+                      DNS and traffic admitted by additional NetworkPolicy resources.
+                    enum:
+                    - Unmanaged
+                    - Isolated
+                    type: string
+                required:
+                - mode
+                type: object
               projects:
                 items:
                   description: |-

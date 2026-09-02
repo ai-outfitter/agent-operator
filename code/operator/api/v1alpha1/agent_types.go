@@ -12,12 +12,29 @@ const (
 
 	AgentConditionAccepted               = "Accepted"
 	AgentConditionNamespaceReady         = "NamespaceReady"
+	AgentConditionNetworkPolicyReady     = "NetworkPolicyReady"
 	AgentConditionWorkspaceReady         = "WorkspaceReady"
 	AgentConditionCredentialsReady       = "CredentialsReady"
 	AgentConditionOutfitterSettingsReady = "OutfitterSettingsReady"
 	AgentConditionWorkloadReady          = "WorkloadReady"
 	AgentConditionReady                  = "Ready"
 )
+
+// NetworkPolicyMode controls whether the operator isolates an Agent Pod.
+// +kubebuilder:validation:Enum=Unmanaged;Isolated
+type NetworkPolicyMode string
+
+const (
+	NetworkPolicyModeUnmanaged NetworkPolicyMode = "Unmanaged"
+	NetworkPolicyModeIsolated  NetworkPolicyMode = "Isolated"
+)
+
+// AgentNetworkPolicySpec configures the operator-owned network baseline.
+type AgentNetworkPolicySpec struct {
+	// Mode defaults to Unmanaged. Isolated denies all ingress and egress except
+	// DNS and traffic admitted by additional NetworkPolicy resources.
+	Mode NetworkPolicyMode `json:"mode"`
+}
 
 // Membership grants organization-level access and optionally names projects.
 type Membership struct {
@@ -204,6 +221,12 @@ type AgentSpec struct {
 	// Browser adds a headless-Chrome DevTools sidecar to the agent Pod.
 	// +optional
 	Browser *BrowserSpec `json:"browser,omitempty"`
+
+	// NetworkPolicy overrides the Organization network-policy default. When
+	// omitted, the Organization setting applies; if both are omitted, the
+	// operator leaves Agent Pod networking unmanaged.
+	// +optional
+	NetworkPolicy *AgentNetworkPolicySpec `json:"networkPolicy,omitempty"`
 
 	// EnvFrom adds Kubernetes-native Secret and ConfigMap environment sources
 	// after the standard credential Secret.

@@ -10,6 +10,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -36,6 +37,7 @@ const (
 var agentConditionOrder = []string{
 	aioutfitterv1alpha1.AgentConditionAccepted,
 	aioutfitterv1alpha1.AgentConditionNamespaceReady,
+	aioutfitterv1alpha1.AgentConditionNetworkPolicyReady,
 	aioutfitterv1alpha1.AgentConditionWorkspaceReady,
 	aioutfitterv1alpha1.AgentConditionCredentialsReady,
 	aioutfitterv1alpha1.AgentConditionOutfitterSettingsReady,
@@ -63,6 +65,7 @@ type AgentReconciler struct {
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=rolebindings,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterroles,resourceNames=admin,verbs=bind
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=networking.k8s.io,resources=networkpolicies,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile materializes the agent's namespace workspace and runtime.
 func (r *AgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -103,6 +106,13 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		return r.finishAgent(ctx, statusBase, agent, ctrl.Result{}, err)
 	}
 	setAgentCondition(agent, aioutfitterv1alpha1.AgentConditionNamespaceReady, metav1.ConditionTrue, "Ready", "Agent namespace is ready")
+
+	if err := r.ensureAgentNetworkPolicy(ctx, agent, organization); err != nil {
+		setAgentCondition(agent, aioutfitterv1alpha1.AgentConditionNetworkPolicyReady, metav1.ConditionFalse, "NetworkPolicyReconcileFailed", "Agent network policy could not be reconciled")
+		blockAgentConditions(agent, aioutfitterv1alpha1.AgentConditionWorkspaceReady, "NetworkPolicyNotReady", "Agent network policy is not ready")
+		return r.finishAgent(ctx, statusBase, agent, ctrl.Result{}, err)
+	}
+	setAgentCondition(agent, aioutfitterv1alpha1.AgentConditionNetworkPolicyReady, metav1.ConditionTrue, "Ready", "Agent network policy is reconciled")
 
 	quota, err := r.ensureWorkspaceResources(ctx, agent)
 	if err != nil {
@@ -479,6 +489,7 @@ func (r *AgentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(&corev1.Secret{}, managed).
 		Watches(&corev1.ConfigMap{}, managed).
 		Watches(&rbacv1.RoleBinding{}, managed).
+		Watches(&networkingv1.NetworkPolicy{}, managed).
 		Watches(&appsv1.Deployment{}, managed).
 		Named("agent").
 		Complete(r)
