@@ -129,7 +129,25 @@ The agent MUST treat this as a bounded-capacity result: clean up completed work,
 request a quota change, or report failure. It MUST NOT retry an unchanged
 quota-violating request indefinitely.
 
-## OPR-003.5: Credentials and configuration
+## OPR-003.5: Network policy
+
+`spec.networkPolicy.mode` MAY be `Unmanaged` or `Isolated`. The Agent setting
+MUST override `Organization.spec.networkPolicy`; if neither resource declares a
+mode, it MUST default to `Unmanaged`.
+
+In `Unmanaged` mode, the operator MUST NOT create a general Agent network
+policy. Cluster administrators MAY apply policies to the stable Agent Pod
+labels. In `Isolated` mode, the operator MUST select the complete Agent Pod,
+deny ingress and egress by default, and allow TCP and UDP DNS. Additional
+NetworkPolicy resources MAY grant environment-specific access because
+Kubernetes combines matching policies additively. The operator MUST continue
+to reconcile its separately owned control-path policies, such as forge-gateway
+A2A ingress.
+
+Network policy applies to the complete Pod, including the browser sidecar. The
+operator MUST NOT represent it as container-specific isolation.
+
+## OPR-003.6: Credentials and configuration
 
 `Agent.spec.credentials` references Secrets and ConfigMaps in the agent namespace
 **by name only** and declares how each is exposed to the runtime. The operator
@@ -163,7 +181,7 @@ migration, the same keys — including `OUTFITTER_CHANNELS` — in an env-expose
 credential Secret or ConfigMap win over the operator values, so existing runtime
 configuration keeps working.
 
-## OPR-003.6: Runtime execution and delegation
+## OPR-003.7: Runtime execution and delegation
 
 The controller runs the agent as a long-running Deployment and treats it as
 **opaque**. It launches the equivalent of `outfitter run <agent-slug> --harness
@@ -192,7 +210,7 @@ pages — are **untrusted data**. They MUST NOT override the selected agent poli
 or be treated as operator instructions. This rule holds at the agent layer
 regardless of channel.
 
-## OPR-003.7: Status
+## OPR-003.8: Status
 
 Status MUST include `observedGeneration`, `namespace`, the pinned Outfitter and
 catalog-source revisions, resolved image digest, and the ResourceQuota hard/used
@@ -200,6 +218,7 @@ summary. It MUST include Kubernetes conditions:
 
 - `Accepted`;
 - `NamespaceReady`;
+- `NetworkPolicyReady`;
 - `WorkspaceReady` for the admin binding, ResourceQuota, and LimitRange;
 - `CredentialsReady`;
 - `OutfitterSettingsReady`;
@@ -228,6 +247,9 @@ spec:
   profile:
     agent: researcher
     harness: pi
+  # Optional Agent override; omit to inherit the Organization or Unmanaged.
+  networkPolicy:
+    mode: Isolated
   credentials:
     # Names only. The operator exposes these but never inspects their contents.
     # Key-level contracts belong to the composed agent.

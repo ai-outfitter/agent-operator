@@ -12,6 +12,7 @@ import (
 	. "github.com/onsi/gomega/gstruct"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apiMeta "k8s.io/apimachinery/pkg/api/meta"
@@ -33,6 +34,40 @@ const (
 
 var _ = Describe("Agent Controller", func() {
 	ctx := context.Background()
+
+	It("inherits network isolation and permits an Agent override", func() {
+		organization := createAcceptedOrganization(ctx)
+		organization.Spec.NetworkPolicy = &aioutfitterv1alpha1.AgentNetworkPolicySpec{Mode: aioutfitterv1alpha1.NetworkPolicyModeIsolated}
+		Expect(k8sClient.Update(ctx, organization)).To(Succeed())
+
+		agent := validAgent(uniqueTestName(researcherAgentSlug), organization.Name)
+		Expect(k8sClient.Create(ctx, agent)).To(Succeed())
+		DeferCleanup(removeAgent, ctx, agent.Name)
+		namespace := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: agentNamespace(agent.Name)}}
+		Expect(k8sClient.Create(ctx, namespace)).To(Succeed())
+		DeferCleanup(func() { _ = k8sClient.Delete(ctx, namespace) })
+
+		reconciler := &AgentReconciler{Client: k8sClient}
+		Expect(reconciler.ensureAgentNetworkPolicy(ctx, agent, organization)).To(Succeed())
+		policy := &networkingv1.NetworkPolicy{}
+		key := types.NamespacedName{Namespace: namespace.Name, Name: AgentIsolationNetworkPolicyName}
+		Expect(k8sClient.Get(ctx, key, policy)).To(Succeed())
+		Expect(policy.Spec.PolicyTypes).To(ConsistOf(networkingv1.PolicyTypeIngress, networkingv1.PolicyTypeEgress))
+		Expect(policy.Spec.Ingress).To(BeEmpty())
+		Expect(policy.Spec.Egress).To(HaveLen(1))
+		Expect(policy.Spec.Egress[0].Ports).To(HaveLen(2))
+		Expect(reconciler.ensureAgentNetworkPolicy(ctx, agent, organization)).To(Succeed())
+
+		agent.Spec.NetworkPolicy = &aioutfitterv1alpha1.AgentNetworkPolicySpec{Mode: aioutfitterv1alpha1.NetworkPolicyModeUnmanaged}
+		Expect(reconciler.ensureAgentNetworkPolicy(ctx, agent, organization)).To(Succeed())
+		Expect(apierrors.IsNotFound(k8sClient.Get(ctx, key, policy))).To(BeTrue())
+	})
+
+	It("defaults network policy management to Unmanaged", func() {
+		organization := createAcceptedOrganization(ctx)
+		agent := validAgent(uniqueTestName(researcherAgentSlug), organization.Name)
+		Expect(effectiveNetworkPolicyMode(agent, organization)).To(Equal(aioutfitterv1alpha1.NetworkPolicyModeUnmanaged))
+	})
 
 	It("inherits Organization defaults while preserving Agent overrides", func() {
 		organization := createAcceptedOrganization(ctx)
