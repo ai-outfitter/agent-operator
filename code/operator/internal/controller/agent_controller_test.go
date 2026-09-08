@@ -29,6 +29,7 @@ const (
 	testRuntimeConfigName      = "runtime-config"
 	testRuntimeConfigMountPath = "/var/run/agent/inputs/runtime-config"
 	testInputConfigName        = "config"
+	testWorkflowID             = "software-factory"
 )
 
 var _ = Describe("Agent Controller", func() {
@@ -404,6 +405,7 @@ var _ = Describe("Agent Controller", func() {
 		agent.Spec.Volumes = []corev1.Volume{{Name: testRuntimeConfigName, VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{LocalObjectReference: corev1.LocalObjectReference{Name: configName}}}}}
 		agent.Spec.VolumeMounts = []corev1.VolumeMount{{Name: testRuntimeConfigName, MountPath: testRuntimeConfigMountPath, ReadOnly: true}}
 		agent.Spec.CatalogSync = &aioutfitterv1alpha1.CatalogSyncSpec{Enabled: true}
+		agent.Spec.TaskPlane = &aioutfitterv1alpha1.AgentTaskPlaneSpec{Workflow: testWorkflowID}
 		agent.Spec.Setup = []aioutfitterv1alpha1.SetupStep{
 			{Name: "wait-for-mail", Script: "echo mail-ready"},
 			{Name: "mail-bootstrap", Script: "echo setup-ready"},
@@ -453,7 +455,14 @@ var _ = Describe("Agent Controller", func() {
 		Expect(container.Env).To(ContainElements(
 			corev1.EnvVar{Name: "AGENT_SLUG", Value: researcherAgentSlug},
 			corev1.EnvVar{Name: "AGENT_HARNESS", Value: "pi"},
+			corev1.EnvVar{Name: "A2A_SERVER", Value: "1"},
+			corev1.EnvVar{Name: "A2A_HOST", Value: "0.0.0.0"},
+			corev1.EnvVar{Name: A2AWorkflowManifestEnv, Value: WorkflowManifestPath},
+			corev1.EnvVar{Name: A2AWorkflowEnv, Value: testWorkflowID},
 		))
+		Expect(container.Ports).To(ContainElement(corev1.ContainerPort{
+			Name: A2APortName, ContainerPort: A2APort, Protocol: corev1.ProtocolTCP,
+		}))
 		Expect(container.ReadinessProbe).To(BeNil())
 		Expect(container.EnvFrom).To(ContainElement(corev1.EnvFromSource{
 			SecretRef: &corev1.SecretEnvSource{LocalObjectReference: corev1.LocalObjectReference{Name: secretName}},
@@ -464,7 +473,10 @@ var _ = Describe("Agent Controller", func() {
 		Expect(container.VolumeMounts).To(ContainElement(corev1.VolumeMount{
 			Name: SettingsName, MountPath: WorkspaceMount + "/.agents", ReadOnly: true,
 		}))
-		Expect(deployment.Spec.Template.Spec.InitContainers).To(HaveLen(4))
+		Expect(container.VolumeMounts).To(ContainElement(corev1.VolumeMount{
+			Name: A2ACredentialsVolumeName, MountPath: A2ACredentialsMount, ReadOnly: true,
+		}))
+		Expect(deployment.Spec.Template.Spec.InitContainers).To(HaveLen(5))
 		for _, initContainer := range deployment.Spec.Template.Spec.InitContainers {
 			Expect(initContainer.Image).To(Equal(agent.Spec.Image))
 		}
@@ -484,6 +496,17 @@ var _ = Describe("Agent Controller", func() {
 		Expect(deployment.Spec.Template.Spec.InitContainers[2].Name).To(Equal("setup-wait-for-mail"))
 		Expect(deployment.Spec.Template.Spec.InitContainers[2].Command).To(Equal([]string{"sh", "-c", "echo mail-ready"}))
 		Expect(deployment.Spec.Template.Spec.InitContainers[3].Name).To(Equal("setup-mail-bootstrap"))
+		Expect(deployment.Spec.Template.Spec.InitContainers[4].Name).To(Equal("export-workflow"))
+		Expect(deployment.Spec.Template.Spec.InitContainers[4].Command).To(Equal([]string{"sh", "-c", workflowExportScript}))
+		Expect(deployment.Spec.Template.Spec.InitContainers[4].Env).To(ContainElements(
+			corev1.EnvVar{Name: HomeEnvName, Value: WorkspaceMount},
+			corev1.EnvVar{Name: OutfitterWorkflowEnv, Value: testWorkflowID},
+		))
+		Expect(deployment.Spec.Template.Spec.InitContainers[4].VolumeMounts).To(ContainElements(
+			corev1.VolumeMount{Name: WorkspaceName, MountPath: WorkspaceMount},
+			corev1.VolumeMount{Name: SettingsName, MountPath: WorkspaceMount + "/.agents", ReadOnly: true},
+			corev1.VolumeMount{Name: NixStoreName, MountPath: NixMount},
+		))
 		Expect(deployment.Spec.Template.Spec.InitContainers).To(ContainElement(MatchFields(IgnoreExtras, Fields{
 			"Name":    Equal("setup-mail-bootstrap"),
 			"Image":   Equal(agent.Spec.Image),

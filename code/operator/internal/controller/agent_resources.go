@@ -78,7 +78,13 @@ const (
 	A2ACredentialsSecretName       = "agent-runtime-a2a" // legacy v0.11 migration source
 	A2ACredentialsVolumeName       = "a2a-credentials"
 	A2ACredentialsMount            = "/var/run/agent/a2a"
+	A2APortName                    = "a2a"
 	A2APort                  int32 = 8788
+	A2AWorkflowManifestEnv         = "A2A_WORKFLOW_MANIFEST"
+	A2AWorkflowEnv                 = "A2A_WORKFLOW"
+	OutfitterWorkflowEnv           = "OUTFITTER_WORKFLOW"
+	WorkflowExportDir              = "/workspace/.outfitter/workflow"
+	WorkflowManifestPath           = WorkflowExportDir + "/.agents/.outfitter/workflow-composition.json"
 )
 
 // apiTokenExpirationSeconds matches the kubelet-managed kube-api-access
@@ -122,6 +128,9 @@ touch "$destination_nix/.seeded"`
 
 const catalogSyncScript = `set -eu
 outfitter sync`
+
+const workflowExportScript = `set -eu
+outfitter dump --workflow "$OUTFITTER_WORKFLOW" --out "` + WorkflowExportDir + `" --strict`
 
 func agentNamespace(agentName string) string { return "agent-" + agentName }
 
@@ -406,19 +415,25 @@ func (r *AgentReconciler) ensureAgentDeployment(
 			},
 			apiTokenVolume(),
 		}
-		if agent.Spec.Forge != nil {
+		if agent.Spec.Forge != nil || agent.Spec.TaskPlane != nil {
 			container.Env = append(container.Env,
 				corev1.EnvVar{Name: "A2A_SERVER", Value: "1"},
 				corev1.EnvVar{Name: "A2A_HOST", Value: "0.0.0.0"},
 				corev1.EnvVar{Name: "A2A_PORT", Value: strconv.Itoa(int(A2APort))},
 				corev1.EnvVar{Name: "A2A_CREDENTIALS_PATH", Value: path.Join(A2ACredentialsMount, "credentials.json")},
 			)
-			container.Ports = append(container.Ports, corev1.ContainerPort{Name: "a2a", ContainerPort: A2APort})
+			container.Ports = append(container.Ports, corev1.ContainerPort{Name: A2APortName, ContainerPort: A2APort})
 			container.VolumeMounts = append(container.VolumeMounts, corev1.VolumeMount{Name: A2ACredentialsVolumeName, MountPath: A2ACredentialsMount, ReadOnly: true})
 			volumes = append(volumes, corev1.Volume{Name: A2ACredentialsVolumeName, VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{
 				SecretName: agentCredentialSecretName(agent),
 				Items:      []corev1.KeyToPath{{Key: agentA2ACredentialsKey, Path: "credentials.json"}},
 			}}})
+		}
+		if taskPlane := agent.Spec.TaskPlane; taskPlane != nil {
+			container.Env = append(container.Env,
+				corev1.EnvVar{Name: A2AWorkflowManifestEnv, Value: WorkflowManifestPath},
+				corev1.EnvVar{Name: A2AWorkflowEnv, Value: taskPlane.Workflow},
+			)
 		}
 		// The persistent /nix store exists only for the closure image variant
 		// (see imageNeedsNixStore); the Debian-base images carry their runtime
@@ -433,7 +448,7 @@ func (r *AgentReconciler) ensureAgentDeployment(
 		container.VolumeMounts = append(container.VolumeMounts, inputMounts...)
 		volumes = append(volumes, inputVolumes...)
 
-		initContainers := make([]corev1.Container, 0, len(agent.Spec.Setup)+2)
+		initContainers := make([]corev1.Container, 0, len(agent.Spec.Setup)+3)
 		if needsNixStore {
 			// Merge the current image's store paths on every boot. A prior .seeded
 			// marker is informational only: image upgrades can introduce new hashes,
@@ -488,6 +503,28 @@ func (r *AgentReconciler) ensureAgentDeployment(
 				EnvFrom:         inputEnvFrom,
 				Env:             []corev1.EnvVar{{Name: HomeEnvName, Value: WorkspaceMount}},
 				VolumeMounts:    mounts,
+			})
+		}
+		if taskPlane := agent.Spec.TaskPlane; taskPlane != nil {
+			mounts := append([]corev1.VolumeMount{}, inputMounts...)
+			mounts = append(mounts,
+				corev1.VolumeMount{Name: WorkspaceName, MountPath: WorkspaceMount},
+				corev1.VolumeMount{Name: SettingsName, MountPath: path.Join(WorkspaceMount, ".agents"), ReadOnly: true},
+			)
+			if needsNixStore {
+				mounts = append(mounts, corev1.VolumeMount{Name: NixStoreName, MountPath: NixMount})
+			}
+			initContainers = append(initContainers, corev1.Container{
+				Name:            "export-workflow",
+				Image:           runtimeImage,
+				ImagePullPolicy: corev1.PullIfNotPresent,
+				Command:         []string{"sh", "-c", workflowExportScript},
+				EnvFrom:         inputEnvFrom,
+				Env: []corev1.EnvVar{
+					{Name: HomeEnvName, Value: WorkspaceMount},
+					{Name: OutfitterWorkflowEnv, Value: taskPlane.Workflow},
+				},
+				VolumeMounts: mounts,
 			})
 		}
 		deployment.Spec.Template.Spec.InitContainers = initContainers

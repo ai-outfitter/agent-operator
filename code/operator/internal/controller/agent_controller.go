@@ -197,7 +197,6 @@ func (r *AgentReconciler) validateAgent(
 	if message := inputValidationMessage(agent); message != "" {
 		return nil, message, nil
 	}
-
 	membership := agent.Spec.Memberships[0]
 	organization := &aioutfitterv1alpha1.Organization{}
 	if err := r.Get(ctx, types.NamespacedName{Name: membership.Organization}, organization); err != nil {

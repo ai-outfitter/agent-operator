@@ -116,6 +116,17 @@ type CatalogSyncSpec struct {
 	Enabled bool `json:"enabled"`
 }
 
+// AgentTaskPlaneSpec exposes authenticated A2A intake on the resident and
+// selects the Outfitter workflow contract that intake serves. The standard
+// Agent credential Secret supplies a2a-credentials.json.
+type AgentTaskPlaneSpec struct {
+	// Workflow is the workflow slug resolved from the Organization catalog.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=128
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]+([._-][a-z0-9]+)*$`
+	Workflow string `json:"workflow"`
+}
+
 // AgentForgeSpec declares the case-preserving login used to route forge events.
 type AgentForgeSpec struct {
 	// +kubebuilder:validation:MinLength=1
@@ -230,6 +241,12 @@ type AgentSpec struct {
 	// it does not receive the Kubernetes API token.
 	// +optional
 	CatalogSync *CatalogSyncSpec `json:"catalogSync,omitempty"`
+
+	// TaskPlane enables authenticated A2A intake and binds this resident to one
+	// resolved Outfitter workflow. The export runs after managed catalog sync
+	// and user setup, so either mechanism can prepare a private catalog.
+	// +optional
+	TaskPlane *AgentTaskPlaneSpec `json:"taskPlane,omitempty"`
 
 	// Setup steps run as ordered init containers before the agent starts, with
 	// the agent's credentials and workspace mounted. Use them for usecase
