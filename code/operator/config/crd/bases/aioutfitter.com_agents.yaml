@@ -323,6 +323,22 @@ spec:
                   type: object
                 type: array
                 x-kubernetes-list-type: atomic
+              taskPlane:
+                description: |-
+                  TaskPlane enables authenticated A2A intake and binds this resident to one
+                  resolved Outfitter workflow. Catalog sync must be enabled so the export is
+                  built from the pinned Organization catalog before the runtime starts.
+                properties:
+                  workflow:
+                    description: Workflow is the workflow slug resolved from the Organization
+                      catalog.
+                    maxLength: 128
+                    minLength: 1
+                    pattern: ^[a-z0-9]+([._-][a-z0-9]+)*$
+                    type: string
+                required:
+                - workflow
+                type: object
               volumeMounts:
                 description: |-
                   VolumeMounts attaches declared input volumes to the Agent and setup

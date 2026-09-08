@@ -197,6 +197,9 @@ func (r *AgentReconciler) validateAgent(
 	if message := inputValidationMessage(agent); message != "" {
 		return nil, message, nil
 	}
+	if agent.Spec.TaskPlane != nil && (agent.Spec.CatalogSync == nil || !agent.Spec.CatalogSync.Enabled) {
+		return nil, "Task plane requires catalogSync.enabled", nil
+	}
 
 	membership := agent.Spec.Memberships[0]
 	organization := &aioutfitterv1alpha1.Organization{}
