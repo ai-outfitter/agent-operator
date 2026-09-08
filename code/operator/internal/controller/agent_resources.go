@@ -345,6 +345,14 @@ func (r *AgentReconciler) ensureAgentDeployment(
 			FSGroup:      agentFSGroup,
 		}
 
+		runtimeArgs := []string{
+			"run", agent.Spec.Profile.Agent, "--strict", "--", "--mode", "rpc", "--session-id", agent.Name,
+		}
+		if agent.Spec.Profile.Model != "" {
+			provider, model, _ := strings.Cut(agent.Spec.Profile.Model, "/")
+			runtimeArgs = append(runtimeArgs, "--provider", provider, "--model", model)
+		}
+
 		container := corev1.Container{
 			Name:            "agent",
 			Image:           runtimeImage,
@@ -369,16 +377,7 @@ func (r *AgentReconciler) ensureAgentDeployment(
 			// transcript durable by defaulting PI_CODING_AGENT_SESSION_DIR under
 			// $HOME (= /workspace, the PVC) — see outfitter #243 — so a stable
 			// --session-id is all that is needed to resume it.
-			Args: []string{
-				"run",
-				agent.Spec.Profile.Agent,
-				"--strict",
-				"--",
-				"--mode",
-				"rpc",
-				"--session-id",
-				agent.Name,
-			},
+			Args:  runtimeArgs,
 			Stdin: true,
 			Env: append([]corev1.EnvVar{
 				{Name: HomeEnvName, Value: WorkspaceMount},
