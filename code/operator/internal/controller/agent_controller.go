@@ -141,15 +141,7 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		blockAgentConditions(agent, aioutfitterv1alpha1.AgentConditionWorkloadReady, "SettingsNotReady", "Outfitter settings are not ready")
 		return r.finishAgent(ctx, statusBase, agent, ctrl.Result{}, err)
 	}
-	catalogSource := organization.Spec.AgentCatalogs[0]
-	revision := ""
-	if catalogSource.Revision != nil {
-		revision = strings.ToLower(*catalogSource.Revision)
-	}
-	agent.Status.CatalogSources = []aioutfitterv1alpha1.CatalogSourceStatus{{
-		Name:     catalogSource.Name,
-		Revision: revision,
-	}}
+	agent.Status.CatalogSources = catalogSourceStatuses(organization.Spec.AgentCatalogs)
 	setAgentCondition(agent, aioutfitterv1alpha1.AgentConditionOutfitterSettingsReady, metav1.ConditionTrue, "Ready", "Outfitter settings contain the pinned source; runtime resolution is delegated to Outfitter")
 
 	deployment, err := r.ensureAgentDeployment(ctx, agent, organization)

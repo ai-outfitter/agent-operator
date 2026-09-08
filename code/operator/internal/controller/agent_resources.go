@@ -565,16 +565,20 @@ func (r *AgentReconciler) ensureOutfitterSettings(
 	agent *aioutfitterv1alpha1.Agent,
 	organization *aioutfitterv1alpha1.Organization,
 ) error {
-	catalogSource := organization.Spec.AgentCatalogs[0]
-	source := outfitterSource{GitHub: catalogSource.GitHub, URI: catalogSource.URI}
-	if catalogSource.LocalPath != nil {
-		source.Path = *catalogSource.LocalPath
-	} else {
-		source.Path = catalogSource.Path
+	sources := make([]outfitterSource, 0, len(organization.Spec.AgentCatalogs)+1)
+	for _, catalogSource := range organization.Spec.AgentCatalogs {
+		source := outfitterSource{GitHub: catalogSource.GitHub, URI: catalogSource.URI}
+		if catalogSource.LocalPath != nil {
+			source.Path = *catalogSource.LocalPath
+		} else {
+			source.Path = catalogSource.Path
+		}
+		if catalogSource.Revision != nil {
+			source.Ref = *catalogSource.Revision
+		}
+		sources = append(sources, source)
 	}
-	if catalogSource.Revision != nil {
-		source.Ref = *catalogSource.Revision
-	}
+	sources = append(sources, outfitterSource{Path: BakedCatalogPath})
 	outfitterConfig := outfitterSettings{
 		DefaultAgent:   agent.Spec.Profile.Agent,
 		DefaultHarness: agent.Spec.Profile.Harness,
@@ -585,7 +589,7 @@ func (r *AgentReconciler) ensureOutfitterSettings(
 		// catalog's root files). Rendering it as the LAST source keeps its
 		// root system-prompt.md, skills, and the researcher fallback agent
 		// resolvable while the catalog wins wherever both define a resource.
-		Sources: []outfitterSource{source, {Path: BakedCatalogPath}},
+		Sources: sources,
 	}
 	if agent.Spec.TaskPlane != nil {
 		outfitterConfig.Workflows = []string{agent.Spec.TaskPlane.Workflow}
