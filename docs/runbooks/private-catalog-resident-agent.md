@@ -401,3 +401,43 @@ The generic credential projection still exposes a catalog credential to the
 resident runtime when the same reference is declared under `spec.credentials`.
 A future credential binding MAY narrow a named credential to catalog sync only;
 under OPR-004.2, that binding MUST remain content-agnostic.
+
+## Bind the resident task plane to a workflow
+
+An existing resident can accept authenticated A2A work without creating a
+second Agent. Add the workflow binding beside managed catalog sync:
+
+```yaml
+spec:
+  catalogSync:
+    enabled: true
+  taskPlane:
+    workflow: software-factory
+```
+
+The operator inserts an `export-workflow` init container after catalog sync
+and all user setup steps. It runs a strict Outfitter dump of the selected workflow, then supplies
+`A2A_WORKFLOW_MANIFEST` and `A2A_WORKFLOW` to Channels in the resident
+container. A missing workflow or invalid composition therefore prevents the
+new pod from becoming ready instead of starting an ungoverned task plane.
+
+The Agent's standard credential Secret must contain an
+`a2a-credentials.json` key with the Channels credential document:
+
+```json
+{"credentials":[{"token":"<random bearer>","principal":"panopticon"}]}
+```
+
+Keep the same bearer in Panopticon's private credential store. Do not commit
+it to the catalog or pass it in an A2A message. The operator mounts the file
+read-only and enables the A2A listener on port 8788. For the first proof, add
+no Service or ingress and forward the existing Deployment locally:
+
+```sh
+kubectl -n agent-<agent> port-forward deployment/agent-runtime 8788:8788
+```
+
+Fetch the Agent Card and submit one authenticated message through that
+forward before adding ingress. Verify the terminal Task and each declared
+artifact against the forge object it names; pod readiness alone is not task
+plane acceptance.

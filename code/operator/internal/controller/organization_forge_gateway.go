@@ -260,7 +260,7 @@ func (r *OrganizationReconciler) ensureAgentA2A(ctx context.Context, org *aioutf
 	if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, service, func() error {
 		service.Labels = mergeLabels(service.Labels, labels)
 		service.Spec.Selector = map[string]string{appNameLabel: RuntimeName, appInstanceLabel: agent.Name}
-		service.Spec.Ports = []corev1.ServicePort{{Name: "a2a", Port: A2APort, TargetPort: intstr.FromInt32(A2APort)}}
+		service.Spec.Ports = []corev1.ServicePort{{Name: A2APortName, Port: A2APort, TargetPort: intstr.FromInt32(A2APort)}}
 		return controllerutil.SetControllerReference(org, service, r.Scheme)
 	}); err != nil {
 		return err
