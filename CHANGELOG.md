@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.13.0](https://github.com/ai-outfitter/agent-operator/compare/agent-operator-v0.12.0...agent-operator-v0.13.0) (2026-09-08)
+
+
+### Features
+
+* **agent:** bind residents to workflow task planes ([cb0c05d](https://github.com/ai-outfitter/agent-operator/commit/cb0c05d7e91ab78bc327738cc6a63086c84c3e91))
+* **agent:** bind residents to workflow task planes ([46fe61d](https://github.com/ai-outfitter/agent-operator/commit/46fe61df5263443d057b9fc32a36f7b83c024fde))
+
 ## [0.12.0](https://github.com/ai-outfitter/agent-operator/compare/agent-operator-v0.11.1...agent-operator-v0.12.0) (2026-08-31)
 
 
