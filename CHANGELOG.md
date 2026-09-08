@@ -5,7 +5,6 @@
 
 ### Features
 
-* let deployments select resident model ([14b7af7](https://github.com/ai-outfitter/agent-operator/commit/14b7af7d4daf35936252bdfe3d0d46385a412f9a))
 * let deployments select resident model ([eb3f2bf](https://github.com/ai-outfitter/agent-operator/commit/eb3f2bf35486c7a28dff11f29468efa13f498e9e))
 
 ## [0.14.0](https://github.com/ai-outfitter/agent-operator/compare/agent-operator-v0.13.0...agent-operator-v0.14.0) (2026-09-08)
