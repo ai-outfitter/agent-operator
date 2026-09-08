@@ -304,6 +304,17 @@ spec:
                     enum:
                     - pi
                     type: string
+                  model:
+                    description: |-
+                      Model optionally selects the harness model for this deployment. It is
+                      passed to the harness after the resolved profile arguments, so the
+                      deployment selection wins over profile defaults. The referenced provider
+                      remains defined by the resolved Outfitter catalogs; credentials remain
+                      projected through the Agent credential API.
+                    maxLength: 255
+                    minLength: 3
+                    pattern: ^[^/[:space:]]+/[^[:space:]]+$
+                    type: string
                 required:
                 - agent
                 type: object

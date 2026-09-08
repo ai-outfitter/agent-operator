@@ -401,6 +401,7 @@ var _ = Describe("Agent Controller", func() {
 		organization := createAcceptedOrganization(ctx)
 		agent := validAgent(uniqueTestName(researcherAgentSlug), organization.Name)
 		agent.Spec.Image = "example.test/user-owned-agent:v1"
+		agent.Spec.Profile.Model = "openrouter/anthropic/claude-sonnet"
 		secretName := "model-credentials"
 		configName := testRuntimeConfigName
 		agent.Spec.EnvFrom = []corev1.EnvFromSource{{SecretRef: &corev1.SecretEnvSource{LocalObjectReference: corev1.LocalObjectReference{Name: secretName}}}}
@@ -455,6 +456,7 @@ var _ = Describe("Agent Controller", func() {
 		// across pod restarts.
 		Expect(container.Args).To(Equal([]string{
 			"run", researcherAgentSlug, "--strict", "--", "--mode", "rpc", "--session-id", agent.Name,
+			"--provider", "openrouter", "--model", "anthropic/claude-sonnet",
 		}))
 		Expect(container.Stdin).To(BeTrue())
 		Expect(container.Env).To(ContainElements(

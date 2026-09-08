@@ -40,6 +40,17 @@ type AgentProfile struct {
 	// +kubebuilder:default=pi
 	// +kubebuilder:validation:Enum=pi
 	Harness string `json:"harness,omitempty"`
+
+	// Model optionally selects the harness model for this deployment. It is
+	// passed to the harness after the resolved profile arguments, so the
+	// deployment selection wins over profile defaults. The referenced provider
+	// remains defined by the resolved Outfitter catalogs; credentials remain
+	// projected through the Agent credential API.
+	// +optional
+	// +kubebuilder:validation:MinLength=3
+	// +kubebuilder:validation:MaxLength=255
+	// +kubebuilder:validation:Pattern=`^[^/[:space:]]+/[^[:space:]]+$`
+	Model string `json:"model,omitempty"`
 }
 
 // GitHubSpec configures the resident runtime's GitHub notification source.
