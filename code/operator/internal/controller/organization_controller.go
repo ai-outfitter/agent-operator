@@ -71,15 +71,7 @@ func (r *OrganizationReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 	setOrganizationCondition(organization, aioutfitterv1alpha1.OrganizationConditionAccepted, metav1.ConditionTrue, "Accepted", "Organization specification is valid")
 
-	catalogSource := organization.Spec.AgentCatalogs[0]
-	revision := ""
-	if catalogSource.Revision != nil {
-		revision = strings.ToLower(*catalogSource.Revision)
-	}
-	organization.Status.CatalogSources = []aioutfitterv1alpha1.CatalogSourceStatus{{
-		Name:     catalogSource.Name,
-		Revision: revision,
-	}}
+	organization.Status.CatalogSources = catalogSourceStatuses(organization.Spec.AgentCatalogs)
 	setOrganizationCondition(organization, aioutfitterv1alpha1.OrganizationConditionCatalogSourcesReady, metav1.ConditionTrue, "DelegatedToOutfitter", "Catalog source is pinned and ready for Outfitter settings")
 	result, err := r.reconcileForgeGateway(ctx, organization)
 	if err != nil {
@@ -116,8 +108,8 @@ func (r *OrganizationReconciler) finalize(
 
 func validateOrganization(organization *aioutfitterv1alpha1.Organization) string {
 	const httpScheme = "http"
-	if len(organization.Spec.AgentCatalogs) != 1 {
-		return "M1 organizations must declare exactly one agent catalog"
+	if len(organization.Spec.AgentCatalogs) == 0 {
+		return "organizations must declare at least one agent catalog"
 	}
 	for _, repository := range organization.Spec.Repositories {
 		parsed, err := url.Parse(repository.URI)
@@ -128,23 +120,36 @@ func validateOrganization(organization *aioutfitterv1alpha1.Organization) string
 			return fmt.Sprintf("Repository %q URI must not contain credentials", repository.Name)
 		}
 	}
-	catalogSource := organization.Spec.AgentCatalogs[0]
-	if catalogSource.URI != nil {
-		parsed, err := url.Parse(*catalogSource.URI)
-		if err != nil || parsed.Scheme == "" {
-			return fmt.Sprintf("Catalog %q must use a valid clone URI", catalogSource.Name)
+	for _, catalogSource := range organization.Spec.AgentCatalogs {
+		if catalogSource.URI != nil {
+			parsed, err := url.Parse(*catalogSource.URI)
+			if err != nil || parsed.Scheme == "" {
+				return fmt.Sprintf("Catalog %q must use a valid clone URI", catalogSource.Name)
+			}
+			if (parsed.Scheme == httpScheme || parsed.Scheme == "https") && parsed.User != nil {
+				return fmt.Sprintf("Catalog %q URI must not contain credentials", catalogSource.Name)
+			}
 		}
-		if (parsed.Scheme == httpScheme || parsed.Scheme == "https") && parsed.User != nil {
-			return fmt.Sprintf("Catalog %q URI must not contain credentials", catalogSource.Name)
-		}
-	}
-	if catalogSource.Path != "" {
-		cleaned := path.Clean(catalogSource.Path)
-		if path.IsAbs(cleaned) || cleaned == ".." || strings.HasPrefix(cleaned, "../") {
-			return fmt.Sprintf("Catalog %q payload path must stay within its source", catalogSource.Name)
+		if catalogSource.Path != "" {
+			cleaned := path.Clean(catalogSource.Path)
+			if path.IsAbs(cleaned) || cleaned == ".." || strings.HasPrefix(cleaned, "../") {
+				return fmt.Sprintf("Catalog %q payload path must stay within its source", catalogSource.Name)
+			}
 		}
 	}
 	return ""
+}
+
+func catalogSourceStatuses(catalogs []aioutfitterv1alpha1.AgentCatalog) []aioutfitterv1alpha1.CatalogSourceStatus {
+	statuses := make([]aioutfitterv1alpha1.CatalogSourceStatus, 0, len(catalogs))
+	for _, catalog := range catalogs {
+		revision := ""
+		if catalog.Revision != nil {
+			revision = strings.ToLower(*catalog.Revision)
+		}
+		statuses = append(statuses, aioutfitterv1alpha1.CatalogSourceStatus{Name: catalog.Name, Revision: revision})
+	}
+	return statuses
 }
 
 func resolvedRepositories(repositories []aioutfitterv1alpha1.Repository) []aioutfitterv1alpha1.ResolvedRepositoryStatus {

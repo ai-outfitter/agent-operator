@@ -30,6 +30,7 @@ const (
 	testRuntimeConfigMountPath = "/var/run/agent/inputs/runtime-config"
 	testInputConfigName        = "config"
 	testWorkflowID             = "software-factory"
+	testCommunityCatalogName   = "community-profiles"
 )
 
 var _ = Describe("Agent Controller", func() {
@@ -159,6 +160,7 @@ var _ = Describe("Agent Controller", func() {
 		Expect(settingsYAML).To(ContainSubstring("default_agent: researcher"))
 		Expect(settingsYAML).To(ContainSubstring("default_harness: pi"))
 		Expect(settingsYAML).To(ContainSubstring("github: " + testCatalogGitHub))
+		Expect(settingsYAML).To(ContainSubstring("github: ai-outfitter/community-profiles"))
 		Expect(settingsYAML).To(ContainSubstring("ref: " + testCatalogRevision))
 		Expect(settingsYAML).To(ContainSubstring("path: .agents"))
 
@@ -431,6 +433,9 @@ var _ = Describe("Agent Controller", func() {
 
 		_, err = reconciler.Reconcile(ctx, request)
 		Expect(err).NotTo(HaveOccurred())
+		settings := &corev1.ConfigMap{}
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: namespaceName, Name: SettingsName}, settings)).To(Succeed())
+		Expect(settings.Data["settings.yml"]).To(ContainSubstring("workflows:\n- " + testWorkflowID))
 		deployment := &appsv1.Deployment{}
 		deploymentKey := types.NamespacedName{Namespace: namespaceName, Name: RuntimeName}
 		Expect(k8sClient.Get(ctx, deploymentKey, deployment)).To(Succeed())
@@ -740,11 +745,13 @@ func createAcceptedOrganization(ctx context.Context) *aioutfitterv1alpha1.Organi
 	name := uniqueTestName("organization")
 	revision := testCatalogRevision
 	github := testCatalogGitHub
+	communityGitHub := "ai-outfitter/community-profiles"
 	organization := &aioutfitterv1alpha1.Organization{
 		ObjectMeta: metav1.ObjectMeta{Name: name},
-		Spec: aioutfitterv1alpha1.OrganizationSpec{AgentCatalogs: []aioutfitterv1alpha1.AgentCatalog{{
-			Name: testCatalogName, GitHub: &github, Revision: &revision, Path: ".agents",
-		}}},
+		Spec: aioutfitterv1alpha1.OrganizationSpec{AgentCatalogs: []aioutfitterv1alpha1.AgentCatalog{
+			{Name: testCatalogName, GitHub: &github, Revision: &revision, Path: ".agents"},
+			{Name: testCommunityCatalogName, GitHub: &communityGitHub, Revision: &revision},
+		}},
 	}
 	Expect(k8sClient.Create(ctx, organization)).To(Succeed())
 	reconciler := &OrganizationReconciler{Client: k8sClient, Scheme: k8sClient.Scheme()}
