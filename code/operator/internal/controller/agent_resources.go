@@ -549,6 +549,7 @@ type outfitterSettings struct {
 	DefaultAgent   string            `json:"default_agent"`
 	DefaultHarness string            `json:"default_harness"`
 	CacheDirectory string            `json:"cache_directory"`
+	Workflows      []string          `json:"workflows,omitempty"`
 	Sources        []outfitterSource `json:"sources"`
 }
 
@@ -574,7 +575,7 @@ func (r *AgentReconciler) ensureOutfitterSettings(
 	if catalogSource.Revision != nil {
 		source.Ref = *catalogSource.Revision
 	}
-	settings, err := yaml.Marshal(outfitterSettings{
+	outfitterConfig := outfitterSettings{
 		DefaultAgent:   agent.Spec.Profile.Agent,
 		DefaultHarness: agent.Spec.Profile.Harness,
 		CacheDirectory: path.Join(WorkspaceMount, ".agents-cache"),
@@ -585,7 +586,11 @@ func (r *AgentReconciler) ensureOutfitterSettings(
 		// root system-prompt.md, skills, and the researcher fallback agent
 		// resolvable while the catalog wins wherever both define a resource.
 		Sources: []outfitterSource{source, {Path: BakedCatalogPath}},
-	})
+	}
+	if agent.Spec.TaskPlane != nil {
+		outfitterConfig.Workflows = []string{agent.Spec.TaskPlane.Workflow}
+	}
+	settings, err := yaml.Marshal(outfitterConfig)
 	if err != nil {
 		return err
 	}

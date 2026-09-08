@@ -431,6 +431,9 @@ var _ = Describe("Agent Controller", func() {
 
 		_, err = reconciler.Reconcile(ctx, request)
 		Expect(err).NotTo(HaveOccurred())
+		settings := &corev1.ConfigMap{}
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: namespaceName, Name: SettingsName}, settings)).To(Succeed())
+		Expect(settings.Data["settings.yml"]).To(ContainSubstring("workflows:\n- " + testWorkflowID))
 		deployment := &appsv1.Deployment{}
 		deploymentKey := types.NamespacedName{Namespace: namespaceName, Name: RuntimeName}
 		Expect(k8sClient.Get(ctx, deploymentKey, deployment)).To(Succeed())
