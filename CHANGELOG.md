@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.14.0](https://github.com/ai-outfitter/agent-operator/compare/agent-operator-v0.13.0...agent-operator-v0.14.0) (2026-09-08)
+
+
+### Features
+
+* compose multiple agent catalogs ([f79bb39](https://github.com/ai-outfitter/agent-operator/commit/f79bb3989f3d1fd12271d9bb723dff98f8fe7845))
+* compose workflow-ready agent catalogs ([87ceddc](https://github.com/ai-outfitter/agent-operator/commit/87ceddcb9fe6d8449eaef771b7cce50a094e82d3))
+
+
+### Bug Fixes
+
+* enable exported task-plane workflow ([90c084f](https://github.com/ai-outfitter/agent-operator/commit/90c084f0a0772b257c358896dff889e17af3eac7))
+
 ## [0.13.0](https://github.com/ai-outfitter/agent-operator/compare/agent-operator-v0.12.0...agent-operator-v0.13.0) (2026-09-08)
 
 
