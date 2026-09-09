@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.1](https://github.com/ai-outfitter/agent-operator/compare/agent-operator-v0.15.0...agent-operator-v0.15.1) (2026-09-09)
+
+
+### Bug Fixes
+
+* roll residents on catalog settings changes ([#80](https://github.com/ai-outfitter/agent-operator/issues/80)) ([770ec1c](https://github.com/ai-outfitter/agent-operator/commit/770ec1c34328090aed3ec4f5676aafddbd07df0f))
+
 ## [0.15.0](https://github.com/ai-outfitter/agent-operator/compare/agent-operator-v0.14.0...agent-operator-v0.15.0) (2026-09-08)
 
 
