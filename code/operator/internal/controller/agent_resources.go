@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"maps"
 	"path"
@@ -32,6 +33,7 @@ const (
 	WorkspaceName           = "agent-workspace"
 	LimitRangeName          = "agent-workspace-defaults"
 	SettingsName            = "outfitter-settings"
+	SettingsHashAnnotation  = "aioutfitter.com/outfitter-settings-hash"
 	WorkspaceMount          = "/workspace"
 	CredentialsRoot         = "/var/run/agent/credentials"
 	NixStoreName            = "agent-nix-store"
@@ -324,6 +326,11 @@ func (r *AgentReconciler) ensureAgentDeployment(
 	if err != nil {
 		return nil, err
 	}
+	settings, err := renderOutfitterSettings(agent, organization)
+	if err != nil {
+		return nil, err
+	}
+	settingsHash := fmt.Sprintf("%x", sha256.Sum256(settings))
 
 	deployment := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: RuntimeName, Namespace: namespace}}
 	_, err = controllerutil.CreateOrUpdate(ctx, r.Client, deployment, func() error {
@@ -332,6 +339,13 @@ func (r *AgentReconciler) ensureAgentDeployment(
 		deployment.Spec.Strategy.Type = appsv1.RecreateDeploymentStrategyType
 		deployment.Spec.Selector = &metav1.LabelSelector{MatchLabels: selectorLabels}
 		deployment.Spec.Template.Labels = mergeLabels(selectorLabels, labels)
+		if deployment.Spec.Template.Annotations == nil {
+			deployment.Spec.Template.Annotations = map[string]string{}
+		}
+		// Catalog sync and workflow export are init-time operations. Make the
+		// rendered settings part of the PodTemplate so a catalog revision change
+		// creates a fresh Pod instead of leaving a running resident on stale data.
+		deployment.Spec.Template.Annotations[SettingsHashAnnotation] = settingsHash
 		deployment.Spec.Template.Spec.ServiceAccountName = RuntimeName
 		// No pod-wide token automount: the browser sidecar runs an
 		// unsandboxed Chromium and must never hold agent-runtime API
@@ -559,11 +573,10 @@ type outfitterSource struct {
 	Ref    string  `json:"ref,omitempty"`
 }
 
-func (r *AgentReconciler) ensureOutfitterSettings(
-	ctx context.Context,
+func renderOutfitterSettings(
 	agent *aioutfitterv1alpha1.Agent,
 	organization *aioutfitterv1alpha1.Organization,
-) error {
+) ([]byte, error) {
 	sources := make([]outfitterSource, 0, len(organization.Spec.AgentCatalogs)+1)
 	for _, catalogSource := range organization.Spec.AgentCatalogs {
 		source := outfitterSource{GitHub: catalogSource.GitHub, URI: catalogSource.URI}
@@ -593,7 +606,15 @@ func (r *AgentReconciler) ensureOutfitterSettings(
 	if agent.Spec.TaskPlane != nil {
 		outfitterConfig.Workflows = []string{agent.Spec.TaskPlane.Workflow}
 	}
-	settings, err := yaml.Marshal(outfitterConfig)
+	return yaml.Marshal(outfitterConfig)
+}
+
+func (r *AgentReconciler) ensureOutfitterSettings(
+	ctx context.Context,
+	agent *aioutfitterv1alpha1.Agent,
+	organization *aioutfitterv1alpha1.Organization,
+) error {
+	settings, err := renderOutfitterSettings(agent, organization)
 	if err != nil {
 		return err
 	}

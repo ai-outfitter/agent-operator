@@ -334,6 +334,41 @@ var _ = Describe("Agent Controller", func() {
 		Expect(deployment.Spec.Template.Spec.InitContainers[0].Image).To(Equal(current.Spec.Image))
 	})
 
+	It("rolls out when Organization catalog settings change", func() {
+		organization := createAcceptedOrganization(ctx)
+		agent := validAgent(uniqueTestName("catalog-rollout"), organization.Name)
+		Expect(k8sClient.Create(ctx, agent)).To(Succeed())
+		DeferCleanup(removeAgent, ctx, agent.Name)
+
+		reconciler := &AgentReconciler{
+			Client: k8sClient, APIReader: k8sClient, Scheme: k8sClient.Scheme(), AgentImage: "agent-runtime:default",
+		}
+		request := reconcile.Request{NamespacedName: types.NamespacedName{Name: agent.Name}}
+		_, err := reconciler.Reconcile(ctx, request)
+		Expect(err).NotTo(HaveOccurred())
+
+		deployment := &appsv1.Deployment{}
+		deploymentKey := types.NamespacedName{Namespace: agentNamespace(agent.Name), Name: RuntimeName}
+		Expect(k8sClient.Get(ctx, deploymentKey, deployment)).To(Succeed())
+		originalHash := deployment.Spec.Template.Annotations[SettingsHashAnnotation]
+		Expect(originalHash).NotTo(BeEmpty())
+
+		currentOrganization := &aioutfitterv1alpha1.Organization{}
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: organization.Name}, currentOrganization)).To(Succeed())
+		newRevision := strings.Repeat("b", 40)
+		currentOrganization.Spec.AgentCatalogs[0].Revision = ptr.To(newRevision)
+		Expect(k8sClient.Update(ctx, currentOrganization)).To(Succeed())
+
+		_, err = reconciler.Reconcile(ctx, request)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(k8sClient.Get(ctx, deploymentKey, deployment)).To(Succeed())
+		Expect(deployment.Spec.Template.Annotations[SettingsHashAnnotation]).NotTo(Equal(originalHash))
+
+		settings := &corev1.ConfigMap{}
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: agentNamespace(agent.Name), Name: SettingsName}, settings)).To(Succeed())
+		Expect(settings.Data["settings.yml"]).To(ContainSubstring("ref: " + newRevision))
+	})
+
 	It("adds a browser sidecar when spec.browser is enabled", func() {
 		organization := createAcceptedOrganization(ctx)
 		agent := validAgent(uniqueTestName("browser"), organization.Name)
