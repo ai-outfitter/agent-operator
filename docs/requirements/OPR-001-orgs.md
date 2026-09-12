@@ -51,7 +51,15 @@ operator MUST NOT clone catalogs or implement a parallel Dotagents resource
 resolver. Source names and pinned revisions (but not credential-bearing URIs)
 MUST be visible in status.
 
-## OPR-001.4: Embedded projects
+## OPR-001.4: Agent network-policy default
+
+`spec.networkPolicy.mode` MAY establish the default network-policy mode for
+member Agents. An Agent that declares its own mode MUST override the
+Organization setting. Omitting the setting MUST preserve the operator-wide
+`Unmanaged` default. The reconciliation contract is defined in
+[OPR-003](OPR-003-agents.md#opr-0035-network-policy).
+
+## OPR-001.5: Embedded projects
 
 `spec.projects` MUST contain zero or more projects conforming to
 [OPR-002](OPR-002-projects.md). Project names MUST be unique within an
@@ -59,7 +67,7 @@ organization. Projects and environments are embedded data, not separate CRDs. An
 organization's projects and their repositories are how an agent discovers what it
 has access to within that organization.
 
-## OPR-001.5: Status and conditions
+## OPR-001.6: Status and conditions
 
 `status.observedGeneration` MUST report the last reconciled generation.
 `status.conditions` MUST use Kubernetes conditions and include:
@@ -83,6 +91,8 @@ metadata:
   name: ai-outfitter
 spec:
   displayName: AI Outfitter
+  networkPolicy:
+    mode: Isolated
   repositories:
     # A generic repository; a composition decides what it is for.
     - name: wiki

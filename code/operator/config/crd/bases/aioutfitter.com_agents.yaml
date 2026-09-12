@@ -286,6 +286,23 @@ spec:
                 x-kubernetes-list-map-keys:
                 - organization
                 x-kubernetes-list-type: map
+              networkPolicy:
+                description: |-
+                  NetworkPolicy overrides the Organization network-policy default. When
+                  omitted, the Organization setting applies; if both are omitted, the
+                  operator leaves Agent Pod networking unmanaged.
+                properties:
+                  mode:
+                    description: |-
+                      Mode defaults to Unmanaged. Isolated denies all ingress and egress except
+                      DNS and traffic admitted by additional NetworkPolicy resources.
+                    enum:
+                    - Unmanaged
+                    - Isolated
+                    type: string
+                required:
+                - mode
+                type: object
               profile:
                 description: AgentProfile selects the slug and harness that Outfitter
                   resolves at runtime.

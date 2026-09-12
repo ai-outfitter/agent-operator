@@ -127,6 +127,11 @@ type OrganizationSpec struct {
 	// +optional
 	Forge *OrganizationForgeSpec `json:"forge,omitempty"`
 
+	// NetworkPolicy supplies the default for member Agents that do not declare
+	// their own setting. When omitted, Agent Pod networking is unmanaged.
+	// +optional
+	NetworkPolicy *AgentNetworkPolicySpec `json:"networkPolicy,omitempty"`
+
 	// +listType=map
 	// +listMapKey=name
 	// +optional
