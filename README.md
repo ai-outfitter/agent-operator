@@ -6,8 +6,9 @@ resolution, and running the agent. Channels (email, GitHub, Signal) and tools
 (a wiki, source ingestion) are **composed at the agent layer**, not baked into the
 operator.
 
-> **Status:** design stage. The CRDs and controller are specified but not yet
-> implemented.
+> **Status:** alpha and actively used. The CRDs, controller, Helm chart, and
+> catalog deployment action are implemented and released. Interfaces can still
+> change; pin a release and review the changelog before upgrading.
 
 ## Images
 
