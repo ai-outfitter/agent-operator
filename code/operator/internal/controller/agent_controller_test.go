@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -31,6 +32,7 @@ const (
 	testInputConfigName        = "config"
 	testWorkflowID             = "software-factory"
 	testCommunityCatalogName   = "community-profiles"
+	testAgentImage             = "agent-runtime:default"
 )
 
 var _ = Describe("Agent Controller", func() {
@@ -311,7 +313,7 @@ var _ = Describe("Agent Controller", func() {
 		DeferCleanup(removeAgent, ctx, agent.Name)
 
 		reconciler := &AgentReconciler{
-			Client: k8sClient, APIReader: k8sClient, Scheme: k8sClient.Scheme(), AgentImage: "agent-runtime:default",
+			Client: k8sClient, APIReader: k8sClient, Scheme: k8sClient.Scheme(), AgentImage: testAgentImage,
 		}
 		request := reconcile.Request{NamespacedName: types.NamespacedName{Name: agent.Name}}
 		_, err := reconciler.Reconcile(ctx, request)
@@ -341,7 +343,7 @@ var _ = Describe("Agent Controller", func() {
 		DeferCleanup(removeAgent, ctx, agent.Name)
 
 		reconciler := &AgentReconciler{
-			Client: k8sClient, APIReader: k8sClient, Scheme: k8sClient.Scheme(), AgentImage: "agent-runtime:default",
+			Client: k8sClient, APIReader: k8sClient, Scheme: k8sClient.Scheme(), AgentImage: testAgentImage,
 		}
 		request := reconcile.Request{NamespacedName: types.NamespacedName{Name: agent.Name}}
 		_, err := reconciler.Reconcile(ctx, request)
@@ -543,6 +545,7 @@ var _ = Describe("Agent Controller", func() {
 		Expect(deployment.Spec.Template.Spec.InitContainers[4].Env).To(ContainElements(
 			corev1.EnvVar{Name: HomeEnvName, Value: WorkspaceMount},
 			corev1.EnvVar{Name: OutfitterWorkflowEnv, Value: testWorkflowID},
+			corev1.EnvVar{Name: WorkflowExportDirEnv, Value: WorkflowExportDir},
 		))
 		Expect(deployment.Spec.Template.Spec.InitContainers[4].VolumeMounts).To(ContainElements(
 			corev1.VolumeMount{Name: WorkspaceName, MountPath: WorkspaceMount},
@@ -640,6 +643,62 @@ var _ = Describe("Agent Controller", func() {
 		Expect(string(contents)).To(Equal("keep-me"))
 	})
 
+	It("replaces a persisted workflow export without touching sibling state", func() {
+		root := GinkgoT().TempDir()
+		binDir := filepath.Join(root, "bin")
+		exportDir := filepath.Join(root, "workflow")
+		oldManifest := filepath.Join(exportDir, ".agents", ".outfitter", "workflow-composition.json")
+		siblingState := filepath.Join(exportDir, "keep-me")
+		Expect(os.MkdirAll(filepath.Dir(oldManifest), 0o755)).To(Succeed())
+		Expect(os.WriteFile(oldManifest, []byte("old"), 0o644)).To(Succeed())
+		Expect(os.WriteFile(siblingState, []byte("persistent"), 0o644)).To(Succeed())
+		Expect(os.MkdirAll(binDir, 0o755)).To(Succeed())
+		outfitter := filepath.Join(binDir, "outfitter")
+		Expect(os.WriteFile(outfitter, []byte(`#!/bin/sh
+set -eu
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --out) out="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+mkdir -p "$out/.agents/.outfitter"
+printf new >"$out/.agents/.outfitter/workflow-composition.json"
+`), 0o755)).To(Succeed())
+
+		export := func(extraEnv ...string) error {
+			command := exec.Command("sh", "-c", workflowExportScript)
+			command.Env = append(os.Environ(),
+				"PATH="+binDir+":"+os.Getenv("PATH"),
+				"OUTFITTER_WORKFLOW="+testWorkflowID,
+				"WORKFLOW_EXPORT_DIR="+exportDir,
+			)
+			command.Env = append(command.Env, extraEnv...)
+			output, err := command.CombinedOutput()
+			if err != nil {
+				return fmt.Errorf("workflow export failed: %w: %s", err, output)
+			}
+			return nil
+		}
+
+		Expect(export()).To(Succeed())
+		Expect(export()).To(Succeed())
+		contents, err := os.ReadFile(oldManifest)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(string(contents)).To(Equal("new"))
+		contents, err = os.ReadFile(siblingState)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(string(contents)).To(Equal("persistent"))
+		Expect(exportDir + ".next").NotTo(BeADirectory())
+
+		Expect(os.WriteFile(outfitter, []byte("#!/bin/sh\nexit 0\n"), 0o755)).To(Succeed())
+		Expect(export()).NotTo(Succeed())
+		contents, err = os.ReadFile(oldManifest)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(string(contents)).To(Equal("new"))
+		Expect(filepath.Join(exportDir, ".agents.previous")).NotTo(BeADirectory())
+	})
+
 	// The `-nix` tag suffix is the published convention for the Nix closure
 	// variant; the plain published tag becomes a Debian base at 1.5.0. Anything
 	// the operator cannot classify keeps the machinery, so existing closure
@@ -678,7 +737,7 @@ var _ = Describe("Agent Controller", func() {
 		DeferCleanup(removeAgent, ctx, agent.Name)
 
 		reconciler := &AgentReconciler{
-			Client: k8sClient, APIReader: k8sClient, Scheme: k8sClient.Scheme(), AgentImage: "agent-runtime:default",
+			Client: k8sClient, APIReader: k8sClient, Scheme: k8sClient.Scheme(), AgentImage: testAgentImage,
 		}
 		request := reconcile.Request{NamespacedName: types.NamespacedName{Name: agent.Name}}
 		_, err := reconciler.Reconcile(ctx, request)
