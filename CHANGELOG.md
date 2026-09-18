@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.2](https://github.com/ai-outfitter/agent-operator/compare/agent-operator-v0.15.1...agent-operator-v0.15.2) (2026-09-18)
+
+
+### Bug Fixes
+
+* **operator:** make workflow export restart-safe ([#82](https://github.com/ai-outfitter/agent-operator/issues/82)) ([1fa3b25](https://github.com/ai-outfitter/agent-operator/commit/1fa3b25743cbffdc94658d88afbe2eafee700093))
+
 ## [0.15.1](https://github.com/ai-outfitter/agent-operator/compare/agent-operator-v0.15.0...agent-operator-v0.15.1) (2026-09-09)
 
 
