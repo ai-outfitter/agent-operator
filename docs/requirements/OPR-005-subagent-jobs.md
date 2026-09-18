@@ -68,3 +68,7 @@ Public launch requests MUST record run history and enforce concurrency limits
 within the namespace quota boundary. A launch MUST NOT escape the agent namespace,
 modify the Namespace, or modify the operator-owned ResourceQuota. Cancellation
 deletes the Job, not the namespace.
+
+The namespaced request that carries a launch — and the place the operator records
+its history and enforces concurrency — is the `Run` resource defined in
+[OPR-006](OPR-006-agent-run.md).
