@@ -131,8 +131,19 @@ touch "$destination_nix/.seeded"`
 const catalogSyncScript = `set -eu
 outfitter sync`
 
+// Export into a staging directory before replacing the generated .agents tree.
+// The workspace PVC survives pod rollouts, while `outfitter dump` deliberately
+// refuses an existing destination. Staging preserves the last valid export if
+// composition fails and makes every successful restart idempotent.
 const workflowExportScript = `set -eu
-outfitter dump --workflow "$OUTFITTER_WORKFLOW" --out "` + WorkflowExportDir + `" --strict`
+workflow_export_dir="${WORKFLOW_EXPORT_DIR:-` + WorkflowExportDir + `}"
+workflow_staging_dir="${workflow_export_dir}.next"
+rm -rf -- "$workflow_staging_dir"
+outfitter dump --workflow "$OUTFITTER_WORKFLOW" --out "$workflow_staging_dir" --strict
+mkdir -p "$workflow_export_dir"
+rm -rf -- "$workflow_export_dir/.agents"
+mv "$workflow_staging_dir/.agents" "$workflow_export_dir/.agents"
+rmdir "$workflow_staging_dir"`
 
 func agentNamespace(agentName string) string { return "agent-" + agentName }
 
