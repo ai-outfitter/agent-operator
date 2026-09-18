@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -544,6 +545,7 @@ var _ = Describe("Agent Controller", func() {
 		Expect(deployment.Spec.Template.Spec.InitContainers[4].Env).To(ContainElements(
 			corev1.EnvVar{Name: HomeEnvName, Value: WorkspaceMount},
 			corev1.EnvVar{Name: OutfitterWorkflowEnv, Value: testWorkflowID},
+			corev1.EnvVar{Name: WorkflowExportDirEnv, Value: WorkflowExportDir},
 		))
 		Expect(deployment.Spec.Template.Spec.InitContainers[4].VolumeMounts).To(ContainElements(
 			corev1.VolumeMount{Name: WorkspaceName, MountPath: WorkspaceMount},
@@ -664,19 +666,23 @@ mkdir -p "$out/.agents/.outfitter"
 printf new >"$out/.agents/.outfitter/workflow-composition.json"
 `), 0o755)).To(Succeed())
 
-		export := func() {
+		export := func(extraEnv ...string) error {
 			command := exec.Command("sh", "-c", workflowExportScript)
 			command.Env = append(os.Environ(),
 				"PATH="+binDir+":"+os.Getenv("PATH"),
 				"OUTFITTER_WORKFLOW="+testWorkflowID,
 				"WORKFLOW_EXPORT_DIR="+exportDir,
 			)
+			command.Env = append(command.Env, extraEnv...)
 			output, err := command.CombinedOutput()
-			Expect(err).NotTo(HaveOccurred(), string(output))
+			if err != nil {
+				return fmt.Errorf("workflow export failed: %w: %s", err, output)
+			}
+			return nil
 		}
 
-		export()
-		export()
+		Expect(export()).To(Succeed())
+		Expect(export()).To(Succeed())
 		contents, err := os.ReadFile(oldManifest)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(string(contents)).To(Equal("new"))
@@ -684,6 +690,13 @@ printf new >"$out/.agents/.outfitter/workflow-composition.json"
 		Expect(err).NotTo(HaveOccurred())
 		Expect(string(contents)).To(Equal("persistent"))
 		Expect(exportDir + ".next").NotTo(BeADirectory())
+
+		Expect(os.WriteFile(outfitter, []byte("#!/bin/sh\nexit 0\n"), 0o755)).To(Succeed())
+		Expect(export()).NotTo(Succeed())
+		contents, err = os.ReadFile(oldManifest)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(string(contents)).To(Equal("new"))
+		Expect(filepath.Join(exportDir, ".agents.previous")).NotTo(BeADirectory())
 	})
 
 	// The `-nix` tag suffix is the published convention for the Nix closure

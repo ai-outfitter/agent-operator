@@ -85,6 +85,7 @@ const (
 	A2AWorkflowManifestEnv         = "A2A_WORKFLOW_MANIFEST"
 	A2AWorkflowEnv                 = "A2A_WORKFLOW"
 	OutfitterWorkflowEnv           = "OUTFITTER_WORKFLOW"
+	WorkflowExportDirEnv           = "WORKFLOW_EXPORT_DIR"
 	WorkflowExportDir              = "/workspace/.outfitter/workflow"
 	WorkflowManifestPath           = WorkflowExportDir + "/.agents/.outfitter/workflow-composition.json"
 )
@@ -138,11 +139,26 @@ outfitter sync`
 const workflowExportScript = `set -eu
 workflow_export_dir="${WORKFLOW_EXPORT_DIR:-` + WorkflowExportDir + `}"
 workflow_staging_dir="${workflow_export_dir}.next"
+workflow_live_agents="$workflow_export_dir/.agents"
+workflow_backup_agents="$workflow_export_dir/.agents.previous"
+mkdir -p "$workflow_export_dir"
+if [ ! -e "$workflow_live_agents" ] && [ -e "$workflow_backup_agents" ]; then
+  mv "$workflow_backup_agents" "$workflow_live_agents"
+else
+  rm -rf -- "$workflow_backup_agents"
+fi
 rm -rf -- "$workflow_staging_dir"
 outfitter dump --workflow "$OUTFITTER_WORKFLOW" --out "$workflow_staging_dir" --strict
-mkdir -p "$workflow_export_dir"
-rm -rf -- "$workflow_export_dir/.agents"
-mv "$workflow_staging_dir/.agents" "$workflow_export_dir/.agents"
+if [ -e "$workflow_live_agents" ]; then
+  mv "$workflow_live_agents" "$workflow_backup_agents"
+fi
+if ! mv "$workflow_staging_dir/.agents" "$workflow_live_agents"; then
+  if [ -e "$workflow_backup_agents" ]; then
+    mv "$workflow_backup_agents" "$workflow_live_agents"
+  fi
+  exit 1
+fi
+rm -rf -- "$workflow_backup_agents"
 rmdir "$workflow_staging_dir"`
 
 func agentNamespace(agentName string) string { return "agent-" + agentName }
@@ -547,6 +563,7 @@ func (r *AgentReconciler) ensureAgentDeployment(
 				Env: []corev1.EnvVar{
 					{Name: HomeEnvName, Value: WorkspaceMount},
 					{Name: OutfitterWorkflowEnv, Value: taskPlane.Workflow},
+					{Name: WorkflowExportDirEnv, Value: WorkflowExportDir},
 				},
 				VolumeMounts: mounts,
 			})
