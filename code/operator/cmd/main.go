@@ -53,6 +53,12 @@ func main() {
 	var agentImage string
 	var gatewayImage string
 	var outfitterRevision string
+	var pensieveCollectorImage string
+	var pensieveCollectorRevision string
+	var pensieveSink string
+	var pensieveProbeCredentialSecret string
+	var pensieveProbeModelBaseURL string
+	var pensieveProbeModelAPIKeyEnv string
 	var metricsCertPath, metricsCertName, metricsCertKey string
 	var webhookCertPath, webhookCertName, webhookCertKey string
 	var enableLeaderElection bool
@@ -105,6 +111,18 @@ func main() {
 	// --agent-image or removed; removal changes a status field, so it needs its own change.
 	flag.StringVar(&outfitterRevision, "outfitter-revision", "v1.5.0",
 		"Outfitter revision present in the configured agent runtime image.")
+	flag.StringVar(&pensieveCollectorImage, "pensieve-collector-image", "",
+		"Digest-pinned Pensieve workbench image used to materialize the managed Pi collector.")
+	flag.StringVar(&pensieveCollectorRevision, "pensieve-collector-revision", "",
+		"Immutable 40-character Pensieve source revision contained in the collector image.")
+	flag.StringVar(&pensieveSink, "pensieve-sink", "",
+		"Operator-owned Pensieve evidence sink URL for audited residents.")
+	flag.StringVar(&pensieveProbeCredentialSecret, "pensieve-probe-credential-secret", "pensieve-probe-inference",
+		"Per-agent namespace Secret containing only the inference credentials required by the audit probe.")
+	flag.StringVar(&pensieveProbeModelBaseURL, "pensieve-probe-model-base-url", "",
+		"Administrator-owned OpenAI-compatible base URL used by audited resident probes.")
+	flag.StringVar(&pensieveProbeModelAPIKeyEnv, "pensieve-probe-model-api-key-env", "OPENAI_API_KEY",
+		"Environment key in the probe-only Secret used as both API key and Authorization header.")
 	opts := zap.Options{
 		Development: true,
 	}
@@ -215,11 +233,17 @@ func main() {
 		os.Exit(1)
 	}
 	if err := (&controller.AgentReconciler{
-		Client:            mgr.GetClient(),
-		APIReader:         mgr.GetAPIReader(),
-		Scheme:            mgr.GetScheme(),
-		AgentImage:        agentImage,
-		OutfitterRevision: outfitterRevision,
+		Client:                        mgr.GetClient(),
+		APIReader:                     mgr.GetAPIReader(),
+		Scheme:                        mgr.GetScheme(),
+		AgentImage:                    agentImage,
+		OutfitterRevision:             outfitterRevision,
+		PensieveCollectorImage:        pensieveCollectorImage,
+		PensieveCollectorRevision:     pensieveCollectorRevision,
+		PensieveSink:                  pensieveSink,
+		PensieveProbeCredentialSecret: pensieveProbeCredentialSecret,
+		PensieveProbeModelBaseURL:     pensieveProbeModelBaseURL,
+		PensieveProbeModelAPIKeyEnv:   pensieveProbeModelAPIKeyEnv,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "agent")
 		os.Exit(1)

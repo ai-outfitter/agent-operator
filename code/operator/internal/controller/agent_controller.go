@@ -9,6 +9,7 @@ import (
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
@@ -40,16 +41,23 @@ var agentConditionOrder = []string{
 	aioutfitterv1alpha1.AgentConditionCredentialsReady,
 	aioutfitterv1alpha1.AgentConditionOutfitterSettingsReady,
 	aioutfitterv1alpha1.AgentConditionWorkloadReady,
+	aioutfitterv1alpha1.AgentConditionAuditabilityReady,
 	aioutfitterv1alpha1.AgentConditionReady,
 }
 
 // AgentReconciler reconciles an Agent object.
 type AgentReconciler struct {
 	client.Client
-	APIReader         client.Reader
-	Scheme            *runtime.Scheme
-	AgentImage        string
-	OutfitterRevision string
+	APIReader                     client.Reader
+	Scheme                        *runtime.Scheme
+	AgentImage                    string
+	OutfitterRevision             string
+	PensieveCollectorImage        string
+	PensieveCollectorRevision     string
+	PensieveSink                  string
+	PensieveProbeCredentialSecret string
+	PensieveProbeModelBaseURL     string
+	PensieveProbeModelAPIKeyEnv   string
 }
 
 // +kubebuilder:rbac:groups=aioutfitter.com,resources=agents,verbs=get;list;watch;create;update;patch;delete
@@ -63,6 +71,7 @@ type AgentReconciler struct {
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=rolebindings,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterroles,resourceNames=admin,verbs=bind
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile materializes the agent's namespace workspace and runtime.
 func (r *AgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -85,6 +94,9 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	agent.Status.ObservedGeneration = agent.Generation
 	agent.Status.Namespace = agentNamespace(agent.Name)
 	agent.Status.OutfitterRevision = r.OutfitterRevision
+	if agent.Spec.Auditability == nil {
+		agent.Status.Auditability = nil
+	}
 
 	organization, validationMessage, err := r.validateAgent(ctx, agent)
 	if err != nil {
@@ -144,11 +156,31 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	agent.Status.CatalogSources = catalogSourceStatuses(organization.Spec.AgentCatalogs)
 	setAgentCondition(agent, aioutfitterv1alpha1.AgentConditionOutfitterSettingsReady, metav1.ConditionTrue, "Ready", "Outfitter settings contain the pinned source; runtime resolution is delegated to Outfitter")
 
+	pensieveConfiguration, err := r.ensurePensieveHook(ctx, agent)
+	if err != nil {
+		setAgentCondition(agent, aioutfitterv1alpha1.AgentConditionWorkloadReady, metav1.ConditionFalse, "AuditabilityReconcileFailed", "Managed Pensieve configuration could not be reconciled")
+		setAgentCondition(agent, aioutfitterv1alpha1.AgentConditionReady, metav1.ConditionFalse, "WorkloadNotReady", "Agent workload is not ready")
+		return r.finishAgent(ctx, statusBase, agent, ctrl.Result{}, err)
+	}
+
 	deployment, err := r.ensureAgentDeployment(ctx, agent, organization)
 	if err != nil {
 		setAgentCondition(agent, aioutfitterv1alpha1.AgentConditionWorkloadReady, metav1.ConditionFalse, "WorkloadReconcileFailed", "Agent Deployment could not be reconciled")
 		setAgentCondition(agent, aioutfitterv1alpha1.AgentConditionReady, metav1.ConditionFalse, "WorkloadNotReady", "Agent workload is not ready")
 		return r.finishAgent(ctx, statusBase, agent, ctrl.Result{}, err)
+	}
+	if pensieveConfiguration != nil {
+		var previousProbe *aioutfitterv1alpha1.AgentAuditabilityProbeStatus
+		if agent.Status.Auditability != nil {
+			previousProbe = agent.Status.Auditability.Probe
+		}
+		agent.Status.Auditability = &aioutfitterv1alpha1.AgentAuditabilityStatus{
+			ObservedGeneration: agent.Generation,
+			CollectorImage:     pensieveConfiguration.CollectorImage,
+			CollectorRevision:  pensieveConfiguration.CollectorRevision,
+			PolicyDigest:       pensieveConfiguration.PolicyDigest,
+			Probe:              previousProbe,
+		}
 	}
 	if deployment.Status.AvailableReplicas < 1 {
 		setAgentCondition(agent, aioutfitterv1alpha1.AgentConditionWorkloadReady, metav1.ConditionFalse, "DeploymentUnavailable", "Agent Deployment has no available replica")
@@ -157,8 +189,36 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	}
 	setAgentCondition(agent, aioutfitterv1alpha1.AgentConditionWorkloadReady, metav1.ConditionTrue, "Ready", "Agent Deployment is available")
 	if len(missingCredentials) > 0 {
+		setAgentCondition(agent, aioutfitterv1alpha1.AgentConditionAuditabilityReady, metav1.ConditionFalse, "CredentialsNotReady", "Auditability cannot be verified until Agent credentials are ready")
 		setAgentCondition(agent, aioutfitterv1alpha1.AgentConditionReady, metav1.ConditionFalse, "CredentialsNotReady", "Agent references missing objects")
 		return r.finishAgent(ctx, statusBase, agent, ctrl.Result{RequeueAfter: credentialPollInterval}, nil)
+	}
+	if agent.Spec.Auditability == nil {
+		setAgentCondition(agent, aioutfitterv1alpha1.AgentConditionAuditabilityReady, metav1.ConditionTrue, "NotRequested", "Managed auditability is not requested")
+	} else {
+		probeStatus, probeState, err := r.ensurePensieveProbe(ctx, agent, pensieveConfiguration)
+		agent.Status.Auditability.Probe = probeStatus
+		if err != nil {
+			setAgentCondition(agent, aioutfitterv1alpha1.AgentConditionAuditabilityReady, metav1.ConditionFalse, "ProbeReconcileFailed", "Pensieve audit probe could not be reconciled")
+			setAgentCondition(agent, aioutfitterv1alpha1.AgentConditionReady, metav1.ConditionFalse, "AuditabilityNotReady", "Managed auditability is not ready")
+			return r.finishAgent(ctx, statusBase, agent, ctrl.Result{}, err)
+		}
+		switch probeState {
+		case pensieveProbeSucceeded:
+			setAgentCondition(agent, aioutfitterv1alpha1.AgentConditionAuditabilityReady, metav1.ConditionTrue, "ProbeSucceeded", "Pensieve audit probe completed")
+		case pensieveProbeFailed:
+			setAgentCondition(agent, aioutfitterv1alpha1.AgentConditionAuditabilityReady, metav1.ConditionFalse, "ProbeFailed", probeStatus.Message)
+			setAgentCondition(agent, aioutfitterv1alpha1.AgentConditionReady, metav1.ConditionFalse, "AuditabilityNotReady", "Managed auditability is not ready")
+			return r.finishAgent(ctx, statusBase, agent, ctrl.Result{RequeueAfter: steadyStateInterval}, nil)
+		case pensieveProbeRunning:
+			setAgentCondition(agent, aioutfitterv1alpha1.AgentConditionAuditabilityReady, metav1.ConditionFalse, "ProbeRunning", "Pensieve audit probe is running")
+			setAgentCondition(agent, aioutfitterv1alpha1.AgentConditionReady, metav1.ConditionFalse, "AuditabilityNotReady", "Managed auditability is not ready")
+			return r.finishAgent(ctx, statusBase, agent, ctrl.Result{RequeueAfter: credentialPollInterval}, nil)
+		default:
+			setAgentCondition(agent, aioutfitterv1alpha1.AgentConditionAuditabilityReady, metav1.ConditionFalse, "ProbeNotRequested", "Set auditability.probeNonce to request an acceptance probe")
+			setAgentCondition(agent, aioutfitterv1alpha1.AgentConditionReady, metav1.ConditionFalse, "AuditabilityNotReady", "Managed auditability is not ready")
+			return r.finishAgent(ctx, statusBase, agent, ctrl.Result{RequeueAfter: steadyStateInterval}, nil)
+		}
 	}
 	setAgentCondition(agent, aioutfitterv1alpha1.AgentConditionReady, metav1.ConditionTrue, "Ready", "Agent is ready")
 
@@ -188,6 +248,21 @@ func (r *AgentReconciler) validateAgent(
 	}
 	if message := inputValidationMessage(agent); message != "" {
 		return nil, message, nil
+	}
+	if agent.Spec.Auditability != nil {
+		if agent.Spec.Profile.Model == "" {
+			return nil, "Audited Agents must set profile.model so the isolated acceptance probe uses the sold inference route", nil
+		}
+		explicit, err := r.credentialEnvironmentKeys(ctx, agent)
+		if err != nil {
+			return nil, "", err
+		}
+		for key := range explicit {
+			normalized := strings.ToUpper(key)
+			if strings.HasPrefix(normalized, "PENSIEVE_") || normalized == "OUTFITTER_SYSTEM_DIR" {
+				return nil, fmt.Sprintf("Environment variable %q is reserved for operator-owned auditability", key), nil
+			}
+		}
 	}
 	membership := agent.Spec.Memberships[0]
 	organization := &aioutfitterv1alpha1.Organization{}
@@ -220,7 +295,8 @@ func inputValidationMessage(agent *aioutfitterv1alpha1.Agent) string {
 		}
 	}
 	reservedVolumes := map[string]struct{}{
-		WorkspaceName: {}, SettingsName: {}, NixStoreName: {}, APITokenVolumeName: {}, A2ACredentialsVolumeName: {}, browserDataName: {},
+		WorkspaceName: {}, SettingsName: {}, NixStoreName: {}, APITokenVolumeName: {}, PensieveTokenVolumeName: {},
+		PensieveCollectorVolumeName: {}, PensieveHookVolumeName: {}, A2ACredentialsVolumeName: {}, browserDataName: {},
 	}
 	volumeNames := map[string]struct{}{}
 	for i := range agent.Spec.Volumes {
@@ -233,7 +309,10 @@ func inputValidationMessage(agent *aioutfitterv1alpha1.Agent) string {
 		}
 		volumeNames[volume.Name] = struct{}{}
 	}
-	reservedPaths := []string{WorkspaceMount, NixMount, A2ACredentialsMount, CredentialsRoot, APITokenMountPath}
+	reservedPaths := []string{
+		WorkspaceMount, NixMount, A2ACredentialsMount, CredentialsRoot, APITokenMountPath,
+		PensieveTokenMountPath, PensieveCollectorMountPath, PensieveHookMountPath,
+	}
 	for i := range agent.Spec.VolumeMounts {
 		mount := &agent.Spec.VolumeMounts[i]
 		if _, declared := volumeNames[mount.Name]; !declared {
@@ -471,6 +550,7 @@ func (r *AgentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(&corev1.ConfigMap{}, managed).
 		Watches(&rbacv1.RoleBinding{}, managed).
 		Watches(&appsv1.Deployment{}, managed).
+		Watches(&batchv1.Job{}, managed).
 		Named("agent").
 		Complete(r)
 }

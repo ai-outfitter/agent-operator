@@ -16,6 +16,7 @@ const (
 	AgentConditionCredentialsReady       = "CredentialsReady"
 	AgentConditionOutfitterSettingsReady = "OutfitterSettingsReady"
 	AgentConditionWorkloadReady          = "WorkloadReady"
+	AgentConditionAuditabilityReady      = "AuditabilityReady"
 	AgentConditionReady                  = "Ready"
 )
 
@@ -184,6 +185,55 @@ type WorkspaceSpec struct {
 	Volume WorkspaceVolumeSpec `json:"volume,omitempty"`
 }
 
+// AgentAuditabilitySpec opts a resident into the operator-owned enterprise
+// auditability contract. The operator, rather than the catalog, owns the
+// collector artifact, workload-token audience, capture classes, and policy.
+type AgentAuditabilitySpec struct {
+	// Profile selects the operator-supported capture contract.
+	// +kubebuilder:validation:Enum=resident-complete-trace-v1
+	Profile string `json:"profile"`
+
+	// ProbeNonce requests a one-shot, isolated acceptance probe. Changing the
+	// nonce requests a new run; the operator records the terminal result in
+	// status before it removes the probe Pod.
+	// +optional
+	// +kubebuilder:validation:MaxLength=128
+	// +kubebuilder:validation:Pattern=`^[A-Za-z0-9._:-]+$`
+	ProbeNonce string `json:"probeNonce,omitempty"`
+}
+
+// AgentAuditabilityStatus binds the observed Agent generation to the exact
+// operator-managed collector and policy that were materialized in its Pod.
+type AgentAuditabilityStatus struct {
+	ObservedGeneration int64 `json:"observedGeneration"`
+
+	CollectorImage string `json:"collectorImage"`
+
+	CollectorRevision string `json:"collectorRevision"`
+
+	PolicyDigest string `json:"policyDigest"`
+
+	// +optional
+	Probe *AgentAuditabilityProbeStatus `json:"probe,omitempty"`
+}
+
+// AgentAuditabilityProbeStatus reports one bounded, operator-owned trace run.
+type AgentAuditabilityProbeStatus struct {
+	Nonce string `json:"nonce"`
+
+	Run string `json:"run"`
+
+	StartedAt metav1.Time `json:"startedAt"`
+
+	// +optional
+	CompletedAt *metav1.Time `json:"completedAt,omitempty"`
+
+	Succeeded bool `json:"succeeded"`
+
+	// +optional
+	Message string `json:"message,omitempty"`
+}
+
 // AgentSpec defines the desired state of Agent.
 type AgentSpec struct {
 	// M1 exercises one membership while retaining the eventual list shape.
@@ -259,6 +309,12 @@ type AgentSpec struct {
 	// +optional
 	TaskPlane *AgentTaskPlaneSpec `json:"taskPlane,omitempty"`
 
+	// Auditability enables the operator-owned Pensieve collector contract. Its
+	// projected credential is audience-scoped and is never exposed to setup,
+	// browser, catalog-sync, or workflow-export containers.
+	// +optional
+	Auditability *AgentAuditabilitySpec `json:"auditability,omitempty"`
+
 	// Setup steps run as ordered init containers before the agent starts, with
 	// the agent's credentials and workspace mounted. Use them for usecase
 	// bootstrap (e.g. provisioning a mailbox, waiting for a dependency).
@@ -287,6 +343,9 @@ type AgentStatus struct {
 
 	// +optional
 	ResolvedImageDigest string `json:"resolvedImageDigest,omitempty"`
+
+	// +optional
+	Auditability *AgentAuditabilityStatus `json:"auditability,omitempty"`
 
 	// +optional
 	QuotaHard corev1.ResourceList `json:"quotaHard,omitempty"`

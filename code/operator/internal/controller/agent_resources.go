@@ -3,9 +3,12 @@ package controller
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"maps"
+	"net/url"
 	"path"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -26,25 +29,26 @@ import (
 )
 
 const (
-	AgentNameLabel          = "aioutfitter.com/agent"
-	AgentUIDLabel           = "aioutfitter.com/agent-uid"
-	ManagedByLabel          = "app.kubernetes.io/managed-by"
-	RuntimeName             = "agent-runtime"
-	WorkspaceName           = "agent-workspace"
-	LimitRangeName          = "agent-workspace-defaults"
-	SettingsName            = "outfitter-settings"
-	SettingsHashAnnotation  = "aioutfitter.com/outfitter-settings-hash"
-	WorkspaceMount          = "/workspace"
-	CredentialsRoot         = "/var/run/agent/credentials"
-	NixStoreName            = "agent-nix-store"
-	NixMount                = "/nix"
-	HomeEnvName             = "HOME"
-	OutfitterChannelsEnv    = "OUTFITTER_CHANNELS"
-	GitHubNotifyOrgsEnv     = "GITHUB_NOTIFY_ORGS"
-	GitHubNotifyPollMSEnv   = "GITHUB_NOTIFY_POLL_MS"
-	GitHubNotifyFiltersEnv  = "GITHUB_NOTIFY_FILTERS"
-	DefaultGitHubNotifyPoll = int64(60000)
-	DefaultGitHubFilters    = "mention,assigned_issue,assigned_pr,review_requested,author"
+	AgentNameLabel             = "aioutfitter.com/agent"
+	AgentUIDLabel              = "aioutfitter.com/agent-uid"
+	ManagedByLabel             = "app.kubernetes.io/managed-by"
+	RuntimeName                = "agent-runtime"
+	WorkspaceName              = "agent-workspace"
+	LimitRangeName             = "agent-workspace-defaults"
+	SettingsName               = "outfitter-settings"
+	SettingsHashAnnotation     = "aioutfitter.com/outfitter-settings-hash"
+	PensieveHookHashAnnotation = "aioutfitter.com/pensieve-hook-hash"
+	WorkspaceMount             = "/workspace"
+	CredentialsRoot            = "/var/run/agent/credentials"
+	NixStoreName               = "agent-nix-store"
+	NixMount                   = "/nix"
+	HomeEnvName                = "HOME"
+	OutfitterChannelsEnv       = "OUTFITTER_CHANNELS"
+	GitHubNotifyOrgsEnv        = "GITHUB_NOTIFY_ORGS"
+	GitHubNotifyPollMSEnv      = "GITHUB_NOTIFY_POLL_MS"
+	GitHubNotifyFiltersEnv     = "GITHUB_NOTIFY_FILTERS"
+	DefaultGitHubNotifyPoll    = int64(60000)
+	DefaultGitHubFilters       = "mention,assigned_issue,assigned_pr,review_requested,author"
 	// BakedCatalogPath is the agent image's built-in Outfitter payload. The
 	// entrypoint launches from $HOME, so this directory only enters the layer
 	// stack through the trailing settings source rendered below — never as
@@ -75,24 +79,93 @@ const (
 	// unsandboxed browser) never see the agent-runtime credentials; the token
 	// is mounted into the agent container only, at the well-known path client
 	// libraries expect.
-	APITokenVolumeName             = "agent-api-access"
-	APITokenMountPath              = "/var/run/secrets/kubernetes.io/serviceaccount"
-	A2ACredentialsSecretName       = "agent-runtime-a2a" // legacy v0.11 migration source
-	A2ACredentialsVolumeName       = "a2a-credentials"
-	A2ACredentialsMount            = "/var/run/agent/a2a"
-	A2APortName                    = "a2a"
-	A2APort                  int32 = 8788
-	A2AWorkflowManifestEnv         = "A2A_WORKFLOW_MANIFEST"
-	A2AWorkflowEnv                 = "A2A_WORKFLOW"
-	OutfitterWorkflowEnv           = "OUTFITTER_WORKFLOW"
-	WorkflowExportDirEnv           = "WORKFLOW_EXPORT_DIR"
-	WorkflowExportDir              = "/workspace/.outfitter/workflow"
-	WorkflowManifestPath           = WorkflowExportDir + "/.agents/.outfitter/workflow-composition.json"
+	APITokenVolumeName                   = "agent-api-access"
+	APITokenMountPath                    = "/var/run/secrets/kubernetes.io/serviceaccount"
+	PensieveTokenVolumeName              = "pensieve-workload-token"
+	PensieveTokenMountPath               = "/var/run/agent/pensieve"
+	PensieveTokenFile                    = PensieveTokenMountPath + "/token"
+	PensieveTokenEnv                     = "PENSIEVE_TOKEN_FILE"
+	PensieveTokenAudience                = "pensieve"
+	PensieveCollectorVolumeName          = "pensieve-managed-collector"
+	PensieveHookVolumeName               = "pensieve-system-hook"
+	PensieveHookConfigMapName            = "pensieve-managed-hook"
+	PensieveCollectorSourcePath          = "/opt/pensieve/collectors/pi"
+	PensieveCollectorMountPath           = "/opt/agent-managed/pensieve/collectors/pi"
+	PensieveHookMountPath                = "/etc/outfitter/system.d"
+	PensieveHookFileName                 = "50-pensieve.yml"
+	PensieveManagedConfigFileName        = "managed-config.json"
+	PensieveManagedConfigFile            = PensieveTokenMountPath + "/" + PensieveManagedConfigFileName
+	PensieveProbeSettingsFileName        = "probe-settings.yml"
+	PensieveProbeAgentFileName           = "probe-agent.md"
+	PensieveProbeModelsFileName          = "probe-models.json"
+	PensieveProbeProfileVolumeName       = "pensieve-probe-profile"
+	PensieveProbeProfileMountPath        = WorkspaceMount + "/.agents"
+	PensieveProbeAgentName               = "audit-probe"
+	PensieveProbeFailClosed              = "1"
+	PensieveCollectorInitName            = "install-pensieve-collector"
+	PensieveRequiredClasses              = "session,transcript,model-exchange,tool-call"
+	PensieveEnvironment                  = "cluster"
+	PensieveSpoolPath                    = WorkspaceMount + "/.pensieve/spool"
+	PensieveStatePath                    = WorkspaceMount + "/.pensieve/state"
+	A2ACredentialsSecretName             = "agent-runtime-a2a" // legacy v0.11 migration source
+	A2ACredentialsVolumeName             = "a2a-credentials"
+	A2ACredentialsMount                  = "/var/run/agent/a2a"
+	A2APortName                          = "a2a"
+	A2APort                        int32 = 8788
+	A2AWorkflowManifestEnv               = "A2A_WORKFLOW_MANIFEST"
+	A2AWorkflowEnv                       = "A2A_WORKFLOW"
+	OutfitterWorkflowEnv                 = "OUTFITTER_WORKFLOW"
+	WorkflowExportDirEnv                 = "WORKFLOW_EXPORT_DIR"
+	WorkflowExportDir                    = "/workspace/.outfitter/workflow"
+	WorkflowManifestPath                 = WorkflowExportDir + "/.agents/.outfitter/workflow-composition.json"
 )
 
 // apiTokenExpirationSeconds matches the kubelet-managed kube-api-access
 // projection: one hour plus a small skew so clients refresh before expiry.
 var apiTokenExpirationSeconds = ptr.To[int64](3607)
+
+// pensieveTokenExpirationSeconds is short-lived and kubelet-rotated. The
+// collector rereads the file for each upload, so rotation does not interrupt
+// delivery and no bearer credential enters a Secret or environment value.
+var pensieveTokenExpirationSeconds = ptr.To[int64](3600)
+
+var (
+	pensieveCollectorImagePattern     = regexp.MustCompile(`^.+@sha256:[0-9a-f]{64}$`)
+	pensieveCollectorRevisionPattern  = regexp.MustCompile(`^[0-9a-f]{40}$`)
+	pensieveProbeCredentialKeyPattern = regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)
+)
+
+type managedPensieveConfiguration struct {
+	CollectorImage    string
+	CollectorRevision string
+	Sink              string
+	PolicyDigest      string
+	Hook              []byte
+	ManagedConfig     []byte
+	ProbeModels       []byte
+}
+
+type pensieveProbeModelsDocument struct {
+	Providers map[string]pensieveProbeProvider `json:"providers"`
+}
+
+type pensieveProbeProvider struct {
+	BaseURL string               `json:"baseUrl"`
+	API     string               `json:"api"`
+	APIKey  string               `json:"apiKey"`
+	Headers map[string]string    `json:"headers"`
+	Compat  map[string]bool      `json:"compat"`
+	Models  []pensieveProbeModel `json:"models"`
+}
+
+type pensieveProbeModel struct {
+	ID            string   `json:"id"`
+	Name          string   `json:"name"`
+	Reasoning     bool     `json:"reasoning"`
+	Input         []string `json:"input"`
+	ContextWindow int      `json:"contextWindow"`
+	MaxTokens     int      `json:"maxTokens"`
+}
 
 // defaultBrowserImage runs headless Chromium with no services of its own; the
 // operator supplies every flag. Pinned by digest so an operator upgrade, not a
@@ -335,6 +408,177 @@ func apiTokenVolume() corev1.Volume {
 	}
 }
 
+// pensieveTokenVolume is deliberately separate from apiTokenVolume. A sink
+// compromise must not turn a captured bearer token into Kubernetes API access.
+func pensieveTokenVolume() corev1.Volume {
+	return corev1.Volume{
+		Name: PensieveTokenVolumeName,
+		VolumeSource: corev1.VolumeSource{Projected: &corev1.ProjectedVolumeSource{
+			Sources: []corev1.VolumeProjection{
+				{ServiceAccountToken: &corev1.ServiceAccountTokenProjection{
+					Audience:          PensieveTokenAudience,
+					ExpirationSeconds: pensieveTokenExpirationSeconds,
+					Path:              "token",
+				}},
+				{ConfigMap: &corev1.ConfigMapProjection{
+					LocalObjectReference: corev1.LocalObjectReference{Name: PensieveHookConfigMapName},
+					Items:                []corev1.KeyToPath{{Key: PensieveManagedConfigFileName, Path: PensieveManagedConfigFileName}},
+				}},
+			},
+		}},
+	}
+}
+
+type pensieveHookDocument struct {
+	Name      string                         `json:"name"`
+	Harnesses map[string]pensieveHarnessHook `json:"harnesses"`
+}
+
+type pensieveHarnessHook struct {
+	Extensions []string          `json:"extensions"`
+	Env        map[string]string `json:"env"`
+}
+
+type pensieveManagedConfigDocument struct {
+	Version     int               `json:"version"`
+	Environment map[string]string `json:"environment"`
+}
+
+func (r *AgentReconciler) managedPensieveConfiguration(
+	agent *aioutfitterv1alpha1.Agent,
+) (*managedPensieveConfiguration, error) {
+	if agent.Spec.Auditability == nil {
+		return nil, nil
+	}
+	if agent.Spec.Auditability.Profile != "resident-complete-trace-v1" {
+		return nil, fmt.Errorf("unsupported auditability profile %q", agent.Spec.Auditability.Profile)
+	}
+	if !pensieveCollectorImagePattern.MatchString(r.PensieveCollectorImage) {
+		return nil, fmt.Errorf("Pensieve collector image must be pinned by sha256 digest")
+	}
+	if !pensieveCollectorRevisionPattern.MatchString(r.PensieveCollectorRevision) {
+		return nil, fmt.Errorf("Pensieve collector revision must be a 40-character lowercase commit")
+	}
+	sink, err := url.ParseRequestURI(r.PensieveSink)
+	if err != nil || (sink.Scheme != "http" && sink.Scheme != "https") || sink.Host == "" {
+		return nil, fmt.Errorf("Pensieve sink must be an absolute HTTP(S) URL")
+	}
+	modelBaseURL, err := url.ParseRequestURI(r.PensieveProbeModelBaseURL)
+	if err != nil || modelBaseURL.Scheme != "https" || modelBaseURL.Host == "" {
+		return nil, fmt.Errorf("Pensieve probe model base URL must be an absolute HTTPS URL")
+	}
+	if !pensieveProbeCredentialKeyPattern.MatchString(r.PensieveProbeModelAPIKeyEnv) {
+		return nil, fmt.Errorf("Pensieve probe model API key environment name is invalid")
+	}
+	provider, model, found := strings.Cut(agent.Spec.Profile.Model, "/")
+	if !found || provider == "" || model == "" {
+		return nil, fmt.Errorf("audited Agent profile.model must select provider/model")
+	}
+	credentialReference := "$" + r.PensieveProbeModelAPIKeyEnv
+	probeModels, err := json.Marshal(pensieveProbeModelsDocument{Providers: map[string]pensieveProbeProvider{
+		provider: {
+			BaseURL: r.PensieveProbeModelBaseURL, API: "openai-completions", APIKey: credentialReference,
+			Headers: map[string]string{"Authorization": credentialReference},
+			Compat:  map[string]bool{"supportsDeveloperRole": false, "supportsReasoningEffort": false},
+			Models: []pensieveProbeModel{{
+				ID: model, Name: model, Reasoning: true, Input: []string{"text"},
+				ContextWindow: 900000, MaxTokens: 32768,
+			}},
+		},
+	}})
+	if err != nil {
+		return nil, fmt.Errorf("render Pensieve probe model configuration: %w", err)
+	}
+	policy := strings.Join([]string{
+		"profile=" + agent.Spec.Auditability.Profile,
+		"required=" + PensieveRequiredClasses,
+		"sink=" + r.PensieveSink,
+		"collector_image=" + r.PensieveCollectorImage,
+		"collector_revision=" + r.PensieveCollectorRevision,
+		"token_audience=" + PensieveTokenAudience,
+		"probe_model=" + agent.Spec.Profile.Model,
+		"probe_model_base_url=" + r.PensieveProbeModelBaseURL,
+		"probe_model_api_key_env=" + r.PensieveProbeModelAPIKeyEnv,
+		"probe_credential_secret=" + r.PensieveProbeCredentialSecret,
+		"probe_fail_closed=" + PensieveProbeFailClosed,
+	}, "\n")
+	policyDigest := fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(policy)))
+	identity := fmt.Sprintf("system:serviceaccount:%s:%s", agentNamespace(agent.Name), RuntimeName)
+	environment := map[string]string{
+		"PENSIEVE_COLLECTOR_REVISION":  r.PensieveCollectorRevision,
+		"PENSIEVE_ENVIRONMENT":         PensieveEnvironment,
+		"PENSIEVE_IDENTITY":            identity,
+		"PENSIEVE_INSTALL_SCOPE":       "managed",
+		"PENSIEVE_MANAGED_CONFIG_FILE": PensieveManagedConfigFile,
+		"PENSIEVE_POLICY_DIGEST":       policyDigest,
+		"PENSIEVE_PROFILE":             agent.Spec.Auditability.Profile,
+		"PENSIEVE_REQUIRED_CLASSES":    PensieveRequiredClasses,
+		"PENSIEVE_SINK":                r.PensieveSink,
+		"PENSIEVE_SPOOL":               PensieveSpoolPath,
+		"PENSIEVE_STATE":               PensieveStatePath,
+		PensieveTokenEnv:               PensieveTokenFile,
+	}
+	hook, err := yaml.Marshal(pensieveHookDocument{
+		Name: "pensieve",
+		Harnesses: map[string]pensieveHarnessHook{"pi": {
+			Extensions: []string{PensieveCollectorMountPath},
+			Env: map[string]string{
+				"PENSIEVE_COLLECTOR_REVISION": r.PensieveCollectorRevision,
+				"PENSIEVE_ENVIRONMENT":        PensieveEnvironment,
+				"PENSIEVE_IDENTITY":           identity,
+				"PENSIEVE_INSTALL_SCOPE":      "managed",
+				"PENSIEVE_POLICY_DIGEST":      policyDigest,
+				"PENSIEVE_PROFILE":            agent.Spec.Auditability.Profile,
+				"PENSIEVE_REQUIRED_CLASSES":   PensieveRequiredClasses,
+				"PENSIEVE_SINK":               r.PensieveSink,
+				"PENSIEVE_SPOOL":              PensieveSpoolPath,
+				"PENSIEVE_STATE":              PensieveStatePath,
+				PensieveTokenEnv:              PensieveTokenFile,
+			},
+		}},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("render Pensieve system hook: %w", err)
+	}
+	managedConfig, err := json.Marshal(pensieveManagedConfigDocument{Version: 1, Environment: environment})
+	if err != nil {
+		return nil, fmt.Errorf("render Pensieve managed configuration: %w", err)
+	}
+	return &managedPensieveConfiguration{
+		CollectorImage: r.PensieveCollectorImage, CollectorRevision: r.PensieveCollectorRevision,
+		Sink: r.PensieveSink, PolicyDigest: policyDigest, Hook: hook, ManagedConfig: managedConfig,
+		ProbeModels: probeModels,
+	}, nil
+}
+
+func (r *AgentReconciler) ensurePensieveHook(
+	ctx context.Context,
+	agent *aioutfitterv1alpha1.Agent,
+) (*managedPensieveConfiguration, error) {
+	configuration, err := r.managedPensieveConfiguration(agent)
+	if err != nil || configuration == nil {
+		return configuration, err
+	}
+	configMap := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{
+		Name: PensieveHookConfigMapName, Namespace: agentNamespace(agent.Name),
+	}}
+	_, err = controllerutil.CreateOrUpdate(ctx, r.Client, configMap, func() error {
+		configMap.Labels = mergeLabels(configMap.Labels, ownershipLabels(agent))
+		configMap.Data = map[string]string{
+			PensieveHookFileName:          string(configuration.Hook),
+			PensieveManagedConfigFileName: string(configuration.ManagedConfig),
+			PensieveProbeSettingsFileName: "default_agent: audit-probe\ndefault_harness: pi\n" +
+				"cache_directory: /workspace/.agents-cache\nsources:\n- path: /workspace/.agents/catalog\n",
+			PensieveProbeAgentFileName: "---\nname: audit-probe\ndescription: Operator-owned Pensieve acceptance probe\n" +
+				"thinking: medium\ntools:\n  allow: [read]\n---\n\n" +
+				"Read only the requested probe file with the read tool, then report its exact contents.\n",
+			PensieveProbeModelsFileName: string(configuration.ProbeModels),
+		}
+		return nil
+	})
+	return configuration, err
+}
+
 func (r *AgentReconciler) ensureAgentDeployment(
 	ctx context.Context,
 	agent *aioutfitterv1alpha1.Agent,
@@ -358,6 +602,10 @@ func (r *AgentReconciler) ensureAgentDeployment(
 		return nil, err
 	}
 	settingsHash := fmt.Sprintf("%x", sha256.Sum256(settings))
+	pensieveConfiguration, err := r.managedPensieveConfiguration(agent)
+	if err != nil {
+		return nil, err
+	}
 
 	deployment := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: RuntimeName, Namespace: namespace}}
 	_, err = controllerutil.CreateOrUpdate(ctx, r.Client, deployment, func() error {
@@ -373,6 +621,12 @@ func (r *AgentReconciler) ensureAgentDeployment(
 		// rendered settings part of the PodTemplate so a catalog revision change
 		// creates a fresh Pod instead of leaving a running resident on stale data.
 		deployment.Spec.Template.Annotations[SettingsHashAnnotation] = settingsHash
+		if pensieveConfiguration != nil {
+			deployment.Spec.Template.Annotations[PensieveHookHashAnnotation] =
+				fmt.Sprintf("%x", sha256.Sum256(pensieveConfiguration.Hook))
+		} else {
+			delete(deployment.Spec.Template.Annotations, PensieveHookHashAnnotation)
+		}
 		deployment.Spec.Template.Spec.ServiceAccountName = RuntimeName
 		// No pod-wide token automount: the browser sidecar runs an
 		// unsandboxed Chromium and must never hold agent-runtime API
@@ -455,6 +709,24 @@ func (r *AgentReconciler) ensureAgentDeployment(
 			},
 			apiTokenVolume(),
 		}
+		if pensieveConfiguration != nil {
+			container.Env = append(container.Env, corev1.EnvVar{
+				Name: PensieveTokenEnv, Value: PensieveTokenFile,
+			})
+			container.VolumeMounts = append(container.VolumeMounts,
+				corev1.VolumeMount{Name: PensieveTokenVolumeName, MountPath: PensieveTokenMountPath, ReadOnly: true},
+				corev1.VolumeMount{Name: PensieveCollectorVolumeName, MountPath: PensieveCollectorMountPath, ReadOnly: true},
+				corev1.VolumeMount{Name: PensieveHookVolumeName, MountPath: PensieveHookMountPath, ReadOnly: true},
+			)
+			volumes = append(volumes,
+				pensieveTokenVolume(),
+				corev1.Volume{Name: PensieveCollectorVolumeName, VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
+				corev1.Volume{Name: PensieveHookVolumeName, VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{
+					LocalObjectReference: corev1.LocalObjectReference{Name: PensieveHookConfigMapName},
+					Items:                []corev1.KeyToPath{{Key: PensieveHookFileName, Path: PensieveHookFileName}},
+				}}},
+			)
+		}
 		if agent.Spec.Forge != nil || agent.Spec.TaskPlane != nil {
 			container.Env = append(container.Env,
 				corev1.EnvVar{Name: "A2A_SERVER", Value: "1"},
@@ -489,6 +761,14 @@ func (r *AgentReconciler) ensureAgentDeployment(
 		volumes = append(volumes, inputVolumes...)
 
 		initContainers := make([]corev1.Container, 0, len(agent.Spec.Setup)+3)
+		if pensieveConfiguration != nil {
+			initContainers = append(initContainers, corev1.Container{
+				Name: PensieveCollectorInitName, Image: pensieveConfiguration.CollectorImage,
+				ImagePullPolicy: corev1.PullIfNotPresent,
+				Command:         []string{"sh", "-c", "set -eu; cp -a " + PensieveCollectorSourcePath + "/. /managed/"},
+				VolumeMounts:    []corev1.VolumeMount{{Name: PensieveCollectorVolumeName, MountPath: "/managed"}},
+			})
+		}
 		if needsNixStore {
 			// Merge the current image's store paths on every boot. A prior .seeded
 			// marker is informational only: image upgrades can introduce new hashes,
