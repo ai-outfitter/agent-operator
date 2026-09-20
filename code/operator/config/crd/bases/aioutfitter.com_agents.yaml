@@ -49,6 +49,28 @@ spec:
           spec:
             description: AgentSpec defines the desired state of Agent.
             properties:
+              auditability:
+                description: |-
+                  Auditability enables the operator-owned Pensieve collector contract. Its
+                  projected credential is audience-scoped and is never exposed to setup,
+                  browser, catalog-sync, or workflow-export containers.
+                properties:
+                  probeNonce:
+                    description: |-
+                      ProbeNonce requests a one-shot, isolated acceptance probe. Changing the
+                      nonce requests a new run; the operator records the terminal result in
+                      status before it removes the probe Pod.
+                    maxLength: 128
+                    pattern: ^[A-Za-z0-9._:-]+$
+                    type: string
+                  profile:
+                    description: Profile selects the operator-supported capture contract.
+                    enum:
+                    - resident-complete-trace-v1
+                    type: string
+                required:
+                - profile
+                type: object
               browser:
                 description: Browser adds a headless-Chrome DevTools sidecar to the
                   agent Pod.
@@ -2415,6 +2437,50 @@ spec:
           status:
             description: AgentStatus defines the observed state of Agent.
             properties:
+              auditability:
+                description: |-
+                  AgentAuditabilityStatus binds the observed Agent generation to the exact
+                  operator-managed collector and policy that were materialized in its Pod.
+                properties:
+                  collectorImage:
+                    type: string
+                  collectorRevision:
+                    type: string
+                  observedGeneration:
+                    format: int64
+                    type: integer
+                  policyDigest:
+                    type: string
+                  probe:
+                    description: AgentAuditabilityProbeStatus reports one bounded,
+                      operator-owned trace run.
+                    properties:
+                      completedAt:
+                        format: date-time
+                        type: string
+                      message:
+                        type: string
+                      nonce:
+                        type: string
+                      run:
+                        type: string
+                      startedAt:
+                        format: date-time
+                        type: string
+                      succeeded:
+                        type: boolean
+                    required:
+                    - nonce
+                    - run
+                    - startedAt
+                    - succeeded
+                    type: object
+                required:
+                - collectorImage
+                - collectorRevision
+                - observedGeneration
+                - policyDigest
+                type: object
               catalogSources:
                 items:
                   description: CatalogSourceStatus identifies a delegated source without

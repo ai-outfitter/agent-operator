@@ -12,6 +12,7 @@ import (
 	. "github.com/onsi/gomega"
 	. "github.com/onsi/gomega/gstruct"
 	appsv1 "k8s.io/api/apps/v1"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -20,6 +21,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	aioutfitterv1alpha1 "github.com/ai-outfitter/agent-operator/code/operator/api/v1alpha1"
@@ -105,6 +107,34 @@ var _ = Describe("Agent Controller", func() {
 		agent.Spec.Volumes = []corev1.Volume{{Name: testInputConfigName, VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{LocalObjectReference: corev1.LocalObjectReference{Name: testInputConfigName}}}}}
 		agent.Spec.VolumeMounts = []corev1.VolumeMount{{Name: testInputConfigName, MountPath: WorkspaceMount + "/config", ReadOnly: true}}
 		Expect(inputValidationMessage(agent)).To(ContainSubstring("overlaps reserved path"))
+		agent.Spec.Volumes = []corev1.Volume{{Name: PensieveTokenVolumeName, VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{LocalObjectReference: corev1.LocalObjectReference{Name: testInputConfigName}}}}}
+		agent.Spec.VolumeMounts = nil
+		Expect(inputValidationMessage(agent)).To(ContainSubstring("reserved name"))
+		agent.Spec.Volumes = []corev1.Volume{{Name: testInputConfigName, VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{LocalObjectReference: corev1.LocalObjectReference{Name: testInputConfigName}}}}}
+		agent.Spec.VolumeMounts = []corev1.VolumeMount{{Name: testInputConfigName, MountPath: PensieveTokenMountPath + "/shadow", ReadOnly: true}}
+		Expect(inputValidationMessage(agent)).To(ContainSubstring("overlaps reserved path"))
+	})
+
+	It("rejects credential inputs that replace the operator-owned Pensieve token path", func() {
+		organization := createAcceptedOrganization(ctx)
+		agent := validAgent(uniqueTestName("audit-env"), organization.Name)
+		agent.Spec.Profile.Model = "test-provider/test-model"
+		agent.Spec.Auditability = &aioutfitterv1alpha1.AgentAuditabilitySpec{Profile: "resident-complete-trace-v1"}
+		agent.Spec.EnvFrom = []corev1.EnvFromSource{{
+			ConfigMapRef: &corev1.ConfigMapEnvSource{LocalObjectReference: corev1.LocalObjectReference{Name: "audit-env"}},
+		}}
+		namespace := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: agentNamespace(agent.Name)}}
+		Expect(k8sClient.Create(ctx, namespace)).To(Succeed())
+		DeferCleanup(func() { _ = k8sClient.Delete(ctx, namespace) })
+		Expect(k8sClient.Create(ctx, &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{Name: "audit-env", Namespace: namespace.Name},
+			Data:       map[string]string{PensieveTokenEnv: "/tmp/catalog-token"},
+		})).To(Succeed())
+
+		reconciler := &AgentReconciler{Client: k8sClient, APIReader: k8sClient}
+		_, message, err := reconciler.validateAgent(ctx, agent)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(message).To(ContainSubstring("reserved for operator-owned auditability"))
 	})
 
 	It("reconciles the workload while reporting missing referenced objects", func() {
@@ -375,11 +405,18 @@ var _ = Describe("Agent Controller", func() {
 		organization := createAcceptedOrganization(ctx)
 		agent := validAgent(uniqueTestName("browser"), organization.Name)
 		agent.Spec.Browser = &aioutfitterv1alpha1.BrowserSpec{Enabled: true}
+		agent.Spec.Profile.Model = "test-provider/test-model"
+		agent.Spec.Auditability = &aioutfitterv1alpha1.AgentAuditabilitySpec{Profile: "resident-complete-trace-v1"}
 		Expect(k8sClient.Create(ctx, agent)).To(Succeed())
 		DeferCleanup(removeAgent, ctx, agent.Name)
 
 		reconciler := &AgentReconciler{
 			Client: k8sClient, APIReader: k8sClient, Scheme: k8sClient.Scheme(), AgentImage: "link-agent:default",
+			PensieveCollectorImage:      "example.test/pensieve-workbench@sha256:" + strings.Repeat("d", 64),
+			PensieveCollectorRevision:   strings.Repeat("c", 40),
+			PensieveSink:                "https://pensieve.example.test",
+			PensieveProbeModelBaseURL:   "https://models.example.test/v1",
+			PensieveProbeModelAPIKeyEnv: "OPENAI_API_KEY",
 		}
 		request := reconcile.Request{NamespacedName: types.NamespacedName{Name: agent.Name}}
 		_, err := reconciler.Reconcile(ctx, request)
@@ -407,13 +444,18 @@ var _ = Describe("Agent Controller", func() {
 		Expect(deployment.Spec.Template.Spec.AutomountServiceAccountToken).To(Equal(ptr.To(false)))
 		for _, mount := range containers[1].VolumeMounts {
 			Expect(mount.Name).NotTo(Equal(APITokenVolumeName))
+			Expect(mount.Name).NotTo(Equal(PensieveTokenVolumeName))
 			Expect(mount.MountPath).NotTo(HavePrefix("/var/run/secrets/kubernetes.io"))
+			Expect(mount.MountPath).NotTo(HavePrefix(PensieveTokenMountPath))
 		}
 		agentMountNames := make([]string, 0, len(containers[0].VolumeMounts))
 		for _, mount := range containers[0].VolumeMounts {
 			agentMountNames = append(agentMountNames, mount.Name)
 		}
-		Expect(agentMountNames).To(ContainElement(APITokenVolumeName))
+		Expect(agentMountNames).To(ContainElements(APITokenVolumeName, PensieveTokenVolumeName))
+		Expect(containers[0].Env).To(ContainElement(corev1.EnvVar{
+			Name: PensieveTokenEnv, Value: PensieveTokenFile,
+		}))
 		Expect(containers[0].Env).To(ContainElement(corev1.EnvVar{
 			Name: BrowserCDPURLEnvName, Value: BrowserCDPURL,
 		}))
@@ -421,7 +463,60 @@ var _ = Describe("Agent Controller", func() {
 		for _, volume := range deployment.Spec.Template.Spec.Volumes {
 			volumeNames = append(volumeNames, volume.Name)
 		}
-		Expect(volumeNames).To(ContainElement(browserDataName))
+		Expect(volumeNames).To(ContainElements(browserDataName, PensieveTokenVolumeName))
+		Expect(volumeNames).To(ContainElements(PensieveCollectorVolumeName, PensieveHookVolumeName))
+		var pensieveToken *corev1.ServiceAccountTokenProjection
+		var hasManagedConfigSource bool
+		for _, volume := range deployment.Spec.Template.Spec.Volumes {
+			if volume.Name != PensieveTokenVolumeName || volume.Projected == nil {
+				continue
+			}
+			for _, source := range volume.Projected.Sources {
+				if source.ServiceAccountToken != nil {
+					pensieveToken = source.ServiceAccountToken
+				}
+				if source.ConfigMap != nil && source.ConfigMap.Name == PensieveHookConfigMapName {
+					hasManagedConfigSource = true
+				}
+			}
+		}
+		Expect(pensieveToken).NotTo(BeNil())
+		Expect(pensieveToken.Audience).To(Equal(PensieveTokenAudience))
+		Expect(pensieveToken.Path).To(Equal("token"))
+		Expect(pensieveToken.ExpirationSeconds).To(PointTo(Equal(int64(3600))))
+		Expect(hasManagedConfigSource).To(BeTrue())
+		for _, initContainer := range deployment.Spec.Template.Spec.InitContainers {
+			if initContainer.Name == PensieveCollectorInitName {
+				Expect(initContainer.Image).To(Equal(reconciler.PensieveCollectorImage))
+				Expect(initContainer.VolumeMounts).To(ContainElement(corev1.VolumeMount{
+					Name: PensieveCollectorVolumeName, MountPath: "/managed",
+				}))
+			} else {
+				Expect(initContainer.VolumeMounts).NotTo(ContainElement(MatchFields(IgnoreExtras, Fields{
+					"Name": Equal(PensieveCollectorVolumeName),
+				})))
+			}
+			Expect(initContainer.VolumeMounts).NotTo(ContainElement(MatchFields(IgnoreExtras, Fields{
+				"Name": Equal(PensieveTokenVolumeName),
+			})))
+		}
+		hook := &corev1.ConfigMap{}
+		Expect(k8sClient.Get(ctx, types.NamespacedName{
+			Namespace: agentNamespace(agent.Name), Name: PensieveHookConfigMapName,
+		}, hook)).To(Succeed())
+		Expect(hook.Data[PensieveHookFileName]).To(ContainSubstring(PensieveCollectorMountPath))
+		Expect(hook.Data[PensieveHookFileName]).To(ContainSubstring("PENSIEVE_INSTALL_SCOPE: managed"))
+		Expect(hook.Data[PensieveManagedConfigFileName]).To(ContainSubstring(`"PENSIEVE_INSTALL_SCOPE":"managed"`))
+		Expect(hook.Data[PensieveManagedConfigFileName]).To(ContainSubstring(`"PENSIEVE_TOKEN_FILE":"/var/run/agent/pensieve/token"`))
+		Expect(hook.Data[PensieveProbeModelsFileName]).To(ContainSubstring(`"test-provider"`))
+		Expect(hook.Data[PensieveProbeModelsFileName]).To(ContainSubstring(`"baseUrl":"https://models.example.test/v1"`))
+		currentStatus := &aioutfitterv1alpha1.Agent{}
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: agent.Name}, currentStatus)).To(Succeed())
+		Expect(currentStatus.Status.Auditability).NotTo(BeNil())
+		Expect(currentStatus.Status.Auditability.ObservedGeneration).To(Equal(currentStatus.Generation))
+		Expect(currentStatus.Status.Auditability.CollectorImage).To(Equal(reconciler.PensieveCollectorImage))
+		Expect(currentStatus.Status.Auditability.CollectorRevision).To(Equal(reconciler.PensieveCollectorRevision))
+		Expect(currentStatus.Status.Auditability.PolicyDigest).To(HavePrefix("sha256:"))
 
 		// Disabling the browser removes the sidecar again.
 		current := &aioutfitterv1alpha1.Agent{}
@@ -432,6 +527,96 @@ var _ = Describe("Agent Controller", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(k8sClient.Get(ctx, deploymentKey, deployment)).To(Succeed())
 		Expect(deployment.Spec.Template.Spec.Containers).To(HaveLen(1))
+	})
+
+	It("runs an isolated one-shot Pensieve acceptance probe", func() {
+		organization := createAcceptedOrganization(ctx)
+		agent := validAgent(uniqueTestName("audit-probe"), organization.Name)
+		agent.Spec.Profile.Model = "test-provider/test-model"
+		agent.Spec.Auditability = &aioutfitterv1alpha1.AgentAuditabilitySpec{
+			Profile: "resident-complete-trace-v1", ProbeNonce: "checkout-1",
+		}
+		Expect(k8sClient.Create(ctx, agent)).To(Succeed())
+		DeferCleanup(removeAgent, ctx, agent.Name)
+
+		reconciler := &AgentReconciler{
+			Client: k8sClient, APIReader: k8sClient, Scheme: k8sClient.Scheme(), AgentImage: testAgentImage,
+			PensieveCollectorImage:        "example.test/pensieve-workbench@sha256:" + strings.Repeat("d", 64),
+			PensieveCollectorRevision:     strings.Repeat("c", 40),
+			PensieveSink:                  "https://pensieve.example.test",
+			PensieveProbeCredentialSecret: "pensieve-probe-inference",
+			PensieveProbeModelBaseURL:     "https://models.example.test/v1",
+			PensieveProbeModelAPIKeyEnv:   "OPENAI_API_KEY",
+		}
+		request := reconcile.Request{NamespacedName: types.NamespacedName{Name: agent.Name}}
+		_, err := reconciler.Reconcile(ctx, request)
+		Expect(err).NotTo(HaveOccurred())
+
+		namespace := agentNamespace(agent.Name)
+		Expect(k8sClient.Create(ctx, &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: reconciler.PensieveProbeCredentialSecret, Namespace: namespace},
+			StringData: map[string]string{"OPENAI_API_KEY": "probe-only"},
+		})).To(Succeed())
+		deployment := &appsv1.Deployment{}
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: namespace, Name: RuntimeName}, deployment)).To(Succeed())
+		deployment.Status.Replicas = 1
+		deployment.Status.ReadyReplicas = 1
+		deployment.Status.AvailableReplicas = 1
+		Expect(k8sClient.Status().Update(ctx, deployment)).To(Succeed())
+
+		_, err = reconciler.Reconcile(ctx, request)
+		Expect(err).NotTo(HaveOccurred())
+		jobs := &batchv1.JobList{}
+		Expect(k8sClient.List(ctx, jobs, client.InNamespace(namespace))).To(Succeed())
+		Expect(jobs.Items).To(HaveLen(1))
+		job := &jobs.Items[0]
+		Expect(job.Spec.Template.Spec.ServiceAccountName).To(Equal(RuntimeName))
+		Expect(job.Spec.Template.Spec.AutomountServiceAccountToken).To(PointTo(BeFalse()))
+		Expect(job.Spec.Template.Spec.Containers).To(HaveLen(1))
+		probe := job.Spec.Template.Spec.Containers[0]
+		Expect(probe.EnvFrom).To(Equal([]corev1.EnvFromSource{{SecretRef: &corev1.SecretEnvSource{
+			LocalObjectReference: corev1.LocalObjectReference{Name: reconciler.PensieveProbeCredentialSecret},
+		}}}))
+		Expect(probe.Args).To(ContainElements("--print", "--provider", "test-provider", "--model", "test-model"))
+		Expect(probe.Env).To(ContainElement(corev1.EnvVar{
+			Name: "PENSIEVE_FAIL_CLOSED", Value: PensieveProbeFailClosed,
+		}))
+		Expect(probe.VolumeMounts).To(ContainElements(
+			corev1.VolumeMount{Name: PensieveTokenVolumeName, MountPath: PensieveTokenMountPath, ReadOnly: true},
+			corev1.VolumeMount{Name: PensieveCollectorVolumeName, MountPath: PensieveCollectorMountPath, ReadOnly: true},
+		))
+		for _, initContainer := range job.Spec.Template.Spec.InitContainers {
+			Expect(initContainer.EnvFrom).To(BeEmpty())
+			for _, mount := range initContainer.VolumeMounts {
+				Expect(mount.Name).NotTo(Equal(PensieveTokenVolumeName))
+			}
+		}
+
+		now := metav1.Now()
+		job.Status.StartTime = &now
+		job.Status.CompletionTime = &now
+		job.Status.Succeeded = 1
+		job.Status.Conditions = []batchv1.JobCondition{
+			{Type: batchv1.JobSuccessCriteriaMet, Status: corev1.ConditionTrue, LastTransitionTime: now},
+			{Type: batchv1.JobComplete, Status: corev1.ConditionTrue, LastTransitionTime: now},
+		}
+		Expect(k8sClient.Status().Update(ctx, job)).To(Succeed())
+		_, err = reconciler.Reconcile(ctx, request)
+		Expect(err).NotTo(HaveOccurred())
+		current := &aioutfitterv1alpha1.Agent{}
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: agent.Name}, current)).To(Succeed())
+		Expect(current.Status.Auditability.Probe).NotTo(BeNil())
+		Expect(current.Status.Auditability.Probe.Nonce).To(Equal("checkout-1"))
+		Expect(current.Status.Auditability.Probe.Succeeded).To(BeTrue())
+		Expect(apiMeta.IsStatusConditionTrue(current.Status.Conditions,
+			aioutfitterv1alpha1.AgentConditionAuditabilityReady)).To(BeTrue())
+		_, err = reconciler.Reconcile(ctx, request)
+		Expect(err).NotTo(HaveOccurred())
+		Eventually(func(g Gomega) {
+			jobs = &batchv1.JobList{}
+			g.Expect(k8sClient.List(ctx, jobs, client.InNamespace(namespace))).To(Succeed())
+			g.Expect(jobs.Items).To(BeEmpty())
+		}).Should(Succeed())
 	})
 
 	It("projects references and becomes ready after the agent runtime starts", func() {

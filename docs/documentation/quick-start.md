@@ -216,6 +216,7 @@ Tearing down a local development cluster is covered in
 ## Learn more
 
 - [Use case: researcher wiki maintainer](usecases.researcher-wiki-maintainer.md)
+- [Managed resident auditability](managed-auditability.md)
 - [Architecture](../architecture.md)
 - [Organizations](../requirements/OPR-001-orgs.md)
 - [Projects](../requirements/OPR-002-projects.md)
