@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +12,7 @@ import (
 	"testing"
 
 	api "github.com/ai-outfitter/agent-operator/code/operator/api/v1alpha1"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -23,12 +25,12 @@ func testConfig() Config {
 	return Config{Token: strings.Repeat("server", 8), CatalogRepository: "ai-outfitter/community-profiles", CatalogRevision: strings.Repeat("a", 40), RuntimeImage: "ghcr.io/ai-outfitter/outfitter@sha256:" + strings.Repeat("b", 64), Model: "openai/test", ServiceOrigins: []string{"https://ai-outfitter.com"}, OperatorNamespace: "operator-system"}
 }
 func testRequest() Request {
-	return Request{Workspace: Workspace{ID: "user:123", Login: "owner", Type: "User"}, InstallationID: 12, Repositories: []Repository{{ID: 45, FullName: "owner/repo"}}, ProjectManagerName: "Project Manager", EngineerName: "Engineer", ServiceBaseURL: "https://ai-outfitter.com", ProjectManagerToken: strings.Repeat("manager", 8), EngineerToken: strings.Repeat("engineer", 8), TaskToken: strings.Repeat("task", 10)}
+	return Request{Generation: 1, Workspace: Workspace{ID: "user:123", Login: "owner", Type: "User"}, InstallationID: 12, Repositories: []Repository{{ID: 45, FullName: "owner/repo"}}, ProjectManagerName: "Project Manager", EngineerName: "Engineer", ServiceBaseURL: "https://ai-outfitter.com", ProjectManagerToken: strings.Repeat("manager", 8), EngineerToken: strings.Repeat("engineer", 8), TaskToken: strings.Repeat("task", 10)}
 }
 func testServer(t *testing.T, objects ...client.Object) *Server {
 	t.Helper()
 	scheme := runtime.NewScheme()
-	for _, add := range []func(*runtime.Scheme) error{api.AddToScheme, corev1.AddToScheme, networkingv1.AddToScheme} {
+	for _, add := range []func(*runtime.Scheme) error{api.AddToScheme, appsv1.AddToScheme, corev1.AddToScheme, networkingv1.AddToScheme} {
 		if err := add(scheme); err != nil {
 			t.Fatal(err)
 		}
@@ -75,6 +77,10 @@ func makeReady(t *testing.T, s *Server) {
 	for _, name := range []string{pm, eng} {
 		agent := &api.Agent{}
 		if err := s.kube.Get(ctx, client.ObjectKey{Name: name}, agent); err != nil {
+			t.Fatal(err)
+		}
+		deployment := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: runtimeName, Namespace: "agent-" + name, Generation: 1}, Status: appsv1.DeploymentStatus{ObservedGeneration: 1, Replicas: 1, UpdatedReplicas: 1, AvailableReplicas: 1}}
+		if err := s.kube.Create(ctx, deployment); err != nil {
 			t.Fatal(err)
 		}
 		agent.Status.ObservedGeneration = agent.Generation
@@ -199,7 +205,7 @@ func TestGenerationBoundReadinessAndCredentialRotation(t *testing.T) {
 	provision(t, s)
 	makeReady(t, s)
 	state, err := s.state(context.Background(), "user:123")
-	if err != nil || state.State != "ready" {
+	if err != nil || state.State != readyState {
 		t.Fatalf("state %#v %v", state, err)
 	}
 	_, pm, _ := names("user:123")
@@ -217,6 +223,7 @@ func TestGenerationBoundReadinessAndCredentialRotation(t *testing.T) {
 		t.Fatal("stale readiness accepted")
 	}
 	r := testRequest()
+	r.Generation++
 	r.ProjectManagerToken = strings.Repeat("rotated", 8)
 	if response := call(t, s, "PUT", "/v1/residents/user:123", r); response.Code != 200 {
 		t.Fatal(response.Code)
@@ -321,5 +328,63 @@ func TestImmutableOperatorConfiguration(t *testing.T) {
 	c.AllowLocalHTTP = true
 	if err := c.Validate(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestProvisioningGenerationFencesDelayedReplica(t *testing.T) {
+	s := testServer(t)
+	provision(t, s)
+	makeReady(t, s)
+	old := testRequest()
+	next := old
+	next.Generation++
+	next.EngineerName = "New engineer"
+	desired := s.desired(next)
+	// Simulate another replica stopping midway after publishing its newer fence.
+	for _, obj := range desired[:3] {
+		if err := s.apply(context.Background(), obj, old.Workspace.ID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	state, err := s.state(context.Background(), old.Workspace.ID)
+	if err != nil || state.State == readyState || state.Generation != 2 {
+		t.Fatalf("partial rollout %#v %v", state, err)
+	}
+	if response := call(t, s, "PUT", "/v1/residents/user:123", old); response.Code != 409 {
+		t.Fatalf("stale replica %d", response.Code)
+	}
+	if response := call(t, s, "PUT", "/v1/residents/user:123", next); response.Code != 200 {
+		t.Fatalf("resume %d %s", response.Code, response.Body)
+	}
+	// A request that passed preflight before the newer replica must still fail
+	// inside each individual object's resourceVersion-guarded update.
+	for _, obj := range s.desired(old) {
+		if err := s.apply(context.Background(), obj, old.Workspace.ID); !errors.Is(err, errStale) {
+			t.Fatalf("late write %T: %v", obj, err)
+		}
+	}
+	next.EngineerName = "Conflicting same generation"
+	if response := call(t, s, "PUT", "/v1/residents/user:123", next); response.Code != 409 {
+		t.Fatalf("generation reused %d", response.Code)
+	}
+}
+
+func TestReadinessRejectsPreviousDeploymentGeneration(t *testing.T) {
+	s := testServer(t)
+	provision(t, s)
+	makeReady(t, s)
+	_, pm, _ := names("user:123")
+	deployment := &appsv1.Deployment{}
+	key := client.ObjectKey{Namespace: "agent-" + pm, Name: runtimeName}
+	if err := s.kube.Get(context.Background(), key, deployment); err != nil {
+		t.Fatal(err)
+	}
+	deployment.Generation++
+	if err := s.kube.Update(context.Background(), deployment); err != nil {
+		t.Fatal(err)
+	}
+	state, err := s.state(context.Background(), "user:123")
+	if err != nil || state.State == readyState || state.Agents[0].Ready {
+		t.Fatalf("old replica accepted %#v %v", state, err)
 	}
 }

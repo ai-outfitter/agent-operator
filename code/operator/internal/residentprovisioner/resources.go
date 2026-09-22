@@ -8,9 +8,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"strconv"
 	"strings"
 
 	api "github.com/ai-outfitter/agent-operator/code/operator/api/v1alpha1"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -22,9 +24,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
 
+const runtimeName = "agent-runtime"
 const triageWorkflow = "resident-issue-triage"
 const agentCredentials = "agent-credentials"
+const readyState = "ready"
 const failedState = "failed"
+
+const generationAnnotation = "aioutfitter.com/hosted-generation"
+const requestAnnotation = "aioutfitter.com/hosted-request"
 
 const workspaceAnnotation = "aioutfitter.com/hosted-workspace"
 const managedLabel = "aioutfitter.com/hosted-managed"
@@ -88,10 +95,17 @@ func (s *Server) desired(r Request) []client.Object {
 		}
 		objects = append(objects, &corev1.Namespace{ObjectMeta: metadata(namespace, "", workspace)}, &corev1.Secret{ObjectMeta: metadata(agentCredentials, namespace, workspace), Data: data}, agent)
 		if role.manager {
-			selector := map[string]string{"app.kubernetes.io/name": "agent-runtime", "app.kubernetes.io/instance": role.name}
-			objects = append(objects, &corev1.Service{ObjectMeta: metadata("agent-runtime", namespace, workspace), Spec: corev1.ServiceSpec{Selector: selector, Ports: []corev1.ServicePort{{Name: "a2a", Port: 8788, TargetPort: intstr.FromInt32(8788)}}}},
+			selector := map[string]string{"app.kubernetes.io/name": runtimeName, "app.kubernetes.io/instance": role.name}
+			objects = append(objects, &corev1.Service{ObjectMeta: metadata(runtimeName, namespace, workspace), Spec: corev1.ServiceSpec{Selector: selector, Ports: []corev1.ServicePort{{Name: "a2a", Port: 8788, TargetPort: intstr.FromInt32(8788)}}}},
 				&networkingv1.NetworkPolicy{ObjectMeta: metadata("hosted-manager-intake", namespace, workspace), Spec: networkingv1.NetworkPolicySpec{PodSelector: metav1.LabelSelector{MatchLabels: selector}, PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeIngress}, Ingress: []networkingv1.NetworkPolicyIngressRule{{From: []networkingv1.NetworkPolicyPeer{{NamespaceSelector: &metav1.LabelSelector{MatchLabels: map[string]string{"kubernetes.io/metadata.name": s.config.OperatorNamespace}}, PodSelector: &metav1.LabelSelector{MatchLabels: map[string]string{"control-plane": "controller-manager"}}}}, Ports: []networkingv1.NetworkPolicyPort{{Protocol: ptr.To(corev1.ProtocolTCP), Port: ptr.To(intstr.FromInt32(8788))}}}}}})
 		}
+	}
+	encodedRequest, _ := json.Marshal(r)
+	requestDigest := sha256.Sum256(encodedRequest)
+	for _, obj := range objects {
+		annotations := obj.GetAnnotations()
+		annotations[generationAnnotation] = strconv.FormatInt(r.Generation, 10)
+		annotations[requestAnnotation] = hex.EncodeToString(requestDigest[:])
 	}
 	return objects
 }
@@ -102,6 +116,9 @@ func (s *Server) reconcile(ctx context.Context, r Request) error {
 	for _, obj := range objects {
 		existing := obj.DeepCopyObject().(client.Object)
 		err := s.kube.Get(ctx, client.ObjectKeyFromObject(obj), existing)
+		if err == nil && stale(existing, obj) {
+			return errStale
+		}
 		if err == nil && (!owned(existing, r.Workspace.ID) || !existing.GetDeletionTimestamp().IsZero()) {
 			return errCollision
 		}
@@ -121,6 +138,9 @@ func (s *Server) apply(ctx context.Context, desired client.Object, workspace str
 	_, err := controllerutil.CreateOrUpdate(ctx, s.kube, current, func() error {
 		if current.GetResourceVersion() != "" && !owned(current, workspace) {
 			return errCollision
+		}
+		if current.GetResourceVersion() != "" && stale(current, desired) {
+			return errStale
 		}
 		labels := maps.Clone(current.GetLabels())
 		if labels == nil {
@@ -158,6 +178,12 @@ func (s *Server) apply(ctx context.Context, desired client.Object, workspace str
 	return err
 }
 
+func stale(current, desired client.Object) bool {
+	old, _ := strconv.ParseInt(current.GetAnnotations()[generationAnnotation], 10, 64)
+	next, _ := strconv.ParseInt(desired.GetAnnotations()[generationAnnotation], 10, 64)
+	return old > next || (old == next && current.GetAnnotations()[requestAnnotation] != desired.GetAnnotations()[requestAnnotation])
+}
+
 type AgentState struct {
 	Role   string `json:"role"`
 	Name   string `json:"name"`
@@ -165,8 +191,9 @@ type AgentState struct {
 	Reason string `json:"reason,omitempty"`
 }
 type State struct {
-	State  string       `json:"state"`
-	Agents []AgentState `json:"agents"`
+	Generation int64        `json:"generation"`
+	State      string       `json:"state"`
+	Agents     []AgentState `json:"agents"`
 }
 
 func (s *Server) state(ctx context.Context, workspace string) (State, error) {
@@ -178,8 +205,13 @@ func (s *Server) state(ctx context.Context, workspace string) (State, error) {
 	if !owned(org, workspace) {
 		return State{}, errCollision
 	}
-	result := State{State: "ready", Agents: []AgentState{}}
-	orgReady := ready(org.Status.Conditions, org.Generation, org.Status.ObservedGeneration)
+	generation, _ := strconv.ParseInt(org.Annotations[generationAnnotation], 10, 64)
+	consistent, err := s.consistent(ctx, workspace, org.Annotations)
+	if err != nil {
+		return State{}, err
+	}
+	result := State{Generation: generation, State: readyState, Agents: []AgentState{}}
+	orgReady := consistent && ready(org.Status.Conditions, org.Generation, org.Status.ObservedGeneration)
 	for i, name := range []string{pm, eng} {
 		role := "project-manager"
 		if i == 1 {
@@ -196,7 +228,11 @@ func (s *Server) state(ctx context.Context, workspace string) (State, error) {
 				return State{}, errCollision
 			}
 			entry.Name = agent.Annotations[displayAnnotation]
-			entry.Ready = orgReady && ready(agent.Status.Conditions, agent.Generation, agent.Status.ObservedGeneration)
+			workloadReady, err := s.workloadReady(ctx, name)
+			if err != nil {
+				return State{}, err
+			}
+			entry.Ready = orgReady && workloadReady && ready(agent.Status.Conditions, agent.Generation, agent.Status.ObservedGeneration)
 			if entry.Ready {
 				entry.Reason = ""
 			} else if condition := apiMeta.FindStatusCondition(agent.Status.Conditions, "Ready"); condition != nil && condition.ObservedGeneration == agent.Generation {
@@ -216,4 +252,41 @@ func (s *Server) state(ctx context.Context, workspace string) (State, error) {
 func ready(conditions []metav1.Condition, generation, observed int64) bool {
 	condition := apiMeta.FindStatusCondition(conditions, "Ready")
 	return observed == generation && condition != nil && condition.ObservedGeneration == generation && condition.Status == metav1.ConditionTrue
+}
+
+// A partial or overlapping rollout is never reported ready. Every resource must
+// have converged to the Organization fence before exposing the pair as usable.
+func (s *Server) consistent(ctx context.Context, workspace string, annotations map[string]string) (bool, error) {
+	for _, desired := range s.desired(Request{Workspace: Workspace{ID: workspace}}) {
+		obj := desired.DeepCopyObject().(client.Object)
+		if err := s.kube.Get(ctx, client.ObjectKeyFromObject(obj), obj); err != nil {
+			if apierrors.IsNotFound(err) {
+				return false, nil
+			}
+			return false, err
+		}
+		if !owned(obj, workspace) {
+			return false, errCollision
+		}
+		if obj.GetAnnotations()[generationAnnotation] != annotations[generationAnnotation] || obj.GetAnnotations()[requestAnnotation] != annotations[requestAnnotation] {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+func (s *Server) workloadReady(ctx context.Context, name string) (bool, error) {
+	deployment := &appsv1.Deployment{}
+	err := s.kube.Get(ctx, client.ObjectKey{Namespace: "agent-" + name, Name: runtimeName}, deployment)
+	if apierrors.IsNotFound(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	desired := int32(1)
+	if deployment.Spec.Replicas != nil {
+		desired = *deployment.Spec.Replicas
+	}
+	return desired > 0 && deployment.Status.ObservedGeneration == deployment.Generation && deployment.Status.UpdatedReplicas == desired && deployment.Status.Replicas == desired && deployment.Status.AvailableReplicas == desired, nil
 }

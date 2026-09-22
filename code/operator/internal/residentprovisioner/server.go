@@ -18,6 +18,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+var errStale = errors.New("stale provisioning generation")
+
 var errCollision = errors.New("resource ownership collision")
 
 type Server struct {
@@ -86,7 +88,9 @@ func writeError(w http.ResponseWriter, status int, code string) {
 
 func failure(w http.ResponseWriter, err error) {
 	code, status := "provisioning_failed", 500
-	if errors.Is(err, errCollision) {
+	if errors.Is(err, errStale) || apierrors.IsConflict(err) {
+		code, status = "stale_generation", 409
+	} else if errors.Is(err, errCollision) {
 		code, status = "resource_collision", 409
 	} else if apierrors.IsNotFound(err) {
 		code, status = "not_found", 404
@@ -106,6 +110,10 @@ func (s *Server) put(w http.ResponseWriter, r *http.Request) {
 	state, err := s.state(r.Context(), input.Workspace.ID)
 	if err != nil {
 		failure(w, err)
+		return
+	}
+	if state.Generation != input.Generation {
+		failure(w, errStale)
 		return
 	}
 	writeJSON(w, 200, state)

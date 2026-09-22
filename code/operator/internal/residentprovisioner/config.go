@@ -87,6 +87,7 @@ type Repository struct {
 	FullName string `json:"fullName"`
 }
 type Request struct {
+	Generation          int64        `json:"generation"`
 	Workspace           Workspace    `json:"workspace"`
 	InstallationID      int64        `json:"installationId"`
 	Repositories        []Repository `json:"repositories"`
@@ -99,7 +100,7 @@ type Request struct {
 }
 
 func (c Config) validateRequest(workspace string, r Request) error {
-	if !workspacePattern.MatchString(workspace) || r.Workspace.ID != workspace {
+	if !workspacePattern.MatchString(workspace) || r.Workspace.ID != workspace || r.Generation <= 0 {
 		return fmt.Errorf("invalid workspace identity")
 	}
 	expected := "User"

@@ -134,3 +134,11 @@ Run focused checks with `devenv shell -- sh -c 'cd code/operator && GOMAXPROCS=2
 Before activation, separately verify a pinned live deployment, authenticated A2A
 acceptance, one GitHub issue response, scoped billing, and negative push permissions.
 Unit tests do not establish those deployment acceptance conditions.
+
+Each provisioning PUT includes a positive monotonic `generation`. Increment it
+whenever enrollment, names, repository scope, or credentials change; retries must
+preserve the complete original request. The operator persists a generation and
+request digest on every managed resource and rejects older or conflicting writes
+with `409 stale_generation`, including writes racing across operator replicas.
+GET/PUT status includes `generation`; clients must match it to the requested
+revision. Partial rollouts cannot report ready until all resource fences agree.
