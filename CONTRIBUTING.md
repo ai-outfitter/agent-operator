@@ -89,3 +89,48 @@ MUST include `reset` or `destroy` in its name and require explicit confirmation.
 
 See [AGENTS.md](AGENTS.md): work on the current branch and do not create branches,
 commit, or push unless asked.
+
+## Hosted resident provisioning preview
+
+The optional `--resident-provisioner-address=:8082` listener is disabled by default.
+Before enabling it, configure these server-owned environment variables:
+
+- `RESIDENT_PROVISIONER_TOKEN`: a server-only random bearer credential (at least 32 characters).
+- `RESIDENT_CATALOG_REPOSITORY` and `RESIDENT_CATALOG_REVISION`: public catalog shorthand and full commit SHA containing the resident profiles and triage workflow.
+- `RESIDENT_RUNTIME_IMAGE`: digest-pinned image with Outfitter, Pi, Channels, Node.js, and `gh`.
+- `RESIDENT_MODEL`: a gateway model ID authorized for resident tokens.
+- `RESIDENT_SERVICE_ORIGINS`: comma-separated HTTPS origins allowed for inference and GitHub token brokering.
+- `POD_NAMESPACE`: the operator namespace, used to restrict manager A2A ingress.
+- `RESIDENT_RUNTIME_PATH`: optional original image executable PATH; defaults to `/usr/local/bin:/usr/bin:/bin`.
+
+The optional internal Service under `code/operator/config/residents/` can be included
+in the deployment overlay. It does not enable the listener or provide credentials.
+Keep the listener behind a private authenticated service transport; do not expose it
+as a public ingress. The website is responsible for GitHub ownership and installation
+checks before invoking this server-only API.
+
+`PUT /v1/residents/{workspace}` creates one stable Organization and two Agents for
+`user:<id>` or `org:<id>`. Caller names are display metadata. Kubernetes identities,
+profiles, workflow, quotas, and runtime configuration are operator controlled. Repeat
+requests preserve workspace PVCs. Unmanaged/cross-workspace resource collisions fail
+closed. GET returns current generation-bound operator readiness without credentials.
+
+Only the manager exposes A2A intake, bound to `resident-issue-triage`. The engineer
+remains idle. Task requests validate selected repository ID and name, then forward a
+stable message ID to Channels `/message:send`. Channels owns durable principal-scoped
+deduplication; the server returns 202 only after an explicit accepted Task response.
+The catalog/runtime pins must include Channels' durable A2A deduplication contract.
+
+Initialization discovers gateway models with each role token and writes a native Pi
+`outfitter` provider using an environment credential reference. It never receives
+OpenRouter or Spark credentials. The managed `gh` wrapper requires an explicitly
+selected repository, asks the website broker for a fresh repository-scoped installation
+token on each invocation, and permits only issue triage commands. The broker must
+restrict installation tokens to `contents:read`, `issues:write`, `metadata:read`.
+Rotating role credentials changes initialization configuration, causing a new rollout
+without replacing the durable workspace.
+
+Run focused checks with `devenv shell -- sh -c 'cd code/operator && GOMAXPROCS=2 go test -p 2 ./internal/residentprovisioner'`.
+Before activation, separately verify a pinned live deployment, authenticated A2A
+acceptance, one GitHub issue response, scoped billing, and negative push permissions.
+Unit tests do not establish those deployment acceptance conditions.
