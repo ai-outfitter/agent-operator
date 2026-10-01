@@ -1,0 +1,32 @@
+name: test operator
+
+on:
+  pull_request:
+    paths: ['code/operator/**', '.github/workflows/test-operator.yml']
+  push:
+    branches: [main]
+    paths: ['code/operator/**', '.github/workflows/test-operator.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: code/operator
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: code/operator/go.mod
+          cache-dependency-path: code/operator/go.sum
+      - name: Test and lint controller
+        run: make test lint
+      - uses: azure/setup-helm@v4
+      - name: Validate packaged chart
+        run: make helm-verify
+      - name: Check generated manifests and API code
+        run: git diff --exit-code -- api config

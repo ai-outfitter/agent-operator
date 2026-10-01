@@ -164,14 +164,18 @@ helm-verify: ## Lint the chart and assert it renders the CRDs and controller.
 	helm template agent-operator dist/chart > /dev/null
 	@rendered="$$(helm template agent-operator dist/chart)"; \
 	for kind in CustomResourceDefinition Deployment ServiceAccount ClusterRole; do \
-		echo "$$rendered" | grep -q "^kind: $$kind" || { echo "chart renders no $$kind" >&2; exit 1; }; \
+		grep -q "^kind: $$kind" <<< "$$rendered" || { echo "chart renders no $$kind" >&2; exit 1; }; \
 	done; \
-	echo "$$rendered" | grep -q 'image: ghcr.io/ai-outfitter/agent-operator:' \
+	grep -q 'image: ghcr.io/ai-outfitter/agent-operator:' <<< "$$rendered" \
 		|| { echo "controller image did not resolve from appVersion" >&2; exit 1; }; \
-	echo "$$rendered" | grep -q -- '- /bin/manager' \
+	grep -q -- '- /bin/manager' <<< "$$rendered" \
 		|| { echo "controller command does not match the published image" >&2; exit 1; }; \
-	echo "$$rendered" | grep -q 'runAsUser: 1000' \
+	grep -q 'runAsUser: 1000' <<< "$$rendered" \
 		|| { echo "controller does not declare its numeric non-root user" >&2; exit 1; }; \
+	grep -q 'name: workspaces.aioutfitter.com' <<< "$$rendered" \
+		|| { echo "chart omits the Workspace CRD" >&2; exit 1; }; \
+	grep -q '  - workspaces/status' <<< "$$rendered" \
+		|| { echo "chart omits Workspace status permissions" >&2; exit 1; }; \
 	echo "chart renders CRDs, controller, and RBAC"
 
 ##@ Deployment

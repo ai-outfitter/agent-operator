@@ -19,6 +19,30 @@ import (
 )
 
 var _ = Describe("Temporary Workspace lifecycle", func() {
+	DescribeTable("cleans credentials when expiry precedes successful provisioning", func(partiallyProvisioned bool) {
+		ctx := context.Background()
+		now := time.Now().UTC().Truncate(time.Second)
+		ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{GenerateName: "workspace-expiry-", Labels: map[string]string{tenantLabel: "expiry-test"}}}
+		Expect(k8sClient.Create(ctx, ns)).To(Succeed())
+		w := &api.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws-expired", Namespace: ns.Name}, Spec: api.EphemeralWorkspaceSpec{CredentialSecretName: "ws-expired", AwakeUntil: metav1.NewTime(now), ExpiresAt: metav1.NewTime(now.Add(time.Hour))}}
+		Expect(k8sClient.Create(ctx, w)).To(Succeed())
+		credential := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: w.Name, Namespace: ns.Name, Labels: map[string]string{workspaceLabel: w.Name}}, Data: map[string][]byte{workspaceTokenKey: []byte(strings.Repeat("t", 32))}}
+		Expect(k8sClient.Create(ctx, credential)).To(Succeed())
+		r := &WorkspaceReconciler{Client: k8sClient, Scheme: k8sClient.Scheme(), Now: func() time.Time { return now }}
+		key := client.ObjectKeyFromObject(w)
+		if partiallyProvisioned {
+			_, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: key})
+			Expect(err).NotTo(HaveOccurred())
+		}
+		now = now.Add(2 * time.Hour)
+		for range 5 {
+			_, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: key})
+			Expect(err).NotTo(HaveOccurred())
+		}
+		Expect(apierrors.IsNotFound(k8sClient.Get(ctx, key, w))).To(BeTrue())
+		Expect(apierrors.IsNotFound(k8sClient.Get(ctx, key, credential))).To(BeTrue())
+	}, Entry("before its first reconciliation", false), Entry("after configuration prevents credential adoption", true))
+
 	It("sleeps without losing storage and expires without deleting its tenant or neighbor", func() {
 		ctx := context.Background()
 		now := time.Now().UTC().Truncate(time.Second)
@@ -61,6 +85,12 @@ var _ = Describe("Temporary Workspace lifecycle", func() {
 		Expect(policy.Spec.Ingress).To(HaveLen(1))
 		Expect(policy.Spec.Egress).To(HaveLen(2))
 		Expect(policy.Spec.Ingress[0].From[0].NamespaceSelector.MatchLabels[namespaceNameLabel]).To(Equal("outfitter-cloud"))
+		// Losing credentials must not leave an idle runtime consuming resources.
+		credential := &corev1.Secret{}
+		Expect(k8sClient.Get(ctx, key, credential)).To(Succeed())
+		originalToken := credential.Data[workspaceTokenKey]
+		credential.Data[workspaceTokenKey] = []byte("invalid")
+		Expect(k8sClient.Update(ctx, credential)).To(Succeed())
 		now = now.Add(2 * time.Minute)
 		_, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: key})
 		Expect(err).NotTo(HaveOccurred())
@@ -70,6 +100,9 @@ var _ = Describe("Temporary Workspace lifecycle", func() {
 		Expect(k8sClient.Get(ctx, key, pvc)).To(Succeed())
 		Expect(pvc.UID).To(Equal(volumeUID))
 		Expect(k8sClient.Get(ctx, key, w)).To(Succeed())
+		Expect(k8sClient.Get(ctx, key, credential)).To(Succeed())
+		credential.Data[workspaceTokenKey] = originalToken
+		Expect(k8sClient.Update(ctx, credential)).To(Succeed())
 		w.Spec.AwakeUntil = metav1.NewTime(now.Add(time.Minute))
 		Expect(k8sClient.Update(ctx, w)).To(Succeed())
 		_, err = r.Reconcile(ctx, ctrl.Request{NamespacedName: key})

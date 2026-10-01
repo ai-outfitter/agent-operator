@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"flag"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -117,8 +118,11 @@ func main() {
 	}
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
-
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+	if workspaceOnly && workspaceImage == "" {
+		setupLog.Error(fmt.Errorf("--workspace-image is required with --workspace-only"), "Invalid workspace configuration")
+		os.Exit(1)
+	}
 
 	// if the enable-http2 flag is false (the default), http/2 should be disabled
 	// due to its vulnerabilities. More specifically, disabling http/2 will

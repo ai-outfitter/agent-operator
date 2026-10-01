@@ -12,8 +12,11 @@ instance does not require replacing the resident operator.
 
 Build the binary in `code/operator` with `CGO_ENABLED=0 go build -o manager ./cmd`.
 Use this directory's Dockerfile with that binary in the image build context.
-The Ocean overlay references unreleased development images; it is an example
-private deployment, not a release channel.
+The nonprod overlay pins immutable ECR tags `operator-v0.16.0` and
+`runtime-v0.2.0`, populated by mirroring the corresponding released operator and
+webapp runtime images. Publish and mirror those releases before applying the
+overlay. The ECR repository enforces immutable tags. The Ocean overlay records
+the earlier private development deployment and remains unchanged.
 
 The controller uses deadlines and owner references to manage one Deployment,
 PVC, Service, ServiceAccount and credential Secret per Workspace. Sleep sets

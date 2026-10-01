@@ -51,6 +51,8 @@ type WorkspaceReconciler struct {
 // +kubebuilder:rbac:groups="",resources=services;persistentvolumeclaims;secrets;serviceaccounts,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=networking.k8s.io,resources=networkpolicies,verbs=get;list;watch;create;update;patch;delete
+
+// Reconcile manages a temporary workspace and its bounded lifetime.
 func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	w := &api.Workspace{}
 	if err := r.Get(ctx, req.NamespacedName, w); err != nil {
@@ -63,14 +65,21 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	if r.Now != nil {
 		now = r.Now()
 	}
-	if !now.Before(w.Spec.ExpiresAt.Time) {
-		// A concurrent wake/renewal must win over a stale expiry decision.
-		return ctrl.Result{}, client.IgnoreNotFound(r.Delete(ctx, w, client.Preconditions{UID: &w.UID, ResourceVersion: &w.ResourceVersion}))
-	}
 	if !controllerutil.ContainsFinalizer(w, workspaceFinalizer) {
 		base := w.DeepCopy()
 		controllerutil.AddFinalizer(w, workspaceFinalizer)
 		if err := r.Patch(ctx, w, client.MergeFromWithOptions(base, client.MergeFromWithOptimisticLock{})); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+	if !now.Before(w.Spec.ExpiresAt.Time) {
+		// A concurrent wake/renewal must win over a stale expiry decision.
+		return ctrl.Result{}, client.IgnoreNotFound(r.Delete(ctx, w, client.Preconditions{UID: &w.UID, ResourceVersion: &w.ResourceVersion}))
+	}
+	awake := now.Before(w.Spec.AwakeUntil.Time)
+	// Idle shutdown must not depend on credentials or provisioning succeeding.
+	if !awake {
+		if err := r.suspend(ctx, w); err != nil {
 			return ctrl.Result{}, err
 		}
 	}
@@ -110,7 +119,6 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			return ctrl.Result{}, err
 		}
 	}
-	awake := now.Before(w.Spec.AwakeUntil.Time)
 	deployment, err := r.resources(ctx, w, awake)
 	if err != nil {
 		return ctrl.Result{}, err
@@ -126,6 +134,23 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return r.condition(ctx, w, false, "Starting", "Waiting for workspace runtime", min(until, 5*time.Second))
 	}
 	return r.condition(ctx, w, true, "Running", "Workspace runtime is ready", until)
+}
+
+// suspend shuts down existing compute even if provisioning dependencies are unavailable.
+func (r *WorkspaceReconciler) suspend(ctx context.Context, w *api.Workspace) error {
+	dep := &appsv1.Deployment{}
+	if err := r.Get(ctx, client.ObjectKeyFromObject(w), dep); err != nil {
+		return client.IgnoreNotFound(err)
+	}
+	if !metav1.IsControlledBy(dep, w) {
+		return fmt.Errorf("refusing to suspend unowned deployment")
+	}
+	if dep.Spec.Replicas != nil && *dep.Spec.Replicas == 0 {
+		return nil
+	}
+	base := dep.DeepCopy()
+	dep.Spec.Replicas = ptr.To[int32](0)
+	return r.Patch(ctx, dep, client.MergeFromWithOptions(base, client.MergeFromWithOptimisticLock{}))
 }
 
 func (r *WorkspaceReconciler) condition(ctx context.Context, w *api.Workspace, ready bool, reason, message string, after time.Duration) (ctrl.Result, error) {
@@ -273,9 +298,15 @@ func (r *WorkspaceReconciler) cleanup(ctx context.Context, w *api.Workspace) (ct
 			return ctrl.Result{}, err
 		}
 		if !metav1.IsControlledBy(obj, w) {
-			return ctrl.Result{}, fmt.Errorf("refusing to delete unowned %T", obj)
+			// The gateway creates the scoped Secret before the controller can adopt it.
+			// An expired or partially provisioned workspace must also clean that Secret.
+			_, isSecret := obj.(*corev1.Secret)
+			if !isSecret || metav1.GetControllerOf(obj) != nil || obj.GetLabels()[workspaceLabel] != w.Name {
+				return ctrl.Result{}, fmt.Errorf("refusing to delete unowned %T", obj)
+			}
 		}
-		if err = r.Delete(ctx, obj); client.IgnoreNotFound(err) != nil {
+		uid, version := obj.GetUID(), obj.GetResourceVersion()
+		if err = r.Delete(ctx, obj, client.Preconditions{UID: &uid, ResourceVersion: &version}); client.IgnoreNotFound(err) != nil {
 			return ctrl.Result{}, err
 		}
 		return ctrl.Result{RequeueAfter: time.Second}, nil

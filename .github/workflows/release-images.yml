@@ -25,6 +25,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.release_tag || github.event.release.tag_name }}
 
       - name: Install Nix
         uses: DeterminateSystems/determinate-nix-action@v3
@@ -68,7 +70,7 @@ jobs:
         run: |
           set -euo pipefail
           authfile="$RUNNER_TEMP/docker/config.json"
-          sha_tag="sha-${GITHUB_SHA}"
+          sha_tag="sha-$(git rev-parse HEAD)"
           for image in operator; do
             case "$image" in
               operator) repository=agent-operator ;;

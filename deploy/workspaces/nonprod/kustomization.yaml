@@ -5,7 +5,7 @@ resources:
 images:
   - name: workspace-operator
     newName: 216577824627.dkr.ecr.us-east-1.amazonaws.com/ai-outfitter/workspace-development
-    digest: sha256:32c21ce3d42d6b06a7df8da83e62560b886c8c72caa54647014767c2c37e02fe
+    newTag: operator-v0.16.0
 patches:
   - target:
       kind: Deployment
@@ -13,4 +13,4 @@ patches:
     patch: |-
       - op: replace
         path: /spec/template/spec/containers/0/args/4
-        value: --workspace-image=216577824627.dkr.ecr.us-east-1.amazonaws.com/ai-outfitter/workspace-development@sha256:adabccebba020d0f402fab77cc5d36744ba07c7d230c915ccbf3444933bae6c1
+        value: --workspace-image=216577824627.dkr.ecr.us-east-1.amazonaws.com/ai-outfitter/workspace-development:runtime-v0.2.0
