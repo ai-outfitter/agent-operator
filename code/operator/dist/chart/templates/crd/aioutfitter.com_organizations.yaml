@@ -53,8 +53,6 @@ spec:
             description: OrganizationSpec defines the desired state of Organization.
             properties:
               agentCatalogs:
-                description: M1 passes exactly one source to Outfitter while retaining
-                  the list shape.
                 items:
                   description: |-
                     AgentCatalog declares one commit-pinned source for Outfitter settings.
@@ -97,7 +95,7 @@ spec:
                       (has(self.localPath) ? 1 : 0) == 1'
                   - message: remote catalogs must include a revision
                     rule: has(self.localPath) || has(self.revision)
-                maxItems: 1
+                maxItems: 16
                 minItems: 1
                 type: array
                 x-kubernetes-list-map-keys:

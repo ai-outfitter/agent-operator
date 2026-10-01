@@ -415,8 +415,8 @@ spec:
     workflow: software-factory
 ```
 
-The operator inserts an `export-workflow` init container after catalog sync.
-It runs a strict Outfitter dump of the selected workflow, then supplies
+The operator inserts an `export-workflow` init container after catalog sync
+and all user setup steps. It runs a strict Outfitter dump of the selected workflow, then supplies
 `A2A_WORKFLOW_MANIFEST` and `A2A_WORKFLOW` to Channels in the resident
 container. A missing workflow or invalid composition therefore prevents the
 new pod from becoming ready instead of starting an ungoverned task plane.

@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -30,6 +31,8 @@ const (
 	testRuntimeConfigMountPath = "/var/run/agent/inputs/runtime-config"
 	testInputConfigName        = "config"
 	testWorkflowID             = "software-factory"
+	testCommunityCatalogName   = "community-profiles"
+	testAgentImage             = "agent-runtime:default"
 )
 
 var _ = Describe("Agent Controller", func() {
@@ -159,6 +162,7 @@ var _ = Describe("Agent Controller", func() {
 		Expect(settingsYAML).To(ContainSubstring("default_agent: researcher"))
 		Expect(settingsYAML).To(ContainSubstring("default_harness: pi"))
 		Expect(settingsYAML).To(ContainSubstring("github: " + testCatalogGitHub))
+		Expect(settingsYAML).To(ContainSubstring("github: ai-outfitter/community-profiles"))
 		Expect(settingsYAML).To(ContainSubstring("ref: " + testCatalogRevision))
 		Expect(settingsYAML).To(ContainSubstring("path: .agents"))
 
@@ -309,7 +313,7 @@ var _ = Describe("Agent Controller", func() {
 		DeferCleanup(removeAgent, ctx, agent.Name)
 
 		reconciler := &AgentReconciler{
-			Client: k8sClient, APIReader: k8sClient, Scheme: k8sClient.Scheme(), AgentImage: "agent-runtime:default",
+			Client: k8sClient, APIReader: k8sClient, Scheme: k8sClient.Scheme(), AgentImage: testAgentImage,
 		}
 		request := reconcile.Request{NamespacedName: types.NamespacedName{Name: agent.Name}}
 		_, err := reconciler.Reconcile(ctx, request)
@@ -330,6 +334,41 @@ var _ = Describe("Agent Controller", func() {
 		Expect(k8sClient.Get(ctx, deploymentKey, deployment)).To(Succeed())
 		Expect(deployment.Spec.Template.Spec.Containers[0].Image).To(Equal(current.Spec.Image))
 		Expect(deployment.Spec.Template.Spec.InitContainers[0].Image).To(Equal(current.Spec.Image))
+	})
+
+	It("rolls out when Organization catalog settings change", func() {
+		organization := createAcceptedOrganization(ctx)
+		agent := validAgent(uniqueTestName("catalog-rollout"), organization.Name)
+		Expect(k8sClient.Create(ctx, agent)).To(Succeed())
+		DeferCleanup(removeAgent, ctx, agent.Name)
+
+		reconciler := &AgentReconciler{
+			Client: k8sClient, APIReader: k8sClient, Scheme: k8sClient.Scheme(), AgentImage: testAgentImage,
+		}
+		request := reconcile.Request{NamespacedName: types.NamespacedName{Name: agent.Name}}
+		_, err := reconciler.Reconcile(ctx, request)
+		Expect(err).NotTo(HaveOccurred())
+
+		deployment := &appsv1.Deployment{}
+		deploymentKey := types.NamespacedName{Namespace: agentNamespace(agent.Name), Name: RuntimeName}
+		Expect(k8sClient.Get(ctx, deploymentKey, deployment)).To(Succeed())
+		originalHash := deployment.Spec.Template.Annotations[SettingsHashAnnotation]
+		Expect(originalHash).NotTo(BeEmpty())
+
+		currentOrganization := &aioutfitterv1alpha1.Organization{}
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: organization.Name}, currentOrganization)).To(Succeed())
+		newRevision := strings.Repeat("b", 40)
+		currentOrganization.Spec.AgentCatalogs[0].Revision = ptr.To(newRevision)
+		Expect(k8sClient.Update(ctx, currentOrganization)).To(Succeed())
+
+		_, err = reconciler.Reconcile(ctx, request)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(k8sClient.Get(ctx, deploymentKey, deployment)).To(Succeed())
+		Expect(deployment.Spec.Template.Annotations[SettingsHashAnnotation]).NotTo(Equal(originalHash))
+
+		settings := &corev1.ConfigMap{}
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: agentNamespace(agent.Name), Name: SettingsName}, settings)).To(Succeed())
+		Expect(settings.Data["settings.yml"]).To(ContainSubstring("ref: " + newRevision))
 	})
 
 	It("adds a browser sidecar when spec.browser is enabled", func() {
@@ -399,6 +438,7 @@ var _ = Describe("Agent Controller", func() {
 		organization := createAcceptedOrganization(ctx)
 		agent := validAgent(uniqueTestName(researcherAgentSlug), organization.Name)
 		agent.Spec.Image = "example.test/user-owned-agent:v1"
+		agent.Spec.Profile.Model = "openrouter/anthropic/claude-sonnet"
 		secretName := "model-credentials"
 		configName := testRuntimeConfigName
 		agent.Spec.EnvFrom = []corev1.EnvFromSource{{SecretRef: &corev1.SecretEnvSource{LocalObjectReference: corev1.LocalObjectReference{Name: secretName}}}}
@@ -431,6 +471,9 @@ var _ = Describe("Agent Controller", func() {
 
 		_, err = reconciler.Reconcile(ctx, request)
 		Expect(err).NotTo(HaveOccurred())
+		settings := &corev1.ConfigMap{}
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: namespaceName, Name: SettingsName}, settings)).To(Succeed())
+		Expect(settings.Data["settings.yml"]).To(ContainSubstring("workflows:\n- " + testWorkflowID))
 		deployment := &appsv1.Deployment{}
 		deploymentKey := types.NamespacedName{Namespace: namespaceName, Name: RuntimeName}
 		Expect(k8sClient.Get(ctx, deploymentKey, deployment)).To(Succeed())
@@ -450,6 +493,7 @@ var _ = Describe("Agent Controller", func() {
 		// across pod restarts.
 		Expect(container.Args).To(Equal([]string{
 			"run", researcherAgentSlug, "--strict", "--", "--mode", "rpc", "--session-id", agent.Name,
+			"--provider", "openrouter", "--model", "anthropic/claude-sonnet",
 		}))
 		Expect(container.Stdin).To(BeTrue())
 		Expect(container.Env).To(ContainElements(
@@ -493,20 +537,21 @@ var _ = Describe("Agent Controller", func() {
 		Expect(deployment.Spec.Template.Spec.InitContainers[1].VolumeMounts).NotTo(ContainElement(
 			corev1.VolumeMount{Name: APITokenVolumeName, MountPath: APITokenMountPath, ReadOnly: true},
 		))
-		Expect(deployment.Spec.Template.Spec.InitContainers[2].Name).To(Equal("export-workflow"))
-		Expect(deployment.Spec.Template.Spec.InitContainers[2].Command).To(Equal([]string{"sh", "-c", workflowExportScript}))
-		Expect(deployment.Spec.Template.Spec.InitContainers[2].Env).To(ContainElements(
+		Expect(deployment.Spec.Template.Spec.InitContainers[2].Name).To(Equal("setup-wait-for-mail"))
+		Expect(deployment.Spec.Template.Spec.InitContainers[2].Command).To(Equal([]string{"sh", "-c", "echo mail-ready"}))
+		Expect(deployment.Spec.Template.Spec.InitContainers[3].Name).To(Equal("setup-mail-bootstrap"))
+		Expect(deployment.Spec.Template.Spec.InitContainers[4].Name).To(Equal("export-workflow"))
+		Expect(deployment.Spec.Template.Spec.InitContainers[4].Command).To(Equal([]string{"sh", "-c", workflowExportScript}))
+		Expect(deployment.Spec.Template.Spec.InitContainers[4].Env).To(ContainElements(
 			corev1.EnvVar{Name: HomeEnvName, Value: WorkspaceMount},
 			corev1.EnvVar{Name: OutfitterWorkflowEnv, Value: testWorkflowID},
+			corev1.EnvVar{Name: WorkflowExportDirEnv, Value: WorkflowExportDir},
 		))
-		Expect(deployment.Spec.Template.Spec.InitContainers[2].VolumeMounts).To(ContainElements(
+		Expect(deployment.Spec.Template.Spec.InitContainers[4].VolumeMounts).To(ContainElements(
 			corev1.VolumeMount{Name: WorkspaceName, MountPath: WorkspaceMount},
 			corev1.VolumeMount{Name: SettingsName, MountPath: WorkspaceMount + "/.agents", ReadOnly: true},
 			corev1.VolumeMount{Name: NixStoreName, MountPath: NixMount},
 		))
-		Expect(deployment.Spec.Template.Spec.InitContainers[3].Name).To(Equal("setup-wait-for-mail"))
-		Expect(deployment.Spec.Template.Spec.InitContainers[3].Command).To(Equal([]string{"sh", "-c", "echo mail-ready"}))
-		Expect(deployment.Spec.Template.Spec.InitContainers[4].Name).To(Equal("setup-mail-bootstrap"))
 		Expect(deployment.Spec.Template.Spec.InitContainers).To(ContainElement(MatchFields(IgnoreExtras, Fields{
 			"Name":    Equal("setup-mail-bootstrap"),
 			"Image":   Equal(agent.Spec.Image),
@@ -541,24 +586,6 @@ var _ = Describe("Agent Controller", func() {
 		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: agent.Name}, actual)).To(Succeed())
 		Expect(apiMeta.IsStatusConditionTrue(actual.Status.Conditions, aioutfitterv1alpha1.AgentConditionOutfitterSettingsReady)).To(BeTrue())
 		Expect(apiMeta.IsStatusConditionTrue(actual.Status.Conditions, aioutfitterv1alpha1.AgentConditionReady)).To(BeTrue())
-	})
-
-	It("rejects a task plane without managed catalog sync", func() {
-		organization := createAcceptedOrganization(ctx)
-		agent := validAgent(uniqueTestName("workflow-sync"), organization.Name)
-		agent.Spec.TaskPlane = &aioutfitterv1alpha1.AgentTaskPlaneSpec{Workflow: testWorkflowID}
-		Expect(k8sClient.Create(ctx, agent)).To(Succeed())
-		DeferCleanup(removeAgent, ctx, agent.Name)
-
-		reconciler := &AgentReconciler{Client: k8sClient, APIReader: k8sClient, Scheme: k8sClient.Scheme()}
-		_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: agent.Name}})
-		Expect(err).NotTo(HaveOccurred())
-
-		actual := &aioutfitterv1alpha1.Agent{}
-		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: agent.Name}, actual)).To(Succeed())
-		accepted := apiMeta.FindStatusCondition(actual.Status.Conditions, aioutfitterv1alpha1.AgentConditionAccepted)
-		Expect(accepted.Status).To(Equal(metav1.ConditionFalse))
-		Expect(accepted.Message).To(Equal("Task plane requires catalogSync.enabled"))
 	})
 
 	It("rejects storage budgets that cannot hold both persistent claims", func() {
@@ -616,6 +643,62 @@ var _ = Describe("Agent Controller", func() {
 		Expect(string(contents)).To(Equal("keep-me"))
 	})
 
+	It("replaces a persisted workflow export without touching sibling state", func() {
+		root := GinkgoT().TempDir()
+		binDir := filepath.Join(root, "bin")
+		exportDir := filepath.Join(root, "workflow")
+		oldManifest := filepath.Join(exportDir, ".agents", ".outfitter", "workflow-composition.json")
+		siblingState := filepath.Join(exportDir, "keep-me")
+		Expect(os.MkdirAll(filepath.Dir(oldManifest), 0o755)).To(Succeed())
+		Expect(os.WriteFile(oldManifest, []byte("old"), 0o644)).To(Succeed())
+		Expect(os.WriteFile(siblingState, []byte("persistent"), 0o644)).To(Succeed())
+		Expect(os.MkdirAll(binDir, 0o755)).To(Succeed())
+		outfitter := filepath.Join(binDir, "outfitter")
+		Expect(os.WriteFile(outfitter, []byte(`#!/bin/sh
+set -eu
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --out) out="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+mkdir -p "$out/.agents/.outfitter"
+printf new >"$out/.agents/.outfitter/workflow-composition.json"
+`), 0o755)).To(Succeed())
+
+		export := func(extraEnv ...string) error {
+			command := exec.Command("sh", "-c", workflowExportScript)
+			command.Env = append(os.Environ(),
+				"PATH="+binDir+":"+os.Getenv("PATH"),
+				"OUTFITTER_WORKFLOW="+testWorkflowID,
+				"WORKFLOW_EXPORT_DIR="+exportDir,
+			)
+			command.Env = append(command.Env, extraEnv...)
+			output, err := command.CombinedOutput()
+			if err != nil {
+				return fmt.Errorf("workflow export failed: %w: %s", err, output)
+			}
+			return nil
+		}
+
+		Expect(export()).To(Succeed())
+		Expect(export()).To(Succeed())
+		contents, err := os.ReadFile(oldManifest)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(string(contents)).To(Equal("new"))
+		contents, err = os.ReadFile(siblingState)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(string(contents)).To(Equal("persistent"))
+		Expect(exportDir + ".next").NotTo(BeADirectory())
+
+		Expect(os.WriteFile(outfitter, []byte("#!/bin/sh\nexit 0\n"), 0o755)).To(Succeed())
+		Expect(export()).NotTo(Succeed())
+		contents, err = os.ReadFile(oldManifest)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(string(contents)).To(Equal("new"))
+		Expect(filepath.Join(exportDir, ".agents.previous")).NotTo(BeADirectory())
+	})
+
 	// The `-nix` tag suffix is the published convention for the Nix closure
 	// variant; the plain published tag becomes a Debian base at 1.5.0. Anything
 	// the operator cannot classify keeps the machinery, so existing closure
@@ -654,7 +737,7 @@ var _ = Describe("Agent Controller", func() {
 		DeferCleanup(removeAgent, ctx, agent.Name)
 
 		reconciler := &AgentReconciler{
-			Client: k8sClient, APIReader: k8sClient, Scheme: k8sClient.Scheme(), AgentImage: "agent-runtime:default",
+			Client: k8sClient, APIReader: k8sClient, Scheme: k8sClient.Scheme(), AgentImage: testAgentImage,
 		}
 		request := reconcile.Request{NamespacedName: types.NamespacedName{Name: agent.Name}}
 		_, err := reconciler.Reconcile(ctx, request)
@@ -758,11 +841,13 @@ func createAcceptedOrganization(ctx context.Context) *aioutfitterv1alpha1.Organi
 	name := uniqueTestName("organization")
 	revision := testCatalogRevision
 	github := testCatalogGitHub
+	communityGitHub := "ai-outfitter/community-profiles"
 	organization := &aioutfitterv1alpha1.Organization{
 		ObjectMeta: metav1.ObjectMeta{Name: name},
-		Spec: aioutfitterv1alpha1.OrganizationSpec{AgentCatalogs: []aioutfitterv1alpha1.AgentCatalog{{
-			Name: testCatalogName, GitHub: &github, Revision: &revision, Path: ".agents",
-		}}},
+		Spec: aioutfitterv1alpha1.OrganizationSpec{AgentCatalogs: []aioutfitterv1alpha1.AgentCatalog{
+			{Name: testCatalogName, GitHub: &github, Revision: &revision, Path: ".agents"},
+			{Name: testCommunityCatalogName, GitHub: &communityGitHub, Revision: &revision},
+		}},
 	}
 	Expect(k8sClient.Create(ctx, organization)).To(Succeed())
 	reconciler := &OrganizationReconciler{Client: k8sClient, Scheme: k8sClient.Scheme()}

@@ -304,6 +304,17 @@ spec:
                     enum:
                     - pi
                     type: string
+                  model:
+                    description: |-
+                      Model optionally selects the harness model for this deployment. It is
+                      passed to the harness after the resolved profile arguments, so the
+                      deployment selection wins over profile defaults. The referenced provider
+                      remains defined by the resolved Outfitter catalogs; credentials remain
+                      projected through the Agent credential API.
+                    maxLength: 255
+                    minLength: 3
+                    pattern: ^[^/[:space:]]+/[^[:space:]]+$
+                    type: string
                 required:
                 - agent
                 type: object
@@ -332,8 +343,8 @@ spec:
               taskPlane:
                 description: |-
                   TaskPlane enables authenticated A2A intake and binds this resident to one
-                  resolved Outfitter workflow. Catalog sync must be enabled so the export is
-                  built from the pinned Organization catalog before the runtime starts.
+                  resolved Outfitter workflow. The export runs after managed catalog sync
+                  and user setup, so either mechanism can prepare a private catalog.
                 properties:
                   workflow:
                     description: Workflow is the workflow slug resolved from the Organization

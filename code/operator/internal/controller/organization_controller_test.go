@@ -39,19 +39,21 @@ func uniqueTestName(prefix string) string {
 var _ = Describe("Organization Controller", func() {
 	ctx := context.Background()
 
-	It("accepts one pinned catalog without resolving the profile itself", func() {
+	It("accepts pinned catalogs without resolving profiles itself", func() {
 		name := uniqueTestName("organization")
 		revision := testCatalogRevision
 		github := testCatalogGitHub
+		communityGitHub := "ai-outfitter/community-profiles"
 		organization := &aioutfitterv1alpha1.Organization{
 			ObjectMeta: metav1.ObjectMeta{Name: name},
 			Spec: aioutfitterv1alpha1.OrganizationSpec{
 				Repositories: []aioutfitterv1alpha1.Repository{{
 					Name: testRepositoryName, URI: "ssh://git@example.test/ai-outfitter/wiki.git",
 				}},
-				AgentCatalogs: []aioutfitterv1alpha1.AgentCatalog{{
-					Name: testCatalogName, GitHub: &github, Revision: &revision, Path: ".agents",
-				}},
+				AgentCatalogs: []aioutfitterv1alpha1.AgentCatalog{
+					{Name: testCatalogName, GitHub: &github, Revision: &revision, Path: ".agents"},
+					{Name: testCommunityCatalogName, GitHub: &communityGitHub, Revision: &revision},
+				},
 			},
 		}
 		Expect(k8sClient.Create(ctx, organization)).To(Succeed())
@@ -69,9 +71,10 @@ var _ = Describe("Organization Controller", func() {
 		Expect(catalogCondition).NotTo(BeNil())
 		Expect(catalogCondition.Status).To(Equal(metav1.ConditionTrue))
 		Expect(catalogCondition.Reason).To(Equal("DelegatedToOutfitter"))
-		Expect(actual.Status.CatalogSources).To(Equal([]aioutfitterv1alpha1.CatalogSourceStatus{{
-			Name: testCatalogName, Revision: revision,
-		}}))
+		Expect(actual.Status.CatalogSources).To(Equal([]aioutfitterv1alpha1.CatalogSourceStatus{
+			{Name: testCatalogName, Revision: revision},
+			{Name: testCommunityCatalogName, Revision: revision},
+		}))
 		Expect(actual.Status.ResolvedRepositories).To(Equal([]aioutfitterv1alpha1.ResolvedRepositoryStatus{{Name: testRepositoryName}}))
 	})
 

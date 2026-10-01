@@ -1,5 +1,47 @@
 # Changelog
 
+## [0.15.2](https://github.com/ai-outfitter/agent-operator/compare/agent-operator-v0.15.1...agent-operator-v0.15.2) (2026-09-18)
+
+
+### Bug Fixes
+
+* **operator:** make workflow export restart-safe ([#82](https://github.com/ai-outfitter/agent-operator/issues/82)) ([1fa3b25](https://github.com/ai-outfitter/agent-operator/commit/1fa3b25743cbffdc94658d88afbe2eafee700093))
+
+## [0.15.1](https://github.com/ai-outfitter/agent-operator/compare/agent-operator-v0.15.0...agent-operator-v0.15.1) (2026-09-09)
+
+
+### Bug Fixes
+
+* roll residents on catalog settings changes ([#80](https://github.com/ai-outfitter/agent-operator/issues/80)) ([770ec1c](https://github.com/ai-outfitter/agent-operator/commit/770ec1c34328090aed3ec4f5676aafddbd07df0f))
+
+## [0.15.0](https://github.com/ai-outfitter/agent-operator/compare/agent-operator-v0.14.0...agent-operator-v0.15.0) (2026-09-08)
+
+
+### Features
+
+* let deployments select resident model ([eb3f2bf](https://github.com/ai-outfitter/agent-operator/commit/eb3f2bf35486c7a28dff11f29468efa13f498e9e))
+
+## [0.14.0](https://github.com/ai-outfitter/agent-operator/compare/agent-operator-v0.13.0...agent-operator-v0.14.0) (2026-09-08)
+
+
+### Features
+
+* compose multiple agent catalogs ([f79bb39](https://github.com/ai-outfitter/agent-operator/commit/f79bb3989f3d1fd12271d9bb723dff98f8fe7845))
+* compose workflow-ready agent catalogs ([87ceddc](https://github.com/ai-outfitter/agent-operator/commit/87ceddcb9fe6d8449eaef771b7cce50a094e82d3))
+
+
+### Bug Fixes
+
+* enable exported task-plane workflow ([90c084f](https://github.com/ai-outfitter/agent-operator/commit/90c084f0a0772b257c358896dff889e17af3eac7))
+
+## [0.13.0](https://github.com/ai-outfitter/agent-operator/compare/agent-operator-v0.12.0...agent-operator-v0.13.0) (2026-09-08)
+
+
+### Features
+
+* **agent:** bind residents to workflow task planes ([cb0c05d](https://github.com/ai-outfitter/agent-operator/commit/cb0c05d7e91ab78bc327738cc6a63086c84c3e91))
+* **agent:** bind residents to workflow task planes ([46fe61d](https://github.com/ai-outfitter/agent-operator/commit/46fe61df5263443d057b9fc32a36f7b83c024fde))
+
 ## [0.12.0](https://github.com/ai-outfitter/agent-operator/compare/agent-operator-v0.11.1...agent-operator-v0.12.0) (2026-08-31)
 
 

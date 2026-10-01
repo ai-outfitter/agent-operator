@@ -40,6 +40,17 @@ type AgentProfile struct {
 	// +kubebuilder:default=pi
 	// +kubebuilder:validation:Enum=pi
 	Harness string `json:"harness,omitempty"`
+
+	// Model optionally selects the harness model for this deployment. It is
+	// passed to the harness after the resolved profile arguments, so the
+	// deployment selection wins over profile defaults. The referenced provider
+	// remains defined by the resolved Outfitter catalogs; credentials remain
+	// projected through the Agent credential API.
+	// +optional
+	// +kubebuilder:validation:MinLength=3
+	// +kubebuilder:validation:MaxLength=255
+	// +kubebuilder:validation:Pattern=`^[^/[:space:]]+/[^[:space:]]+$`
+	Model string `json:"model,omitempty"`
 }
 
 // GitHubSpec configures the resident runtime's GitHub notification source.
@@ -243,8 +254,8 @@ type AgentSpec struct {
 	CatalogSync *CatalogSyncSpec `json:"catalogSync,omitempty"`
 
 	// TaskPlane enables authenticated A2A intake and binds this resident to one
-	// resolved Outfitter workflow. Catalog sync must be enabled so the export is
-	// built from the pinned Organization catalog before the runtime starts.
+	// resolved Outfitter workflow. The export runs after managed catalog sync
+	// and user setup, so either mechanism can prepare a private catalog.
 	// +optional
 	TaskPlane *AgentTaskPlaneSpec `json:"taskPlane,omitempty"`
 

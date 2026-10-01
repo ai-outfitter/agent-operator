@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"maps"
 	"path"
@@ -32,6 +33,7 @@ const (
 	WorkspaceName           = "agent-workspace"
 	LimitRangeName          = "agent-workspace-defaults"
 	SettingsName            = "outfitter-settings"
+	SettingsHashAnnotation  = "aioutfitter.com/outfitter-settings-hash"
 	WorkspaceMount          = "/workspace"
 	CredentialsRoot         = "/var/run/agent/credentials"
 	NixStoreName            = "agent-nix-store"
@@ -83,6 +85,7 @@ const (
 	A2AWorkflowManifestEnv         = "A2A_WORKFLOW_MANIFEST"
 	A2AWorkflowEnv                 = "A2A_WORKFLOW"
 	OutfitterWorkflowEnv           = "OUTFITTER_WORKFLOW"
+	WorkflowExportDirEnv           = "WORKFLOW_EXPORT_DIR"
 	WorkflowExportDir              = "/workspace/.outfitter/workflow"
 	WorkflowManifestPath           = WorkflowExportDir + "/.agents/.outfitter/workflow-composition.json"
 )
@@ -129,8 +132,34 @@ touch "$destination_nix/.seeded"`
 const catalogSyncScript = `set -eu
 outfitter sync`
 
+// Export into a staging directory before replacing the generated .agents tree.
+// The workspace PVC survives pod rollouts, while `outfitter dump` deliberately
+// refuses an existing destination. Staging preserves the last valid export if
+// composition fails and makes every successful restart idempotent.
 const workflowExportScript = `set -eu
-outfitter dump --workflow "$OUTFITTER_WORKFLOW" --out "` + WorkflowExportDir + `" --strict`
+workflow_export_dir="${WORKFLOW_EXPORT_DIR:-` + WorkflowExportDir + `}"
+workflow_staging_dir="${workflow_export_dir}.next"
+workflow_live_agents="$workflow_export_dir/.agents"
+workflow_backup_agents="$workflow_export_dir/.agents.previous"
+mkdir -p "$workflow_export_dir"
+if [ ! -e "$workflow_live_agents" ] && [ -e "$workflow_backup_agents" ]; then
+  mv "$workflow_backup_agents" "$workflow_live_agents"
+else
+  rm -rf -- "$workflow_backup_agents"
+fi
+rm -rf -- "$workflow_staging_dir"
+outfitter dump --workflow "$OUTFITTER_WORKFLOW" --out "$workflow_staging_dir" --strict
+if [ -e "$workflow_live_agents" ]; then
+  mv "$workflow_live_agents" "$workflow_backup_agents"
+fi
+if ! mv "$workflow_staging_dir/.agents" "$workflow_live_agents"; then
+  if [ -e "$workflow_backup_agents" ]; then
+    mv "$workflow_backup_agents" "$workflow_live_agents"
+  fi
+  exit 1
+fi
+rm -rf -- "$workflow_backup_agents"
+rmdir "$workflow_staging_dir"`
 
 func agentNamespace(agentName string) string { return "agent-" + agentName }
 
@@ -324,6 +353,11 @@ func (r *AgentReconciler) ensureAgentDeployment(
 	if err != nil {
 		return nil, err
 	}
+	settings, err := renderOutfitterSettings(agent, organization)
+	if err != nil {
+		return nil, err
+	}
+	settingsHash := fmt.Sprintf("%x", sha256.Sum256(settings))
 
 	deployment := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: RuntimeName, Namespace: namespace}}
 	_, err = controllerutil.CreateOrUpdate(ctx, r.Client, deployment, func() error {
@@ -332,6 +366,13 @@ func (r *AgentReconciler) ensureAgentDeployment(
 		deployment.Spec.Strategy.Type = appsv1.RecreateDeploymentStrategyType
 		deployment.Spec.Selector = &metav1.LabelSelector{MatchLabels: selectorLabels}
 		deployment.Spec.Template.Labels = mergeLabels(selectorLabels, labels)
+		if deployment.Spec.Template.Annotations == nil {
+			deployment.Spec.Template.Annotations = map[string]string{}
+		}
+		// Catalog sync and workflow export are init-time operations. Make the
+		// rendered settings part of the PodTemplate so a catalog revision change
+		// creates a fresh Pod instead of leaving a running resident on stale data.
+		deployment.Spec.Template.Annotations[SettingsHashAnnotation] = settingsHash
 		deployment.Spec.Template.Spec.ServiceAccountName = RuntimeName
 		// No pod-wide token automount: the browser sidecar runs an
 		// unsandboxed Chromium and must never hold agent-runtime API
@@ -343,6 +384,14 @@ func (r *AgentReconciler) ensureAgentDeployment(
 			RunAsUser:    agentFSGroup,
 			RunAsGroup:   agentFSGroup,
 			FSGroup:      agentFSGroup,
+		}
+
+		runtimeArgs := []string{
+			"run", agent.Spec.Profile.Agent, "--strict", "--", "--mode", "rpc", "--session-id", agent.Name,
+		}
+		if agent.Spec.Profile.Model != "" {
+			provider, model, _ := strings.Cut(agent.Spec.Profile.Model, "/")
+			runtimeArgs = append(runtimeArgs, "--provider", provider, "--model", model)
 		}
 
 		container := corev1.Container{
@@ -369,16 +418,7 @@ func (r *AgentReconciler) ensureAgentDeployment(
 			// transcript durable by defaulting PI_CODING_AGENT_SESSION_DIR under
 			// $HOME (= /workspace, the PVC) — see outfitter #243 — so a stable
 			// --session-id is all that is needed to resume it.
-			Args: []string{
-				"run",
-				agent.Spec.Profile.Agent,
-				"--strict",
-				"--",
-				"--mode",
-				"rpc",
-				"--session-id",
-				agent.Name,
-			},
+			Args:  runtimeArgs,
 			Stdin: true,
 			Env: append([]corev1.EnvVar{
 				{Name: HomeEnvName, Value: WorkspaceMount},
@@ -480,28 +520,6 @@ func (r *AgentReconciler) ensureAgentDeployment(
 				VolumeMounts:    mounts,
 			})
 		}
-		if taskPlane := agent.Spec.TaskPlane; taskPlane != nil {
-			mounts := append([]corev1.VolumeMount{}, inputMounts...)
-			mounts = append(mounts,
-				corev1.VolumeMount{Name: WorkspaceName, MountPath: WorkspaceMount},
-				corev1.VolumeMount{Name: SettingsName, MountPath: path.Join(WorkspaceMount, ".agents"), ReadOnly: true},
-			)
-			if needsNixStore {
-				mounts = append(mounts, corev1.VolumeMount{Name: NixStoreName, MountPath: NixMount})
-			}
-			initContainers = append(initContainers, corev1.Container{
-				Name:            "export-workflow",
-				Image:           runtimeImage,
-				ImagePullPolicy: corev1.PullIfNotPresent,
-				Command:         []string{"sh", "-c", workflowExportScript},
-				EnvFrom:         inputEnvFrom,
-				Env: []corev1.EnvVar{
-					{Name: HomeEnvName, Value: WorkspaceMount},
-					{Name: OutfitterWorkflowEnv, Value: taskPlane.Workflow},
-				},
-				VolumeMounts: mounts,
-			})
-		}
 		for _, step := range agent.Spec.Setup {
 			mounts := append([]corev1.VolumeMount{}, inputMounts...)
 			mounts = append(mounts,
@@ -527,6 +545,29 @@ func (r *AgentReconciler) ensureAgentDeployment(
 				VolumeMounts:    mounts,
 			})
 		}
+		if taskPlane := agent.Spec.TaskPlane; taskPlane != nil {
+			mounts := append([]corev1.VolumeMount{}, inputMounts...)
+			mounts = append(mounts,
+				corev1.VolumeMount{Name: WorkspaceName, MountPath: WorkspaceMount},
+				corev1.VolumeMount{Name: SettingsName, MountPath: path.Join(WorkspaceMount, ".agents"), ReadOnly: true},
+			)
+			if needsNixStore {
+				mounts = append(mounts, corev1.VolumeMount{Name: NixStoreName, MountPath: NixMount})
+			}
+			initContainers = append(initContainers, corev1.Container{
+				Name:            "export-workflow",
+				Image:           runtimeImage,
+				ImagePullPolicy: corev1.PullIfNotPresent,
+				Command:         []string{"sh", "-c", workflowExportScript},
+				EnvFrom:         inputEnvFrom,
+				Env: []corev1.EnvVar{
+					{Name: HomeEnvName, Value: WorkspaceMount},
+					{Name: OutfitterWorkflowEnv, Value: taskPlane.Workflow},
+					{Name: WorkflowExportDirEnv, Value: WorkflowExportDir},
+				},
+				VolumeMounts: mounts,
+			})
+		}
 		deployment.Spec.Template.Spec.InitContainers = initContainers
 		containers := []corev1.Container{container}
 		if browser := agent.Spec.Browser; browser != nil && browser.Enabled {
@@ -549,6 +590,7 @@ type outfitterSettings struct {
 	DefaultAgent   string            `json:"default_agent"`
 	DefaultHarness string            `json:"default_harness"`
 	CacheDirectory string            `json:"cache_directory"`
+	Workflows      []string          `json:"workflows,omitempty"`
 	Sources        []outfitterSource `json:"sources"`
 }
 
@@ -559,22 +601,25 @@ type outfitterSource struct {
 	Ref    string  `json:"ref,omitempty"`
 }
 
-func (r *AgentReconciler) ensureOutfitterSettings(
-	ctx context.Context,
+func renderOutfitterSettings(
 	agent *aioutfitterv1alpha1.Agent,
 	organization *aioutfitterv1alpha1.Organization,
-) error {
-	catalogSource := organization.Spec.AgentCatalogs[0]
-	source := outfitterSource{GitHub: catalogSource.GitHub, URI: catalogSource.URI}
-	if catalogSource.LocalPath != nil {
-		source.Path = *catalogSource.LocalPath
-	} else {
-		source.Path = catalogSource.Path
+) ([]byte, error) {
+	sources := make([]outfitterSource, 0, len(organization.Spec.AgentCatalogs)+1)
+	for _, catalogSource := range organization.Spec.AgentCatalogs {
+		source := outfitterSource{GitHub: catalogSource.GitHub, URI: catalogSource.URI}
+		if catalogSource.LocalPath != nil {
+			source.Path = *catalogSource.LocalPath
+		} else {
+			source.Path = catalogSource.Path
+		}
+		if catalogSource.Revision != nil {
+			source.Ref = *catalogSource.Revision
+		}
+		sources = append(sources, source)
 	}
-	if catalogSource.Revision != nil {
-		source.Ref = *catalogSource.Revision
-	}
-	settings, err := yaml.Marshal(outfitterSettings{
+	sources = append(sources, outfitterSource{Path: BakedCatalogPath})
+	outfitterConfig := outfitterSettings{
 		DefaultAgent:   agent.Spec.Profile.Agent,
 		DefaultHarness: agent.Spec.Profile.Harness,
 		CacheDirectory: path.Join(WorkspaceMount, ".agents-cache"),
@@ -584,8 +629,20 @@ func (r *AgentReconciler) ensureOutfitterSettings(
 		// catalog's root files). Rendering it as the LAST source keeps its
 		// root system-prompt.md, skills, and the researcher fallback agent
 		// resolvable while the catalog wins wherever both define a resource.
-		Sources: []outfitterSource{source, {Path: BakedCatalogPath}},
-	})
+		Sources: sources,
+	}
+	if agent.Spec.TaskPlane != nil {
+		outfitterConfig.Workflows = []string{agent.Spec.TaskPlane.Workflow}
+	}
+	return yaml.Marshal(outfitterConfig)
+}
+
+func (r *AgentReconciler) ensureOutfitterSettings(
+	ctx context.Context,
+	agent *aioutfitterv1alpha1.Agent,
+	organization *aioutfitterv1alpha1.Organization,
+) error {
+	settings, err := renderOutfitterSettings(agent, organization)
 	if err != nil {
 		return err
 	}

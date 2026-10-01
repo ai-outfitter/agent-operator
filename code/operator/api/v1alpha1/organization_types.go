@@ -132,9 +132,8 @@ type OrganizationSpec struct {
 	// +optional
 	Repositories []Repository `json:"repositories,omitempty"`
 
-	// M1 passes exactly one source to Outfitter while retaining the list shape.
 	// +kubebuilder:validation:MinItems=1
-	// +kubebuilder:validation:MaxItems=1
+	// +kubebuilder:validation:MaxItems=16
 	// +listType=map
 	// +listMapKey=name
 	AgentCatalogs []AgentCatalog `json:"agentCatalogs"`
