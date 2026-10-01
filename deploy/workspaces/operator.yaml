@@ -87,6 +87,11 @@ spec:
       containers:
         - name: operator
           image: workspace-operator:local
+          # Published Devenv images also contain local development defaults.
+          # An empty override selects the mounted in-cluster service account.
+          env:
+            - name: KUBECONFIG
+              value: ""
           args:
             - --workspace-only
             - --leader-elect
