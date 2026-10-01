@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.16.0](https://github.com/ai-outfitter/agent-operator/compare/agent-operator-v0.15.2...agent-operator-v0.16.0) (2026-10-01)
+
+
+### Features
+
+* add temporary Workspace environments ([4eaa61b](https://github.com/ai-outfitter/agent-operator/commit/4eaa61b259de8ff37f423b82720cb53950a9c3d9))
+
 ## [0.15.2](https://github.com/ai-outfitter/agent-operator/compare/agent-operator-v0.15.1...agent-operator-v0.15.2) (2026-09-18)
 
 
