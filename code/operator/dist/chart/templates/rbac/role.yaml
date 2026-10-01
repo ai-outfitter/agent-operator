@@ -27,10 +27,19 @@ rules:
   - update
   - watch
 - apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
   - aioutfitter.com
   resources:
   - agents
   - organizations
+  - workspaces
   verbs:
   - create
   - delete
@@ -44,6 +53,7 @@ rules:
   resources:
   - agents/finalizers
   - organizations/finalizers
+  - workspaces/finalizers
   verbs:
   - update
 - apiGroups:
@@ -51,6 +61,7 @@ rules:
   resources:
   - agents/status
   - organizations/status
+  - workspaces/status
   verbs:
   - get
   - patch

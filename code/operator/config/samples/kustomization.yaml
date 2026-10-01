@@ -2,4 +2,5 @@
 resources:
 - link_v1alpha1_organization.yaml
 - link_v1alpha1_agent.yaml
+- v1alpha1_workspace.yaml
 # +kubebuilder:scaffold:manifestskustomizesamples

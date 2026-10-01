@@ -1,0 +1,108 @@
+# Apply the Workspace CRD first. This instance does not reconcile resident Agents.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: workspace-operator
+  namespace: outfitter-cloud
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: outfitter-workspace-operator
+rules:
+  - apiGroups: [aioutfitter.com]
+    resources: [workspaces, workspaces/status, workspaces/finalizers]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: ['']
+    resources: [namespaces, pods]
+    verbs: [get, list, watch]
+  - apiGroups: ['']
+    resources: [services, persistentvolumeclaims, secrets, serviceaccounts]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [apps]
+    resources: [deployments]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [networking.k8s.io]
+    resources: [networkpolicies]
+    verbs: [get, list, watch, create, update, patch, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: outfitter-workspace-operator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: outfitter-workspace-operator
+subjects:
+  - kind: ServiceAccount
+    name: workspace-operator
+    namespace: outfitter-cloud
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: workspace-operator-election
+  namespace: outfitter-cloud
+rules:
+  - apiGroups: [coordination.k8s.io]
+    resources: [leases]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: ['']
+    resources: [events]
+    verbs: [create, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: workspace-operator-election
+  namespace: outfitter-cloud
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: workspace-operator-election
+subjects:
+  - kind: ServiceAccount
+    name: workspace-operator
+    namespace: outfitter-cloud
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: workspace-operator
+  namespace: outfitter-cloud
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: workspace-operator}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: workspace-operator}
+    spec:
+      serviceAccountName: workspace-operator
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: operator
+          image: workspace-operator:local
+          args:
+            - --workspace-only
+            - --leader-elect
+            - --metrics-bind-address=0
+            - --health-probe-bind-address=:8081
+            - --workspace-image=outfitter-workspace:local
+            - --workspace-gateway=http://outfitter-webapp.outfitter-cloud.svc.cluster.local:4040
+            - --workspace-gateway-namespace=outfitter-cloud
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          resources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {cpu: '1', memory: 512Mi}
+          readinessProbe:
+            httpGet: {path: /readyz, port: 8081}
+          livenessProbe:
+            httpGet: {path: /healthz, port: 8081}

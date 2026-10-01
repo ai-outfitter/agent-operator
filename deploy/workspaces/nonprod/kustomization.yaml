@@ -1,0 +1,16 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../operator.yaml
+images:
+  - name: workspace-operator
+    newName: 216577824627.dkr.ecr.us-east-1.amazonaws.com/ai-outfitter/workspace-development
+    newTag: operator-v0.16.0
+patches:
+  - target:
+      kind: Deployment
+      name: workspace-operator
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/args/4
+        value: --workspace-image=216577824627.dkr.ecr.us-east-1.amazonaws.com/ai-outfitter/workspace-development:runtime-v0.2.0
