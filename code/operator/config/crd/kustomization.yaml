@@ -4,6 +4,7 @@
 resources:
 - bases/aioutfitter.com_organizations.yaml
 - bases/aioutfitter.com_agents.yaml
+- bases/aioutfitter.com_workspaces.yaml
 # +kubebuilder:scaffold:crdkustomizeresource
 
 patches:

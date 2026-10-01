@@ -25,4 +25,12 @@ resources:
   kind: Agent
   path: github.com/ai-outfitter/agent-operator/code/operator/api/v1alpha1
   version: v1alpha1
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: aioutfitter.com
+  kind: Workspace
+  path: github.com/ai-outfitter/agent-operator/code/operator/api/v1alpha1
+  version: v1alpha1
 version: "3"

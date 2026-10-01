@@ -1,0 +1,14 @@
+# The webapp gateway normally creates this object and its scoped token Secret.
+# For manual testing, supply a namespace labeled aioutfitter.com/tenant and a
+# Secret named ws-example, labeled aioutfitter.com/workspace=ws-example, with
+# a random 32+ character token. Replace both timestamps with future deadlines.
+apiVersion: aioutfitter.com/v1alpha1
+kind: Workspace
+metadata:
+  name: ws-example
+  namespace: outfitter-example-tenant
+spec:
+  credentialSecretName: ws-example
+  storageSize: 5Gi
+  awakeUntil: '2026-10-01T12:15:00Z'
+  expiresAt: '2026-10-02T12:00:00Z'

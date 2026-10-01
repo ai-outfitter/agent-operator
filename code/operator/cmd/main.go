@@ -51,6 +51,8 @@ func main() {
 	}
 	var metricsAddr string
 	var agentImage string
+	var workspaceImage, workspaceGateway, workspaceNamespace, workspaceModel string
+	var workspaceOnly bool
 	var gatewayImage string
 	var outfitterRevision string
 	var metricsCertPath, metricsCertName, metricsCertKey string
@@ -105,6 +107,11 @@ func main() {
 	// --agent-image or removed; removal changes a status field, so it needs its own change.
 	flag.StringVar(&outfitterRevision, "outfitter-revision", "v1.5.0",
 		"Outfitter revision present in the configured agent runtime image.")
+	flag.BoolVar(&workspaceOnly, "workspace-only", false, "Run only the temporary Workspace controller")
+	flag.StringVar(&workspaceImage, "workspace-image", "", "Workspace runtime image (empty disables workspaces)")
+	flag.StringVar(&workspaceGateway, "workspace-gateway", "", "Internal workspace inference gateway URL")
+	flag.StringVar(&workspaceNamespace, "workspace-gateway-namespace", "outfitter-cloud", "Workspace gateway namespace")
+	flag.StringVar(&workspaceModel, "workspace-model", "GLM-5.3-Flash-EXL3", "Workspace inference model")
 	opts := zap.Options{
 		Development: true,
 	}
@@ -180,6 +187,10 @@ func main() {
 		metricsServerOptions.KeyName = metricsCertKey
 	}
 
+	leaderElectionID := "0e0a6b02.aioutfitter.com"
+	if workspaceOnly {
+		leaderElectionID = "workspaces.aioutfitter.com"
+	}
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme: scheme,
 		Client: client.Options{Cache: &client.CacheOptions{DisableFor: []client.Object{
@@ -190,7 +201,7 @@ func main() {
 		WebhookServer:          webhookServer,
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
-		LeaderElectionID:       "0e0a6b02.aioutfitter.com",
+		LeaderElectionID:       leaderElectionID,
 		// LeaderElectionReleaseOnCancel defines if the leader should step down voluntarily
 		// when the Manager ends. This requires the binary to immediately end when the
 		// Manager is stopped, otherwise, this setting is unsafe. Setting this significantly
@@ -208,21 +219,33 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := (&controller.OrganizationReconciler{
-		Client: mgr.GetClient(), Scheme: mgr.GetScheme(), AgentImage: agentImage, GatewayImage: gatewayImage,
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "Failed to create controller", "controller", "organization")
-		os.Exit(1)
+	if !workspaceOnly {
+		if err := (&controller.OrganizationReconciler{
+			Client: mgr.GetClient(), Scheme: mgr.GetScheme(), AgentImage: agentImage, GatewayImage: gatewayImage,
+		}).SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "Failed to create controller", "controller", "organization")
+			os.Exit(1)
+		}
+		if err := (&controller.AgentReconciler{
+			Client:            mgr.GetClient(),
+			APIReader:         mgr.GetAPIReader(),
+			Scheme:            mgr.GetScheme(),
+			AgentImage:        agentImage,
+			OutfitterRevision: outfitterRevision,
+		}).SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "Failed to create controller", "controller", "agent")
+			os.Exit(1)
+		}
 	}
-	if err := (&controller.AgentReconciler{
-		Client:            mgr.GetClient(),
-		APIReader:         mgr.GetAPIReader(),
-		Scheme:            mgr.GetScheme(),
-		AgentImage:        agentImage,
-		OutfitterRevision: outfitterRevision,
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "Failed to create controller", "controller", "agent")
-		os.Exit(1)
+	if workspaceImage != "" {
+		if err := (&controller.WorkspaceReconciler{
+			Image: workspaceImage, GatewayURL: workspaceGateway, GatewayNamespace: workspaceNamespace, Model: workspaceModel,
+			Client: mgr.GetClient(),
+			Scheme: mgr.GetScheme(),
+		}).SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "Failed to create controller", "controller", "workspace")
+			os.Exit(1)
+		}
 	}
 	// +kubebuilder:scaffold:builder
 
