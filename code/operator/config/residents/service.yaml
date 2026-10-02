@@ -1,0 +1,15 @@
+# Optional internal Service. Applying this alone does not enable the listener.
+apiVersion: v1
+kind: Service
+metadata:
+  name: resident-provisioner
+  namespace: system
+spec:
+  type: ClusterIP
+  selector:
+    control-plane: controller-manager
+    app.kubernetes.io/name: agent-operator
+  ports:
+    - name: residents
+      port: 8082
+      targetPort: 8082

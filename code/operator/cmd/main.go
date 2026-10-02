@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
@@ -29,6 +30,7 @@ import (
 	aioutfitterv1alpha1 "github.com/ai-outfitter/agent-operator/code/operator/api/v1alpha1"
 	"github.com/ai-outfitter/agent-operator/code/operator/internal/controller"
 	"github.com/ai-outfitter/agent-operator/code/operator/internal/forgegateway"
+	"github.com/ai-outfitter/agent-operator/code/operator/internal/residentprovisioner"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -50,6 +52,7 @@ func main() {
 		runForgeGateway()
 		return
 	}
+	var residentAddress string
 	var metricsAddr string
 	var agentImage string
 	var workspaceImage, workspaceGateway, workspaceNamespace, workspaceModel string
@@ -63,6 +66,8 @@ func main() {
 	var secureMetrics bool
 	var enableHTTP2 bool
 	var tlsOpts []func(*tls.Config)
+	flag.StringVar(&residentAddress, "resident-provisioner-address", "",
+		"Optional server-only resident provisioning listener; disabled by default.")
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
@@ -251,6 +256,33 @@ func main() {
 			os.Exit(1)
 		}
 	}
+	if residentAddress != "" {
+		residentClient, err := client.New(mgr.GetConfig(), client.Options{Scheme: mgr.GetScheme()})
+		if err != nil {
+			setupLog.Error(err, "Failed to initialize resident client")
+			os.Exit(1)
+		}
+		provisioner, err := residentprovisioner.New(residentClient, residentprovisioner.Config{
+			Token:             os.Getenv("RESIDENT_PROVISIONER_TOKEN"),
+			CatalogRepository: os.Getenv("RESIDENT_CATALOG_REPOSITORY"),
+			CatalogRevision:   os.Getenv("RESIDENT_CATALOG_REVISION"),
+			RuntimeImage:      os.Getenv("RESIDENT_RUNTIME_IMAGE"),
+			Model:             os.Getenv("RESIDENT_MODEL"),
+			ServiceOrigins: strings.Split(os.Getenv("RESIDENT_SERVICE_ORIGINS"),
+				","),
+			OperatorNamespace: os.Getenv("POD_NAMESPACE"),
+			RuntimePath:       os.Getenv("RESIDENT_RUNTIME_PATH"),
+		}, residentAddress)
+		if err != nil {
+			setupLog.Error(err, "Invalid resident provisioner configuration")
+			os.Exit(1)
+		}
+		if err := mgr.Add(provisioner); err != nil {
+			setupLog.Error(err, "Failed to register resident provisioner")
+			os.Exit(1)
+		}
+	}
+
 	// +kubebuilder:scaffold:builder
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
