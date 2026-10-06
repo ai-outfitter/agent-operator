@@ -10,5 +10,12 @@ metadata:
 spec:
   credentialSecretName: ws-example
   storageSize: 5Gi
+  # reusable: idle sleep plus user-renewed expiry. task: one submitted run, then fixed retention.
+  storagePolicy: reusable
+  # Required. The gateway sets 1 on creation and increments it on every normal wake; each value
+  # gets exactly one runtime Pod (ws-example-g1, ws-example-g2, ...).
+  computeGeneration: 1
+  # Optional digest-pinned runtime override. Tags are rejected. Omit to use the controller default.
+  # image: registry.example/outfitter-workspace@sha256:<64 hex>
   awakeUntil: '2026-10-01T12:15:00Z'
   expiresAt: '2026-10-02T12:00:00Z'

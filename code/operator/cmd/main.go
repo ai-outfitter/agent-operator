@@ -53,7 +53,8 @@ func main() {
 	var metricsAddr string
 	var agentImage string
 	var workspaceImage, workspaceGateway, workspaceNamespace, workspaceModel string
-	var workspaceOnly bool
+	var workspaceOnly, workspaceRequireDigest bool
+	var workspaceGraceSeconds int64
 	var gatewayImage string
 	var outfitterRevision string
 	var metricsCertPath, metricsCertName, metricsCertKey string
@@ -113,6 +114,11 @@ func main() {
 	flag.StringVar(&workspaceGateway, "workspace-gateway", "", "Internal workspace inference gateway URL")
 	flag.StringVar(&workspaceNamespace, "workspace-gateway-namespace", "outfitter-cloud", "Workspace gateway namespace")
 	flag.StringVar(&workspaceModel, "workspace-model", "GLM-5.3-Flash-EXL3", "Workspace inference model")
+	flag.Int64Var(&workspaceGraceSeconds, "workspace-termination-grace-seconds", 3900,
+		"Pod termination grace for workspace runtimes; sized to let a one-hour run finish and persist")
+	flag.BoolVar(&workspaceRequireDigest, "workspace-image-require-digest", false,
+		"Refuse to start unless --workspace-image is digest-pinned "+
+			"(set for production; leave unset for local tag-based images)")
 	opts := zap.Options{
 		Development: true,
 	}
@@ -122,6 +128,20 @@ func main() {
 	if workspaceOnly && workspaceImage == "" {
 		setupLog.Error(fmt.Errorf("--workspace-image is required with --workspace-only"), "Invalid workspace configuration")
 		os.Exit(1)
+	}
+	if workspaceGraceSeconds < 1 {
+		setupLog.Error(fmt.Errorf("--workspace-termination-grace-seconds must be at least 1"),
+			"Invalid workspace configuration")
+		os.Exit(1)
+	}
+	if workspaceImage != "" && !controller.ImageIsDigestPinned(workspaceImage) {
+		// New runtime Pods capture this reference. A tag can drift between generations; a digest cannot.
+		if workspaceRequireDigest {
+			setupLog.Error(fmt.Errorf("--workspace-image must be digest-pinned (name@sha256:...)"),
+				"Invalid workspace configuration", "image", workspaceImage)
+			os.Exit(1)
+		}
+		setupLog.Info("Workspace image is not digest-pinned; acceptable for local images only", "image", workspaceImage)
 	}
 
 	// if the enable-http2 flag is false (the default), http/2 should be disabled
@@ -244,8 +264,10 @@ func main() {
 	if workspaceImage != "" {
 		if err := (&controller.WorkspaceReconciler{
 			Image: workspaceImage, GatewayURL: workspaceGateway, GatewayNamespace: workspaceNamespace, Model: workspaceModel,
-			Client: mgr.GetClient(),
-			Scheme: mgr.GetScheme(),
+			TerminationGracePeriodSeconds: workspaceGraceSeconds,
+			Client:                        mgr.GetClient(),
+			APIReader:                     mgr.GetAPIReader(),
+			Scheme:                        mgr.GetScheme(),
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "Failed to create controller", "controller", "workspace")
 			os.Exit(1)
