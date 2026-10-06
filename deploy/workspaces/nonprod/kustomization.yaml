@@ -11,6 +11,15 @@ patches:
       kind: Deployment
       name: workspace-operator
     patch: |-
+      # Bootstrap reference: the verified live runtime digest. Webapp main CI
+      # promotes this argument on the live Deployment by digest afterwards;
+      # it refuses to do so unless the flag below is present.
+      # Sequencing: apply this overlay only after an operator release that
+      # includes --workspace-image-require-digest exists and newTag above is
+      # updated to it. An earlier controller exits on the unknown flag.
       - op: replace
         path: /spec/template/spec/containers/0/args/4
-        value: --workspace-image=216577824627.dkr.ecr.us-east-1.amazonaws.com/ai-outfitter/workspace-development:runtime-v0.2.0
+        value: --workspace-image=216577824627.dkr.ecr.us-east-1.amazonaws.com/ai-outfitter/workspace-development@sha256:8c0b2584c13849d503b13fd64744c73aa203034ace25530da04bb908ae3ed37f
+      - op: add
+        path: /spec/template/spec/containers/0/args/-
+        value: --workspace-image-require-digest

@@ -28,6 +28,8 @@ rules:
   resources:
   - pods
   verbs:
+  - create
+  - delete
   - get
   - list
   - watch
