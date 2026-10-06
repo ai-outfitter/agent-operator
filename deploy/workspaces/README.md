@@ -15,11 +15,10 @@ Use this directory's Dockerfile with that binary in the image build context.
 The nonprod overlay pins the runtime image by digest and passes
 `--workspace-image-require-digest`, so the controller refuses to start with a
 tag; webapp CI promotes that argument on the live Deployment by digest. The
-operator image must be pinned to the released operator tag that contains
-direct-Pod support, set after Nicholas approves that release. It is not
-`operator-v0.16.0` (which has the earlier CRD and no digest flag) and must not
-be guessed. Apply the new CRD before the overlay. The ECR repository enforces
-immutable tags.
+operator image is pinned to `operator-v0.17.0`, the agent-operator v0.17.0
+release that manages direct Pods and accepts the digest flag; the ECR tag is a
+mirror of the released GHCR image. Apply the new CRD before the overlay. The
+ECR repository enforces immutable tags.
 
 The controller uses deadlines and owner references to manage one PVC, Service,
 ServiceAccount and credential Secret per Workspace, plus one directly managed
@@ -92,19 +91,17 @@ referenced.
 This release manages direct Pods only. It does not read, keep or migrate the
 per-workspace Deployments of earlier releases, and Workspaces without
 `spec.computeGeneration` are rejected by the CRD (existing objects report
-`InvalidSpec`). Cut a cluster over explicitly, in this order, because the new
-cleanup deletes a PVC that storage protection holds while an old Pod still
-mounts it:
+`InvalidSpec`). Let the old controller finish its own cleanup before the new
+one starts, so the new controller inherits nothing. Cut a cluster over in this
+order:
 
-1. Stop the old controller (scale the `workspace-operator` Deployment to 0).
-2. Delete the old per-workspace Deployments, or scale them to 0, and wait for
-   their Pods to go: `kubectl delete deployment -A -l aioutfitter.com/workload=workspace`.
-3. Delete the old Workspaces: `kubectl delete workspaces -A --all`. They keep
-   their cleanup finalizer until a controller runs; deleting them with
-   `--cascade=foreground` is an alternative to step 2.
-4. Apply the new CRD, then the new controller (released tag above) and a
-   gateway that sets generations. Cleanup finishes and removes PVCs, Services,
-   ServiceAccounts and credential Secrets.
+1. With the old controller still running, delete every old Workspace
+   (`kubectl delete workspaces -A --all`) or let them expire. The old
+   controller runs its cleanup and releases its finalizers.
+2. Wait until no Workspaces, per-workspace Deployments
+   (`-l aioutfitter.com/workload=workspace`) or workspace PVCs remain.
+3. Apply the new CRD, then the new controller (`operator-v0.17.0`) and a
+   gateway that sets generations.
 
 The earlier private Ocean development overlay has been removed; it layered a
 Deployment-based operator build over this base and no longer rendered a

@@ -5,7 +5,9 @@ resources:
 images:
   - name: workspace-operator
     newName: 216577824627.dkr.ecr.us-east-1.amazonaws.com/ai-outfitter/workspace-development
-    newTag: operator-v0.16.0
+    # agent-operator v0.17.0: manages direct runtime Pods and understands
+    # --workspace-image-require-digest. Mirrored from the released GHCR image.
+    newTag: operator-v0.17.0
 patches:
   - target:
       kind: Deployment
@@ -14,9 +16,8 @@ patches:
       # Bootstrap reference: the verified live runtime digest. Webapp main CI
       # promotes this argument on the live Deployment by digest afterwards;
       # it refuses to do so unless the flag below is present.
-      # Sequencing: apply this overlay only after an operator release that
-      # includes --workspace-image-require-digest exists and newTag above is
-      # updated to it. An earlier controller exits on the unknown flag.
+      # Apply the v0.17.0 CRD before this overlay. Complete the cutover in
+      # README.md first when Workspaces from an earlier release still exist.
       - op: replace
         path: /spec/template/spec/containers/0/args/4
         value: --workspace-image=216577824627.dkr.ecr.us-east-1.amazonaws.com/ai-outfitter/workspace-development@sha256:8c0b2584c13849d503b13fd64744c73aa203034ace25530da04bb908ae3ed37f
