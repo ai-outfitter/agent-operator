@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.17.0](https://github.com/ai-outfitter/agent-operator/compare/agent-operator-v0.16.0...agent-operator-v0.17.0) (2026-10-06)
+
+
+### Features
+
+* **workspaces:** manage compute with direct Pods ([#93](https://github.com/ai-outfitter/agent-operator/issues/93)) ([4d6a425](https://github.com/ai-outfitter/agent-operator/commit/4d6a425743fda3a50e9c96840926b4d621276b1f))
+
 ## [0.16.0](https://github.com/ai-outfitter/agent-operator/compare/agent-operator-v0.15.2...agent-operator-v0.16.0) (2026-10-01)
 
 
