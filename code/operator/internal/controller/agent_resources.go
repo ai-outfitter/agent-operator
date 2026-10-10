@@ -36,8 +36,13 @@ const (
 	SettingsName   = "outfitter-settings"
 	SettingsFile   = "settings.yml"
 	// ModelsFile defines the `outfitter` Pi provider. The settings ConfigMap is
-	// mounted as the workspace .agents layer, which outranks catalog sources.
+	// copied into the workspace .agents layer, which outranks catalog sources.
 	ModelsFile = "models.json"
+	// AgentsLayerName is the emptyDir served as the workspace .agents layer;
+	// copy-settings fills it from the settings ConfigMap at SettingsMountPath.
+	AgentsLayerName   = "outfitter-agents"
+	SettingsMountPath = "/etc/outfitter-settings"
+	seedNixStoreName  = "seed-nix-store"
 	// InferenceTokenEnv backs the outfitter provider's apiKey. Pi requires an
 	// env-backed key; the relay discards the bearer and presents the Pod's
 	// projected identity instead, so the value is a placeholder.
@@ -306,21 +311,31 @@ func (r *AgentReconciler) ensurePVC(
 	return err
 }
 
-// pvcVolume is a pod volume backed by the same-named PersistentVolumeClaim.
-// settingsMount is the operator-rendered `.agents` layer. modelsMount lays
-// models.json over it as a subPath: a ConfigMap directory serves its files as
-// symlinks into `..data`, and `outfitter dump --strict` refuses a root file
-// that resolves through a symlink, while a subPath mount is a regular file.
+// settingsMount is the operator-rendered `.agents` layer: the emptyDir that
+// copy-settings fills with regular files. A ConfigMap volume serves its files
+// as symlinks into `..data`, and `outfitter dump --strict` refuses a root file
+// that resolves through a symlink, even through a subPath mount.
 func settingsMount() corev1.VolumeMount {
-	return corev1.VolumeMount{Name: SettingsName, MountPath: path.Join(WorkspaceMount, ".agents"), ReadOnly: true}
+	return corev1.VolumeMount{Name: AgentsLayerName, MountPath: path.Join(WorkspaceMount, ".agents"), ReadOnly: true}
 }
 
-func modelsMount() corev1.VolumeMount {
-	return corev1.VolumeMount{
-		Name: SettingsName, MountPath: path.Join(WorkspaceMount, ".agents", ModelsFile), SubPath: ModelsFile, ReadOnly: true,
+// copySettingsContainer dereferences the settings ConfigMap's files into the
+// .agents emptyDir before any other step reads the layer.
+func copySettingsContainer(image string) corev1.Container {
+	return corev1.Container{
+		Name:            "copy-settings",
+		Image:           image,
+		ImagePullPolicy: corev1.PullIfNotPresent,
+		Command:         []string{"sh", "-c", "cp -L " + SettingsMountPath + "/* " + path.Join(WorkspaceMount, ".agents") + "/"},
+		Env:             []corev1.EnvVar{{Name: HomeEnvName, Value: WorkspaceMount}},
+		VolumeMounts: []corev1.VolumeMount{
+			{Name: SettingsName, MountPath: SettingsMountPath, ReadOnly: true},
+			{Name: AgentsLayerName, MountPath: path.Join(WorkspaceMount, ".agents")},
+		},
 	}
 }
 
+// pvcVolume is a pod volume backed by the same-named PersistentVolumeClaim.
 func pvcVolume(name string) corev1.Volume {
 	return corev1.Volume{
 		Name: name,
@@ -476,7 +491,7 @@ func (r *AgentReconciler) ensureAgentDeployment(
 			}, runtimeConfigEnv...),
 			VolumeMounts: []corev1.VolumeMount{
 				{Name: WorkspaceName, MountPath: WorkspaceMount},
-				settingsMount(), modelsMount(),
+				settingsMount(),
 				{Name: APITokenVolumeName, MountPath: APITokenMountPath, ReadOnly: true},
 			},
 		}
@@ -488,6 +503,7 @@ func (r *AgentReconciler) ensureAgentDeployment(
 					LocalObjectReference: corev1.LocalObjectReference{Name: SettingsName},
 				}},
 			},
+			{Name: AgentsLayerName, VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
 			apiTokenVolume(),
 			// Mounted by the inference relay sidecar only, never the agent
 			// container, init containers or other sidecars.
@@ -531,13 +547,19 @@ func (r *AgentReconciler) ensureAgentDeployment(
 		container.VolumeMounts = append(container.VolumeMounts, inputMounts...)
 		volumes = append(volumes, inputVolumes...)
 
-		initContainers := make([]corev1.Container, 0, len(agent.Spec.Setup)+3)
+		// The inference relay is a native sidecar and starts first; copy-settings
+		// then fills the .agents layer every later step mounts.
+		initContainers := make([]corev1.Container, 0, len(agent.Spec.Setup)+5)
+		initContainers = append(initContainers,
+			inferenceRelayContainer(r.RelayImage, r.InferenceGatewayURL),
+			copySettingsContainer(runtimeImage),
+		)
 		if needsNixStore {
 			// Merge the current image's store paths on every boot. A prior .seeded
 			// marker is informational only: image upgrades can introduce new hashes,
 			// while --no-clobber preserves paths and Nix state already on the PVC.
 			initContainers = append(initContainers, corev1.Container{
-				Name:            "seed-nix-store",
+				Name:            seedNixStoreName,
 				Image:           runtimeImage,
 				ImagePullPolicy: corev1.PullIfNotPresent,
 				Command:         []string{"sh", "-c", nixStoreSeedScript},
@@ -548,7 +570,7 @@ func (r *AgentReconciler) ensureAgentDeployment(
 			mounts := append([]corev1.VolumeMount{}, inputMounts...)
 			mounts = append(mounts,
 				corev1.VolumeMount{Name: WorkspaceName, MountPath: WorkspaceMount},
-				settingsMount(), modelsMount(),
+				settingsMount(),
 			)
 			if needsNixStore {
 				mounts = append(mounts, corev1.VolumeMount{Name: NixStoreName, MountPath: NixMount})
@@ -592,7 +614,7 @@ func (r *AgentReconciler) ensureAgentDeployment(
 			mounts := append([]corev1.VolumeMount{}, inputMounts...)
 			mounts = append(mounts,
 				corev1.VolumeMount{Name: WorkspaceName, MountPath: WorkspaceMount},
-				settingsMount(), modelsMount(),
+				settingsMount(),
 			)
 			if needsNixStore {
 				mounts = append(mounts, corev1.VolumeMount{Name: NixStoreName, MountPath: NixMount})
@@ -622,9 +644,6 @@ func (r *AgentReconciler) ensureAgentDeployment(
 				VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
 			})
 		}
-		// The agent container stays first (Containers[0] is the runtime); the
-		// relay is appended after any other sidecar.
-		containers = append(containers, inferenceRelayContainer(r.RelayImage, r.InferenceGatewayURL))
 		deployment.Spec.Template.Spec.Containers = containers
 		deployment.Spec.Template.Spec.Volumes = volumes
 		return nil
@@ -718,12 +737,11 @@ type piModels struct {
 }
 
 type piProvider struct {
-	BaseURL string            `json:"baseUrl"`
-	API     string            `json:"api"`
-	APIKey  string            `json:"apiKey"`
-	Headers map[string]string `json:"headers"`
-	Compat  piCompat          `json:"compat"`
-	Models  []piModel         `json:"models"`
+	BaseURL string    `json:"baseUrl"`
+	API     string    `json:"api"`
+	APIKey  string    `json:"apiKey"`
+	Compat  piCompat  `json:"compat"`
+	Models  []piModel `json:"models"`
 }
 
 type piCompat struct {
@@ -757,7 +775,6 @@ func renderInferenceModels(model string) ([]byte, error) {
 			BaseURL: inferenceRelayURL + "/v1",
 			API:     "openai-completions",
 			APIKey:  "$" + InferenceTokenEnv,
-			Headers: map[string]string{"User-Agent": "ai-outfitter/${AGENT_NAME}"},
 			Models: []piModel{{
 				ID: model, Name: "Outfitter inference", Reasoning: true, Input: []string{"text", "image"},
 				ContextWindow: 128000, MaxTokens: 8192,

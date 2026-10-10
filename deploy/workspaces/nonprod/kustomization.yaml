@@ -7,6 +7,9 @@ images:
     newName: 216577824627.dkr.ecr.us-east-1.amazonaws.com/ai-outfitter/workspace-development
     # agent-operator v0.17.0: manages direct runtime Pods and understands
     # --workspace-image-require-digest. Mirrored from the released GHCR image.
+    # This overlay passes --inference-relay-image, so it requires the operator
+    # release that carries that flag; v0.17.0 predates it and would exit on the
+    # unknown flag. Bump this tag to that release before applying.
     newTag: operator-v0.17.0
 patches:
   - target:
@@ -21,11 +24,13 @@ patches:
       - op: replace
         path: /spec/template/spec/containers/0/args/4
         value: --workspace-image=216577824627.dkr.ecr.us-east-1.amazonaws.com/ai-outfitter/workspace-development@sha256:8c0b2584c13849d503b13fd64744c73aa203034ace25530da04bb908ae3ed37f
-      # Inference relay sidecar: the webapp image. Webapp main CI promotes
-      # this argument on the live Deployment by digest, like --workspace-image.
+      # Inference relay sidecar: the webapp image, at the gateway digest
+      # currently on nonprod. Webapp CI promotes it together with the gateway
+      # image once scripts/deploy-nonprod.sh rewrites --inference-relay-image=
+      # on the live Deployment.
       - op: replace
         path: /spec/template/spec/containers/0/args/5
-        value: --inference-relay-image=ghcr.io/ai-outfitter/webapp@sha256:PLACEHOLDER
+        value: --inference-relay-image=ghcr.io/ai-outfitter/webapp@sha256:3d931a3845c14d5dc7c0072850c182989070b471411307d60bd62a880928ab82
       - op: add
         path: /spec/template/spec/containers/0/args/-
         value: --workspace-image-require-digest

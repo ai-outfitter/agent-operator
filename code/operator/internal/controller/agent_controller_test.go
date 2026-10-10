@@ -182,6 +182,7 @@ var _ = Describe("Agent Controller", func() {
 		Expect(outfitterProvider.API).To(Equal("openai-completions"))
 		Expect(outfitterProvider.APIKey).To(Equal("$" + InferenceTokenEnv))
 		Expect(outfitterProvider.Models).To(ConsistOf(HaveField("ID", testInferenceModel)))
+		Expect(settings.Data[ModelsFile]).NotTo(ContainSubstring("headers"))
 
 		actual := &aioutfitterv1alpha1.Agent{}
 		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: agent.Name}, actual)).To(Succeed())
@@ -295,29 +296,34 @@ var _ = Describe("Agent Controller", func() {
 		Expect(hasTokenSource).To(BeTrue())
 
 		// Inference leaves the Pod only through the relay sidecar, which alone
-		// mounts the audience-bound projected token.
+		// mounts the audience-bound projected token. It is a native sidecar:
+		// the first init container, restarted Always, with no probes (it
+		// listens on loopback, which a kubelet probe cannot reach).
 		agentContainer := deployment.Spec.Template.Spec.Containers[0]
 		Expect(agentContainer.Name).To(Equal("agent"))
 		Expect(agentContainer.Env).To(ContainElement(corev1.EnvVar{Name: InferenceTokenEnv, Value: "relay"}))
-		Expect(deployment.Spec.Template.Spec.Containers).To(ContainElement(HaveField("Name", inferenceRelayName)))
+		Expect(deployment.Spec.Template.Spec.Containers).NotTo(ContainElement(HaveField("Name", inferenceRelayName)))
+		relay := deployment.Spec.Template.Spec.InitContainers[0]
+		Expect(relay.Name).To(Equal(inferenceRelayName))
+		Expect(relay.RestartPolicy).To(HaveValue(Equal(corev1.ContainerRestartPolicyAlways)))
+		Expect(relay.ReadinessProbe).To(BeNil())
+		Expect(relay.LivenessProbe).To(BeNil())
+		Expect(relay.Image).To(Equal(testRelay))
+		Expect(relay.Command).To(Equal(inferenceRelayCommand))
+		Expect(relay.Env).To(ContainElements(
+			corev1.EnvVar{Name: "INFERENCE_GATEWAY_URL", Value: testInferenceGateway},
+			corev1.EnvVar{Name: "INFERENCE_TOKEN_FILE", Value: "/var/run/secrets/outfitter/inference/token"},
+			corev1.EnvVar{Name: "PORT", Value: "4141"},
+		))
+		Expect(relay.VolumeMounts).To(ConsistOf(corev1.VolumeMount{
+			Name: inferenceTokenVolumeName, MountPath: "/var/run/secrets/outfitter/inference", ReadOnly: true,
+		}))
 		for _, container := range deployment.Spec.Template.Spec.Containers {
-			if container.Name == inferenceRelayName {
-				Expect(container.Image).To(Equal(testRelay))
-				Expect(container.Command).To(Equal(inferenceRelayCommand))
-				Expect(container.Env).To(ContainElements(
-					corev1.EnvVar{Name: "INFERENCE_GATEWAY_URL", Value: testInferenceGateway},
-					corev1.EnvVar{Name: "INFERENCE_TOKEN_FILE", Value: "/var/run/secrets/outfitter/inference/token"},
-					corev1.EnvVar{Name: "PORT", Value: "4141"},
-				))
-				Expect(container.VolumeMounts).To(ConsistOf(corev1.VolumeMount{
-					Name: inferenceTokenVolumeName, MountPath: "/var/run/secrets/outfitter/inference", ReadOnly: true,
-				}))
-				continue
-			}
 			Expect(container.VolumeMounts).NotTo(ContainElement(HaveField("Name", inferenceTokenVolumeName)),
 				"container %s must not hold the inference identity", container.Name)
 		}
-		for _, initContainer := range deployment.Spec.Template.Spec.InitContainers {
+		for _, initContainer := range deployment.Spec.Template.Spec.InitContainers[1:] {
+			Expect(initContainer.RestartPolicy).To(BeNil(), "init container %s is not a sidecar", initContainer.Name)
 			Expect(initContainer.VolumeMounts).NotTo(ContainElement(HaveField("Name", inferenceTokenVolumeName)),
 				"init container %s must not hold the inference identity", initContainer.Name)
 		}
@@ -329,32 +335,6 @@ var _ = Describe("Agent Controller", func() {
 				HaveField("Path", "token"),
 			)))),
 		)))
-	})
-
-	It("reports inference NotConfigured and creates no Deployment without a relay image", func() {
-		organization := createAcceptedOrganization(ctx)
-		agent := validAgent(uniqueTestName("no-relay"), organization.Name)
-		Expect(k8sClient.Create(ctx, agent)).To(Succeed())
-		DeferCleanup(removeAgent, ctx, agent.Name)
-
-		reconciler := &AgentReconciler{
-			Client: k8sClient, APIReader: k8sClient, Scheme: k8sClient.Scheme(), AgentImage: testAgentImage,
-			InferenceGatewayURL: testInferenceGateway, InferenceModel: testInferenceModel,
-		}
-		_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: agent.Name}})
-		Expect(err).NotTo(HaveOccurred())
-
-		actual := &aioutfitterv1alpha1.Agent{}
-		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: agent.Name}, actual)).To(Succeed())
-		inferenceReady := apiMeta.FindStatusCondition(actual.Status.Conditions, aioutfitterv1alpha1.AgentConditionInferenceReady)
-		Expect(inferenceReady).NotTo(BeNil())
-		Expect(inferenceReady.Status).To(Equal(metav1.ConditionFalse))
-		Expect(inferenceReady.Reason).To(Equal("NotConfigured"))
-		Expect(inferenceReady.Message).To(And(ContainSubstring("--inference-relay-image"), ContainSubstring("--inference-gateway")))
-		Expect(apiMeta.IsStatusConditionFalse(actual.Status.Conditions, aioutfitterv1alpha1.AgentConditionReady)).To(BeTrue())
-		deployment := &appsv1.Deployment{}
-		err = k8sClient.Get(ctx, types.NamespacedName{Namespace: agentNamespace(agent.Name), Name: RuntimeName}, deployment)
-		Expect(err).To(Satisfy(apierrors.IsNotFound))
 	})
 
 	It("projects Agent channel and GitHub notification overrides", func() {
@@ -412,7 +392,10 @@ var _ = Describe("Agent Controller", func() {
 
 		Expect(k8sClient.Get(ctx, deploymentKey, deployment)).To(Succeed())
 		Expect(deployment.Spec.Template.Spec.Containers[0].Image).To(Equal(current.Spec.Image))
-		Expect(deployment.Spec.Template.Spec.InitContainers[0].Image).To(Equal(current.Spec.Image))
+		// InitContainers[0] is the inference relay, which runs the relay image.
+		for _, initContainer := range deployment.Spec.Template.Spec.InitContainers[1:] {
+			Expect(initContainer.Image).To(Equal(current.Spec.Image), "init container %s", initContainer.Name)
+		}
 	})
 
 	It("rolls out when Organization catalog settings change", func() {
@@ -468,9 +451,8 @@ var _ = Describe("Agent Controller", func() {
 		deploymentKey := types.NamespacedName{Namespace: agentNamespace(agent.Name), Name: RuntimeName}
 		Expect(k8sClient.Get(ctx, deploymentKey, deployment)).To(Succeed())
 		containers := deployment.Spec.Template.Spec.Containers
-		Expect(containers).To(HaveLen(3))
+		Expect(containers).To(HaveLen(2))
 		Expect(containers[1].Name).To(Equal(BrowserName))
-		Expect(containers[2].Name).To(Equal(inferenceRelayName))
 		Expect(containers[1].Image).To(Equal(defaultBrowserImage))
 		// The Command must bypass the image entrypoint: the headless-shell
 		// wrapper starts a socat forwarder on 0.0.0.0:9222, which would
@@ -511,8 +493,7 @@ var _ = Describe("Agent Controller", func() {
 		_, err = reconciler.Reconcile(ctx, request)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(k8sClient.Get(ctx, deploymentKey, deployment)).To(Succeed())
-		Expect(deployment.Spec.Template.Spec.Containers).To(HaveLen(2))
-		Expect(deployment.Spec.Template.Spec.Containers[1].Name).To(Equal(inferenceRelayName))
+		Expect(deployment.Spec.Template.Spec.Containers).To(HaveLen(1))
 	})
 
 	It("projects references and becomes ready after the agent runtime starts", func() {
@@ -595,46 +576,58 @@ var _ = Describe("Agent Controller", func() {
 		Expect(container.VolumeMounts).To(ContainElement(corev1.VolumeMount{
 			Name: testRuntimeConfigName, MountPath: testRuntimeConfigMountPath, ReadOnly: true,
 		}))
-		Expect(container.VolumeMounts).To(ContainElement(corev1.VolumeMount{
-			Name: SettingsName, MountPath: WorkspaceMount + "/.agents", ReadOnly: true,
-		}))
-		// A regular file, not the ConfigMap directory's symlink: outfitter dump --strict refuses the latter.
-		Expect(container.VolumeMounts).To(ContainElement(corev1.VolumeMount{
-			Name: SettingsName, MountPath: WorkspaceMount + "/.agents/" + ModelsFile, SubPath: ModelsFile, ReadOnly: true,
-		}))
+		// The .agents layer is an emptyDir of regular files: a ConfigMap volume
+		// serves symlinks into `..data`, which outfitter dump --strict refuses.
+		agentsLayer := corev1.VolumeMount{Name: AgentsLayerName, MountPath: WorkspaceMount + "/.agents", ReadOnly: true}
+		Expect(container.VolumeMounts).To(ContainElement(agentsLayer))
+		Expect(container.VolumeMounts).NotTo(ContainElement(HaveField("Name", SettingsName)))
+		Expect(deployment.Spec.Template.Spec.Volumes).To(ContainElement(And(
+			HaveField("Name", AgentsLayerName), HaveField("EmptyDir", Not(BeNil())),
+		)))
 		Expect(container.VolumeMounts).To(ContainElement(corev1.VolumeMount{
 			Name: A2ACredentialsVolumeName, MountPath: A2ACredentialsMount, ReadOnly: true,
 		}))
-		Expect(deployment.Spec.Template.Spec.InitContainers).To(HaveLen(5))
-		for _, initContainer := range deployment.Spec.Template.Spec.InitContainers {
+		initContainers := deployment.Spec.Template.Spec.InitContainers
+		initNames := make([]string, 0, len(initContainers))
+		for _, initContainer := range initContainers {
+			initNames = append(initNames, initContainer.Name)
+		}
+		Expect(initNames).To(Equal([]string{
+			inferenceRelayName, "copy-settings", seedNixStoreName, "sync-agent-catalog",
+			"setup-wait-for-mail", "setup-mail-bootstrap", "export-workflow",
+		}))
+		for _, initContainer := range initContainers[1:] {
 			Expect(initContainer.Image).To(Equal(agent.Spec.Image))
 		}
-		Expect(deployment.Spec.Template.Spec.InitContainers[1].Name).To(Equal("sync-agent-catalog"))
-		Expect(deployment.Spec.Template.Spec.InitContainers[1].Command).To(Equal([]string{"sh", "-c", catalogSyncScript}))
-		Expect(deployment.Spec.Template.Spec.InitContainers[1].EnvFrom).To(ContainElement(corev1.EnvFromSource{
+		copySettings := initContainers[1]
+		Expect(copySettings.Command).To(Equal([]string{"sh", "-c", "cp -L /etc/outfitter-settings/* /workspace/.agents/"}))
+		Expect(copySettings.Env).To(ContainElement(corev1.EnvVar{Name: HomeEnvName, Value: WorkspaceMount}))
+		Expect(copySettings.VolumeMounts).To(ConsistOf(
+			corev1.VolumeMount{Name: SettingsName, MountPath: "/etc/outfitter-settings", ReadOnly: true},
+			corev1.VolumeMount{Name: AgentsLayerName, MountPath: WorkspaceMount + "/.agents"},
+		))
+		Expect(initContainers[3].Command).To(Equal([]string{"sh", "-c", catalogSyncScript}))
+		Expect(initContainers[3].EnvFrom).To(ContainElement(corev1.EnvFromSource{
 			SecretRef: &corev1.SecretEnvSource{LocalObjectReference: corev1.LocalObjectReference{Name: secretName}},
 		}))
-		Expect(deployment.Spec.Template.Spec.InitContainers[1].VolumeMounts).To(ContainElements(
+		Expect(initContainers[3].VolumeMounts).To(ContainElements(
 			corev1.VolumeMount{Name: WorkspaceName, MountPath: WorkspaceMount},
-			corev1.VolumeMount{Name: SettingsName, MountPath: WorkspaceMount + "/.agents", ReadOnly: true},
+			agentsLayer,
 			corev1.VolumeMount{Name: NixStoreName, MountPath: NixMount},
 		))
-		Expect(deployment.Spec.Template.Spec.InitContainers[1].VolumeMounts).NotTo(ContainElement(
+		Expect(initContainers[3].VolumeMounts).NotTo(ContainElement(
 			corev1.VolumeMount{Name: APITokenVolumeName, MountPath: APITokenMountPath, ReadOnly: true},
 		))
-		Expect(deployment.Spec.Template.Spec.InitContainers[2].Name).To(Equal("setup-wait-for-mail"))
-		Expect(deployment.Spec.Template.Spec.InitContainers[2].Command).To(Equal([]string{"sh", "-c", "echo mail-ready"}))
-		Expect(deployment.Spec.Template.Spec.InitContainers[3].Name).To(Equal("setup-mail-bootstrap"))
-		Expect(deployment.Spec.Template.Spec.InitContainers[4].Name).To(Equal("export-workflow"))
-		Expect(deployment.Spec.Template.Spec.InitContainers[4].Command).To(Equal([]string{"sh", "-c", workflowExportScript}))
-		Expect(deployment.Spec.Template.Spec.InitContainers[4].Env).To(ContainElements(
+		Expect(initContainers[4].Command).To(Equal([]string{"sh", "-c", "echo mail-ready"}))
+		Expect(initContainers[6].Command).To(Equal([]string{"sh", "-c", workflowExportScript}))
+		Expect(initContainers[6].Env).To(ContainElements(
 			corev1.EnvVar{Name: HomeEnvName, Value: WorkspaceMount},
 			corev1.EnvVar{Name: OutfitterWorkflowEnv, Value: testWorkflowID},
 			corev1.EnvVar{Name: WorkflowExportDirEnv, Value: WorkflowExportDir},
 		))
-		Expect(deployment.Spec.Template.Spec.InitContainers[4].VolumeMounts).To(ContainElements(
+		Expect(initContainers[6].VolumeMounts).To(ContainElements(
 			corev1.VolumeMount{Name: WorkspaceName, MountPath: WorkspaceMount},
-			corev1.VolumeMount{Name: SettingsName, MountPath: WorkspaceMount + "/.agents", ReadOnly: true},
+			agentsLayer,
 			corev1.VolumeMount{Name: NixStoreName, MountPath: NixMount},
 		))
 		Expect(deployment.Spec.Template.Spec.InitContainers).To(ContainElement(MatchFields(IgnoreExtras, Fields{

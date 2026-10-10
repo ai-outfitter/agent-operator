@@ -123,19 +123,6 @@ var _ = Describe("Temporary Workspace lifecycle", func() {
 		Expect(apierrors.IsNotFound(k8sClient.Get(ctx, key, &corev1.Secret{}))).To(BeTrue())
 	}, Entry("before its first reconciliation", false), Entry("after configuration prevents credential adoption", true))
 
-	It("refuses to start a runtime without the inference relay image", func() {
-		now := time.Now().UTC().Truncate(time.Second)
-		ns := tenant("workspace-relay-")
-		r := reconciler(&now)
-		r.RelayImage = ""
-		w := &api.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws-relay", Namespace: ns.Name}, Spec: spec("ws-relay", now)}
-		Expect(k8sClient.Create(ctx, w)).To(Succeed())
-		credential(ns.Name, w.Name)
-		reconcile(r, w)
-		Expect(ready(w)).To(And(HaveField("Status", metav1.ConditionFalse), HaveField("Reason", "NotConfigured")))
-		Expect(workspacePods(w)).To(BeEmpty())
-	})
-
 	It("runs one immutable Pod per compute generation, sleeps and expires without touching a neighbor", func() {
 		now := time.Now().UTC().Truncate(time.Second)
 		ns := tenant("workspace-pod-")
@@ -160,22 +147,27 @@ var _ = Describe("Temporary Workspace lifecycle", func() {
 		Expect(*pod.Spec.AutomountServiceAccountToken).To(BeFalse())
 		Expect(pod.Spec.Containers[0].Env).ToNot(ContainElement(HaveField("Name", "SPARK_AUTHORIZATION")))
 		// Inference leaves the Pod only through the relay sidecar, which alone holds the audience-bound token.
-		runtime, relay := pod.Spec.Containers[0], pod.Spec.Containers[1]
-		Expect(runtime.Name).To(Equal("runtime"), "status reads the runtime image from the first container")
+		// The relay is a native sidecar: an init container restarted Always, without probes (it
+		// listens on loopback, which a kubelet probe cannot reach).
+		Expect(pod.Spec.Containers).To(HaveLen(1))
+		Expect(pod.Spec.InitContainers).To(HaveLen(1))
+		runtime, relay := pod.Spec.Containers[0], pod.Spec.InitContainers[0]
+		Expect(runtime.Name).To(Equal("runtime"))
 		Expect(runtime.Env).To(ContainElement(And(HaveField("Name", "INFERENCE_BASE_URL"), HaveField("Value", "http://127.0.0.1:4141/v1"))))
 		Expect(runtime.Env).To(ContainElement(HaveField("Name", "WORKSPACE_TOKEN")))
 		Expect(runtime.VolumeMounts).ToNot(ContainElement(HaveField("Name", inferenceTokenVolumeName)), "the runtime never holds the inference identity")
 		Expect(relay.Name).To(Equal(inferenceRelayName))
 		Expect(relay.Image).To(Equal(testRelay))
-		Expect(relay.Command).To(Equal([]string{"node", "workspace/inference-relay.mjs"}))
+		Expect(relay.Command).To(Equal([]string{"node", "/app/workspace/inference-relay.mjs"}))
+		Expect(relay.RestartPolicy).To(HaveValue(Equal(corev1.ContainerRestartPolicyAlways)))
+		Expect(relay.ReadinessProbe).To(BeNil())
+		Expect(relay.LivenessProbe).To(BeNil())
 		Expect(relay.Env).To(ContainElements(
 			And(HaveField("Name", "INFERENCE_GATEWAY_URL"), HaveField("Value", testGateway)),
 			And(HaveField("Name", "INFERENCE_TOKEN_FILE"), HaveField("Value", "/var/run/secrets/outfitter/inference/token")),
 			And(HaveField("Name", "PORT"), HaveField("Value", "4141"))))
 		Expect(relay.VolumeMounts).To(ConsistOf(corev1.VolumeMount{Name: inferenceTokenVolumeName, MountPath: "/var/run/secrets/outfitter/inference", ReadOnly: true}))
 		Expect(relay.SecurityContext).To(Equal(runtime.SecurityContext))
-		Expect(relay.ReadinessProbe.HTTPGet.Path).To(Equal("/health"))
-		Expect(relay.ReadinessProbe.HTTPGet.Port.IntValue()).To(Equal(4141))
 		Expect(pod.Spec.Volumes).To(ContainElement(And(HaveField("Name", inferenceTokenVolumeName), HaveField("Projected.Sources", ConsistOf(HaveField("ServiceAccountToken", And(
 			HaveField("Audience", "outfitter-inference"), HaveField("ExpirationSeconds", HaveValue(Equal(int64(3600)))), HaveField("Path", "token"))))))))
 		Expect(ready(w).Reason).To(Equal("Starting"))

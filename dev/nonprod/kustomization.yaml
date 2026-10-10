@@ -12,6 +12,9 @@ patches:
       version: v1
       kind: Deployment
       name: controller-manager
+    # --inference-relay-image comes from config/manager/manager.yaml (the webapp
+    # image, promoted together with the webapp gateway image); override it here
+    # only to run a different relay build.
     patch: |-
       - op: add
         path: /spec/template/spec/containers/0/args/-

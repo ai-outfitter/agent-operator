@@ -67,6 +67,9 @@ spec:
         args:
           - --leader-elect
           - --health-probe-bind-address=:8081
+          # Inference relay sidecar for every agent and workspace Pod: the webapp
+          # image, promoted together with the webapp gateway image. Required.
+          - --inference-relay-image=ghcr.io/ai-outfitter/webapp@sha256:3d931a3845c14d5dc7c0072850c182989070b471411307d60bd62a880928ab82
         image: controller:latest
         name: manager
         ports:

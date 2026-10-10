@@ -125,7 +125,7 @@ func main() {
 	flag.Int64Var(&workspaceGraceSeconds, "workspace-termination-grace-seconds", 3900,
 		"Pod termination grace for workspace runtimes; sized to let a one-hour run finish and persist")
 	flag.BoolVar(&workspaceRequireDigest, "workspace-image-require-digest", false,
-		"Refuse to start unless --workspace-image is digest-pinned "+
+		"Refuse to start unless --workspace-image and --inference-relay-image are digest-pinned "+
 			"(set for production; leave unset for local tag-based images)")
 	opts := zap.Options{
 		Development: true,
@@ -135,6 +135,13 @@ func main() {
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 	if workspaceOnly && workspaceImage == "" {
 		setupLog.Error(fmt.Errorf("--workspace-image is required with --workspace-only"), "Invalid workspace configuration")
+		os.Exit(1)
+	}
+	// Agent Deployments and Workspace Pods both run the inference relay sidecar; fail at startup
+	// rather than reconcile workloads that cannot reach inference.
+	if inferenceRelayImage == "" && (!workspaceOnly || workspaceImage != "") {
+		setupLog.Error(fmt.Errorf("--inference-relay-image is required for the Agent controller and with --workspace-image"),
+			"Invalid inference configuration")
 		os.Exit(1)
 	}
 	if workspaceGraceSeconds < 1 {
@@ -150,6 +157,16 @@ func main() {
 			os.Exit(1)
 		}
 		setupLog.Info("Workspace image is not digest-pinned; acceptable for local images only", "image", workspaceImage)
+	}
+	if !controller.ImageIsDigestPinned(inferenceRelayImage) {
+		// The relay runs beside the runtime in every Workspace Pod, so a tag drifts the same way.
+		if workspaceRequireDigest {
+			setupLog.Error(fmt.Errorf("--inference-relay-image must be digest-pinned (name@sha256:...)"),
+				"Invalid inference configuration", "image", inferenceRelayImage)
+			os.Exit(1)
+		}
+		setupLog.Info("Inference relay image is not digest-pinned; acceptable for local images only",
+			"image", inferenceRelayImage)
 	}
 
 	// if the enable-http2 flag is false (the default), http/2 should be disabled

@@ -10,7 +10,7 @@ separate leader-election lease. Workspace support stays disabled in existing
 operator deployments unless `--workspace-image` is configured. Installing this
 instance does not require replacing the resident operator.
 `--inference-relay-image` (the webapp image) is required with
-`--workspace-image`; without it every Workspace reports `NotConfigured`.
+`--workspace-image`; the controller refuses to start without it.
 
 Build the binary in `code/operator` with `CGO_ENABLED=0 go build -o manager ./cmd`.
 Use this directory's Dockerfile with that binary in the image build context.
@@ -21,6 +21,11 @@ operator image is pinned to `operator-v0.17.0`, the agent-operator v0.17.0
 release that manages direct Pods and accepts the digest flag; the ECR tag is a
 mirror of the released GHCR image. Apply the new CRD before the overlay. The
 ECR repository enforces immutable tags.
+The overlay also pins `--inference-relay-image` to the webapp digest the
+gateway currently runs; webapp CI promotes it together with the gateway image
+once `scripts/deploy-nonprod.sh` rewrites that argument. Passing the flag
+requires the operator release that introduces it, so bump the overlay's
+operator tag to that release before applying.
 
 The controller uses deadlines and owner references to manage one PVC, Service,
 ServiceAccount and credential Secret per Workspace, plus one directly managed
@@ -53,8 +58,11 @@ generation.
 ### Inference relay sidecar
 
 Runtimes never call model providers or hold an inference credential. Each Pod
-runs a second container, `inference`, from `--inference-relay-image`
-(`node workspace/inference-relay.mjs`). It listens on Pod loopback port 4141;
+runs a native sidecar, `inference`, from `--inference-relay-image`
+(`node /app/workspace/inference-relay.mjs`): an init container with
+`restartPolicy: Always`, which the kubelet restarts despite the Pod's `Never`
+policy and stops once the runtime exits. It has no probes; it listens on Pod
+loopback port 4141, which a kubelet probe (sent to the Pod IP) cannot reach;
 the runtime container's `INFERENCE_BASE_URL` is `http://127.0.0.1:4141/v1`. The
 relay forwards to `<--workspace-gateway>/inference/v1/chat/completions`,
 replacing any incoming bearer with a projected ServiceAccount token. That token
@@ -67,6 +75,18 @@ against the Kubernetes API and other audiences. Pod-level
 `WORKSPACE_TOKEN` for the control API, and the `workspace-boundary`
 NetworkPolicy is unchanged: the relay shares the Pod's egress to the gateway on
 port 4040. `status.resolvedImage` reports the runtime container's image.
+
+The runtime never holds the identity: the Pod mounts no API token, so the
+runtime can neither read the relay's token nor mint one. This differs from
+resident agents, whose `agent-runtime` ServiceAccount is namespace `admin`:
+an agent could `exec` into its sidecar or mint a token for the same
+ServiceAccount, so there the isolation keeps the token out of the agent
+process and its environment, not out of reach of a namespace admin, and the
+principal is the same either way.
+
+The relay adds 50m CPU and 64Mi memory requests to every runtime Pod, so a
+tenant namespace at its ResourceQuota ceiling needs that headroom. With
+`--workspace-image-require-digest` the relay image must be digest-pinned too.
 
 ### Graceful termination and interruption
 

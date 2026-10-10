@@ -5,14 +5,25 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/utils/ptr"
 )
 
-// The inference relay sidecar is the runtime's only route to inference. It presents a projected
-// ServiceAccount token bound to inferenceAudience, mounted into the sidecar only, so the runtime
-// container never holds the Pod's inference identity. The runtime reaches it over Pod-shared loopback.
-// Workspace Pods and resident Agent Deployments share this sidecar.
+// The inference relay sidecar is the runtime's only route to inference. It runs as a native sidecar
+// (an init container with restartPolicy Always), so it starts before the remaining init containers
+// and the runtime, keeps running beside them, and is restarted even in a restartPolicy Never Pod.
+// It has no probes: it listens on Pod loopback only, which a kubelet HTTP probe (sent to the Pod IP)
+// cannot reach. It presents a projected ServiceAccount token bound to inferenceAudience, mounted into
+// the sidecar only; the runtime reaches it over Pod-shared loopback. Workspace Pods and resident
+// Agent Deployments share this sidecar.
+//
+// What the isolation does and does not buy:
+//   - Workspace runtimes never hold the identity: the Pod mounts no API token
+//     (automountServiceAccountToken is off), so the runtime can neither read the relay's token nor
+//     mint one.
+//   - Resident agents run as the agent-runtime ServiceAccount, which is namespace admin. An agent can
+//     exec into this sidecar or mint a token for the same ServiceAccount itself. Mounting the token
+//     here keeps it out of the agent process and its environment, not out of reach of a namespace
+//     admin, and the principal the gateway sees is the same either way.
 const (
 	inferenceRelayName             = "inference"
 	inferenceTokenVolumeName       = "inference-token"
@@ -26,8 +37,9 @@ const (
 // relay re-reads the file on every request.
 var inferenceTokenExpirationSeconds = ptr.To[int64](3600)
 
-// inferenceRelayCommand starts the relay shipped in the webapp image.
-var inferenceRelayCommand = []string{"node", "workspace/inference-relay.mjs"}
+// inferenceRelayCommand starts the relay shipped in the webapp image. The path is absolute so it does
+// not depend on the image's WORKDIR (/app).
+var inferenceRelayCommand = []string{"node", "/app/workspace/inference-relay.mjs"}
 
 // inferenceRelayURL is the relay's loopback address as seen from any container in the Pod.
 var inferenceRelayURL = "http://127.0.0.1:" + strconv.Itoa(int(inferenceRelayPort))
@@ -52,9 +64,11 @@ func inferenceTokenVolume() corev1.Volume {
 }
 
 // inferenceRelayContainer forwards loopback chat completions to gatewayURL with the projected token.
+// It belongs in InitContainers: the Always restart policy makes it a native sidecar.
 func inferenceRelayContainer(image, gatewayURL string) corev1.Container {
 	return corev1.Container{
 		Name: inferenceRelayName, Image: image, ImagePullPolicy: corev1.PullIfNotPresent,
+		RestartPolicy:   ptr.To(corev1.ContainerRestartPolicyAlways),
 		Command:         inferenceRelayCommand,
 		SecurityContext: restrictedContainerSecurity(),
 		Env: []corev1.EnvVar{
@@ -67,9 +81,5 @@ func inferenceRelayContainer(image, gatewayURL string) corev1.Container {
 			Limits:   corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("500m"), corev1.ResourceMemory: resource.MustParse("256Mi")},
 		},
 		VolumeMounts: []corev1.VolumeMount{{Name: inferenceTokenVolumeName, MountPath: inferenceTokenMountPath, ReadOnly: true}},
-		ReadinessProbe: &corev1.Probe{
-			ProbeHandler:  corev1.ProbeHandler{HTTPGet: &corev1.HTTPGetAction{Path: "/health", Port: intstr.FromInt32(inferenceRelayPort), Scheme: corev1.URISchemeHTTP}},
-			PeriodSeconds: 3, TimeoutSeconds: 2, SuccessThreshold: 1, FailureThreshold: 3,
-		},
 	}
 }

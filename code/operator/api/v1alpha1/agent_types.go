@@ -15,7 +15,6 @@ const (
 	AgentConditionWorkspaceReady         = "WorkspaceReady"
 	AgentConditionCredentialsReady       = "CredentialsReady"
 	AgentConditionOutfitterSettingsReady = "OutfitterSettingsReady"
-	AgentConditionInferenceReady         = "InferenceReady"
 	AgentConditionWorkloadReady          = "WorkloadReady"
 	AgentConditionReady                  = "Ready"
 )
