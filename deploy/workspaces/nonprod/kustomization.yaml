@@ -21,6 +21,11 @@ patches:
       - op: replace
         path: /spec/template/spec/containers/0/args/4
         value: --workspace-image=216577824627.dkr.ecr.us-east-1.amazonaws.com/ai-outfitter/workspace-development@sha256:8c0b2584c13849d503b13fd64744c73aa203034ace25530da04bb908ae3ed37f
+      # Inference relay sidecar: the webapp image. Webapp main CI promotes
+      # this argument on the live Deployment by digest, like --workspace-image.
+      - op: replace
+        path: /spec/template/spec/containers/0/args/5
+        value: --inference-relay-image=ghcr.io/ai-outfitter/webapp@sha256:PLACEHOLDER
       - op: add
         path: /spec/template/spec/containers/0/args/-
         value: --workspace-image-require-digest

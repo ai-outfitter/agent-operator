@@ -99,6 +99,7 @@ spec:
             - --metrics-bind-address=0
             - --health-probe-bind-address=:8081
             - --workspace-image=outfitter-workspace:local
+            - --inference-relay-image=webapp:local
             - --workspace-gateway=http://outfitter-webapp.outfitter-cloud.svc.cluster.local:4040
             - --workspace-gateway-namespace=outfitter-cloud
           securityContext:

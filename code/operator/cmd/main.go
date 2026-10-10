@@ -52,7 +52,7 @@ func main() {
 	}
 	var metricsAddr string
 	var agentImage string
-	var workspaceImage, workspaceGateway, workspaceNamespace, workspaceModel string
+	var workspaceImage, workspaceRelayImage, workspaceGateway, workspaceNamespace, workspaceModel string
 	var workspaceOnly, workspaceRequireDigest bool
 	var workspaceGraceSeconds int64
 	var gatewayImage string
@@ -111,6 +111,8 @@ func main() {
 		"Outfitter revision present in the configured agent runtime image.")
 	flag.BoolVar(&workspaceOnly, "workspace-only", false, "Run only the temporary Workspace controller")
 	flag.StringVar(&workspaceImage, "workspace-image", "", "Workspace runtime image (empty disables workspaces)")
+	flag.StringVar(&workspaceRelayImage, "inference-relay-image", "",
+		"Inference relay sidecar image for workspace Pods (required with --workspace-image)")
 	flag.StringVar(&workspaceGateway, "workspace-gateway", "", "Internal workspace inference gateway URL")
 	flag.StringVar(&workspaceNamespace, "workspace-gateway-namespace", "outfitter-cloud", "Workspace gateway namespace")
 	flag.StringVar(&workspaceModel, "workspace-model", "GLM-5.3-Flash-EXL3", "Workspace inference model")
@@ -269,7 +271,8 @@ func main() {
 	}
 	if workspaceImage != "" {
 		if err := (&controller.WorkspaceReconciler{
-			Image: workspaceImage, GatewayURL: workspaceGateway, GatewayNamespace: workspaceNamespace, Model: workspaceModel,
+			Image: workspaceImage, RelayImage: workspaceRelayImage,
+			GatewayURL: workspaceGateway, GatewayNamespace: workspaceNamespace, Model: workspaceModel,
 			TerminationGracePeriodSeconds: workspaceGraceSeconds,
 			Client:                        mgr.GetClient(),
 			APIReader:                     mgr.GetAPIReader(),

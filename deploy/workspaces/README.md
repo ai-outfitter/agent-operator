@@ -9,6 +9,8 @@ gateway/web deployment and its self-hosting guide in `docs/workspaces.md`.
 separate leader-election lease. Workspace support stays disabled in existing
 operator deployments unless `--workspace-image` is configured. Installing this
 instance does not require replacing the resident operator.
+`--inference-relay-image` (the webapp image) is required with
+`--workspace-image`; without it every Workspace reports `NotConfigured`.
 
 Build the binary in `code/operator` with `CGO_ENABLED=0 go build -o manager ./cmd`.
 Use this directory's Dockerfile with that binary in the image build context.
@@ -47,6 +49,24 @@ wins), the Pod is deleted with its full grace, and the workspace reports
 `Stopping` until the Pod is gone and `Sleeping` afterwards. Extending
 `awakeUntil` without a new generation never starts a second Pod for the same
 generation.
+
+### Inference relay sidecar
+
+Runtimes never call model providers or hold an inference credential. Each Pod
+runs a second container, `inference`, from `--inference-relay-image`
+(`node workspace/inference-relay.mjs`). It listens on Pod loopback port 4141;
+the runtime container's `INFERENCE_BASE_URL` is `http://127.0.0.1:4141/v1`. The
+relay forwards to `<--workspace-gateway>/inference/v1/chat/completions`,
+replacing any incoming bearer with a projected ServiceAccount token. That token
+is bound to the audience `outfitter-inference`, expires after one hour, is
+rotated by the kubelet and re-read on every request, and is mounted read-only
+at `/var/run/secrets/outfitter/inference` in the relay container only. The
+gateway verifies it with a TokenReview for that audience, so a token is useless
+against the Kubernetes API and other audiences. Pod-level
+`automountServiceAccountToken` stays `false`, the runtime keeps
+`WORKSPACE_TOKEN` for the control API, and the `workspace-boundary`
+NetworkPolicy is unchanged: the relay shares the Pod's egress to the gateway on
+port 4040. `status.resolvedImage` reports the runtime container's image.
 
 ### Graceful termination and interruption
 
