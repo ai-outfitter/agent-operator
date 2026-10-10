@@ -44,6 +44,37 @@ written by the webapp gateway in ai-outfitter/webapp#222).
    of the copies' data. A change rolls the Deployment. Adding or removing a
    provider changes the volume and also rolls the pod.
 
+## Inference relay sidecar
+
+Resident agent Pods run a second container, `inference`, from the webapp image
+(`node workspace/inference-relay.mjs`), the same relay Workspace Pods run. A
+projected `agent-runtime` ServiceAccount token with audience
+`outfitter-inference` is mounted into that container only; the agent
+container, init containers and the browser sidecar never see it. The relay
+listens on `127.0.0.1:4141` and forwards chat completions to the gateway with
+that token. The gateway identifies the agent from the ServiceAccount
+`agent-runtime` and the namespace labels `aioutfitter.com/agent` and
+`aioutfitter.com/organization`.
+
+Operator flags:
+
+| Flag | Default | Purpose |
+| --- | --- | --- |
+| `--inference-relay-image` | empty | Relay sidecar image, shared with Workspace Pods. Required: without it an Agent reports `InferenceReady=False` (`NotConfigured`) and its Deployment is not created or updated. |
+| `--inference-gateway` | `http://outfitter-webapp.outfitter-cloud.svc.cluster.local:4040` | Gateway URL the agent relay sidecars call. Workspaces keep using `--workspace-gateway`. |
+| `--inference-model` | `GLM-5.3-Flash-EXL3` | Model the `outfitter` provider offers. |
+
+The `outfitter-settings` ConfigMap, mounted as the agent's workspace `.agents`
+layer, carries a `models.json` that defines the Pi provider `outfitter`
+(`baseUrl: http://127.0.0.1:4141/v1`, `api: openai-completions`, one model
+named by `--inference-model`). Its `apiKey` reads `OUTFITTER_INFERENCE_TOKEN`,
+which the operator sets to a placeholder: Pi requires an env-backed key and the
+relay discards the bearer.
+
+The provider is opt-in. An Agent with `profile.model: outfitter/<model>` routes
+inference through the relay and the gateway. Other providers are untouched, so
+`profile.model: dgx-spark/...` still goes direct to the Spark.
+
 ## Not covered yet
 
 - **Workspaces.** `Workspace` has no organization reference in the API, so

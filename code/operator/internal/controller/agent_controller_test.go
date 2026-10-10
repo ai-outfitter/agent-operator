@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -33,6 +34,8 @@ const (
 	testWorkflowID             = "software-factory"
 	testCommunityCatalogName   = "community-profiles"
 	testAgentImage             = "agent-runtime:default"
+	testInferenceGateway       = "http://gateway.example.test:4040"
+	testInferenceModel         = "test-inference-model"
 )
 
 var _ = Describe("Agent Controller", func() {
@@ -124,11 +127,14 @@ var _ = Describe("Agent Controller", func() {
 		DeferCleanup(removeAgent, ctx, agent.Name)
 
 		reconciler := &AgentReconciler{
-			Client:            k8sClient,
-			APIReader:         k8sClient,
-			Scheme:            k8sClient.Scheme(),
-			AgentImage:        "example.test/agent-runtime@sha256:" + strings.Repeat("a", 64),
-			OutfitterRevision: "c44205ef35265c893ad9f088772c35c71753bfb7",
+			Client:              k8sClient,
+			APIReader:           k8sClient,
+			Scheme:              k8sClient.Scheme(),
+			RelayImage:          testRelay,
+			InferenceGatewayURL: testInferenceGateway,
+			InferenceModel:      testInferenceModel,
+			AgentImage:          "example.test/agent-runtime@sha256:" + strings.Repeat("a", 64),
+			OutfitterRevision:   "c44205ef35265c893ad9f088772c35c71753bfb7",
 		}
 		request := reconcile.Request{NamespacedName: types.NamespacedName{Name: agent.Name}}
 		_, err := reconciler.Reconcile(ctx, request)
@@ -139,6 +145,9 @@ var _ = Describe("Agent Controller", func() {
 		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: namespaceName}, namespace)).To(Succeed())
 		Expect(namespace.Labels).To(HaveKeyWithValue(AgentNameLabel, agent.Name))
 		Expect(namespace.Labels).To(HaveKeyWithValue(AgentUIDLabel, string(agent.UID)))
+		// The inference gateway attributes the agent-runtime token to this
+		// agent and organization through the namespace labels.
+		Expect(namespace.Labels).To(HaveKeyWithValue(OrganizationLabel, organization.Name))
 
 		serviceAccount := &corev1.ServiceAccount{}
 		Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: namespaceName, Name: RuntimeName}, serviceAccount)).To(Succeed())
@@ -165,6 +174,14 @@ var _ = Describe("Agent Controller", func() {
 		Expect(settingsYAML).To(ContainSubstring("github: ai-outfitter/community-profiles"))
 		Expect(settingsYAML).To(ContainSubstring("ref: " + testCatalogRevision))
 		Expect(settingsYAML).To(ContainSubstring("path: .agents"))
+		var models piModels
+		Expect(json.Unmarshal([]byte(settings.Data[ModelsFile]), &models)).To(Succeed())
+		Expect(models.Providers).To(HaveKey("outfitter"))
+		outfitterProvider := models.Providers["outfitter"]
+		Expect(outfitterProvider.BaseURL).To(Equal("http://127.0.0.1:4141/v1"))
+		Expect(outfitterProvider.API).To(Equal("openai-completions"))
+		Expect(outfitterProvider.APIKey).To(Equal("$" + InferenceTokenEnv))
+		Expect(outfitterProvider.Models).To(ConsistOf(HaveField("ID", testInferenceModel)))
 
 		actual := &aioutfitterv1alpha1.Agent{}
 		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: agent.Name}, actual)).To(Succeed())
@@ -276,6 +293,68 @@ var _ = Describe("Agent Controller", func() {
 			}
 		}
 		Expect(hasTokenSource).To(BeTrue())
+
+		// Inference leaves the Pod only through the relay sidecar, which alone
+		// mounts the audience-bound projected token.
+		agentContainer := deployment.Spec.Template.Spec.Containers[0]
+		Expect(agentContainer.Name).To(Equal("agent"))
+		Expect(agentContainer.Env).To(ContainElement(corev1.EnvVar{Name: InferenceTokenEnv, Value: "relay"}))
+		Expect(deployment.Spec.Template.Spec.Containers).To(ContainElement(HaveField("Name", inferenceRelayName)))
+		for _, container := range deployment.Spec.Template.Spec.Containers {
+			if container.Name == inferenceRelayName {
+				Expect(container.Image).To(Equal(testRelay))
+				Expect(container.Command).To(Equal(inferenceRelayCommand))
+				Expect(container.Env).To(ContainElements(
+					corev1.EnvVar{Name: "INFERENCE_GATEWAY_URL", Value: testInferenceGateway},
+					corev1.EnvVar{Name: "INFERENCE_TOKEN_FILE", Value: "/var/run/secrets/outfitter/inference/token"},
+					corev1.EnvVar{Name: "PORT", Value: "4141"},
+				))
+				Expect(container.VolumeMounts).To(ConsistOf(corev1.VolumeMount{
+					Name: inferenceTokenVolumeName, MountPath: "/var/run/secrets/outfitter/inference", ReadOnly: true,
+				}))
+				continue
+			}
+			Expect(container.VolumeMounts).NotTo(ContainElement(HaveField("Name", inferenceTokenVolumeName)),
+				"container %s must not hold the inference identity", container.Name)
+		}
+		for _, initContainer := range deployment.Spec.Template.Spec.InitContainers {
+			Expect(initContainer.VolumeMounts).NotTo(ContainElement(HaveField("Name", inferenceTokenVolumeName)),
+				"init container %s must not hold the inference identity", initContainer.Name)
+		}
+		Expect(deployment.Spec.Template.Spec.Volumes).To(ContainElement(And(
+			HaveField("Name", inferenceTokenVolumeName),
+			HaveField("Projected.Sources", ConsistOf(HaveField("ServiceAccountToken", And(
+				HaveField("Audience", "outfitter-inference"),
+				HaveField("ExpirationSeconds", HaveValue(Equal(int64(3600)))),
+				HaveField("Path", "token"),
+			)))),
+		)))
+	})
+
+	It("reports inference NotConfigured and creates no Deployment without a relay image", func() {
+		organization := createAcceptedOrganization(ctx)
+		agent := validAgent(uniqueTestName("no-relay"), organization.Name)
+		Expect(k8sClient.Create(ctx, agent)).To(Succeed())
+		DeferCleanup(removeAgent, ctx, agent.Name)
+
+		reconciler := &AgentReconciler{
+			Client: k8sClient, APIReader: k8sClient, Scheme: k8sClient.Scheme(), AgentImage: testAgentImage,
+			InferenceGatewayURL: testInferenceGateway, InferenceModel: testInferenceModel,
+		}
+		_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: agent.Name}})
+		Expect(err).NotTo(HaveOccurred())
+
+		actual := &aioutfitterv1alpha1.Agent{}
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: agent.Name}, actual)).To(Succeed())
+		inferenceReady := apiMeta.FindStatusCondition(actual.Status.Conditions, aioutfitterv1alpha1.AgentConditionInferenceReady)
+		Expect(inferenceReady).NotTo(BeNil())
+		Expect(inferenceReady.Status).To(Equal(metav1.ConditionFalse))
+		Expect(inferenceReady.Reason).To(Equal("NotConfigured"))
+		Expect(inferenceReady.Message).To(And(ContainSubstring("--inference-relay-image"), ContainSubstring("--inference-gateway")))
+		Expect(apiMeta.IsStatusConditionFalse(actual.Status.Conditions, aioutfitterv1alpha1.AgentConditionReady)).To(BeTrue())
+		deployment := &appsv1.Deployment{}
+		err = k8sClient.Get(ctx, types.NamespacedName{Namespace: agentNamespace(agent.Name), Name: RuntimeName}, deployment)
+		Expect(err).To(Satisfy(apierrors.IsNotFound))
 	})
 
 	It("projects Agent channel and GitHub notification overrides", func() {
@@ -291,7 +370,7 @@ var _ = Describe("Agent Controller", func() {
 		Expect(k8sClient.Create(ctx, agent)).To(Succeed())
 		DeferCleanup(removeAgent, ctx, agent.Name)
 
-		reconciler := &AgentReconciler{Client: k8sClient, APIReader: k8sClient, Scheme: k8sClient.Scheme()}
+		reconciler := &AgentReconciler{Client: k8sClient, APIReader: k8sClient, Scheme: k8sClient.Scheme(), RelayImage: testRelay, InferenceGatewayURL: testInferenceGateway, InferenceModel: testInferenceModel}
 		_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: agent.Name}})
 		Expect(err).NotTo(HaveOccurred())
 
@@ -313,7 +392,7 @@ var _ = Describe("Agent Controller", func() {
 		DeferCleanup(removeAgent, ctx, agent.Name)
 
 		reconciler := &AgentReconciler{
-			Client: k8sClient, APIReader: k8sClient, Scheme: k8sClient.Scheme(), AgentImage: testAgentImage,
+			Client: k8sClient, APIReader: k8sClient, Scheme: k8sClient.Scheme(), RelayImage: testRelay, InferenceGatewayURL: testInferenceGateway, InferenceModel: testInferenceModel, AgentImage: testAgentImage,
 		}
 		request := reconcile.Request{NamespacedName: types.NamespacedName{Name: agent.Name}}
 		_, err := reconciler.Reconcile(ctx, request)
@@ -343,7 +422,7 @@ var _ = Describe("Agent Controller", func() {
 		DeferCleanup(removeAgent, ctx, agent.Name)
 
 		reconciler := &AgentReconciler{
-			Client: k8sClient, APIReader: k8sClient, Scheme: k8sClient.Scheme(), AgentImage: testAgentImage,
+			Client: k8sClient, APIReader: k8sClient, Scheme: k8sClient.Scheme(), RelayImage: testRelay, InferenceGatewayURL: testInferenceGateway, InferenceModel: testInferenceModel, AgentImage: testAgentImage,
 		}
 		request := reconcile.Request{NamespacedName: types.NamespacedName{Name: agent.Name}}
 		_, err := reconciler.Reconcile(ctx, request)
@@ -379,7 +458,7 @@ var _ = Describe("Agent Controller", func() {
 		DeferCleanup(removeAgent, ctx, agent.Name)
 
 		reconciler := &AgentReconciler{
-			Client: k8sClient, APIReader: k8sClient, Scheme: k8sClient.Scheme(), AgentImage: "link-agent:default",
+			Client: k8sClient, APIReader: k8sClient, Scheme: k8sClient.Scheme(), RelayImage: testRelay, InferenceGatewayURL: testInferenceGateway, InferenceModel: testInferenceModel, AgentImage: "link-agent:default",
 		}
 		request := reconcile.Request{NamespacedName: types.NamespacedName{Name: agent.Name}}
 		_, err := reconciler.Reconcile(ctx, request)
@@ -389,8 +468,9 @@ var _ = Describe("Agent Controller", func() {
 		deploymentKey := types.NamespacedName{Namespace: agentNamespace(agent.Name), Name: RuntimeName}
 		Expect(k8sClient.Get(ctx, deploymentKey, deployment)).To(Succeed())
 		containers := deployment.Spec.Template.Spec.Containers
-		Expect(containers).To(HaveLen(2))
+		Expect(containers).To(HaveLen(3))
 		Expect(containers[1].Name).To(Equal(BrowserName))
+		Expect(containers[2].Name).To(Equal(inferenceRelayName))
 		Expect(containers[1].Image).To(Equal(defaultBrowserImage))
 		// The Command must bypass the image entrypoint: the headless-shell
 		// wrapper starts a socat forwarder on 0.0.0.0:9222, which would
@@ -431,7 +511,8 @@ var _ = Describe("Agent Controller", func() {
 		_, err = reconciler.Reconcile(ctx, request)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(k8sClient.Get(ctx, deploymentKey, deployment)).To(Succeed())
-		Expect(deployment.Spec.Template.Spec.Containers).To(HaveLen(1))
+		Expect(deployment.Spec.Template.Spec.Containers).To(HaveLen(2))
+		Expect(deployment.Spec.Template.Spec.Containers[1].Name).To(Equal(inferenceRelayName))
 	})
 
 	It("projects references and becomes ready after the agent runtime starts", func() {
@@ -454,7 +535,7 @@ var _ = Describe("Agent Controller", func() {
 		DeferCleanup(removeAgent, ctx, agent.Name)
 
 		reconciler := &AgentReconciler{
-			Client: k8sClient, APIReader: k8sClient, Scheme: k8sClient.Scheme(), AgentImage: "agent-runtime:test",
+			Client: k8sClient, APIReader: k8sClient, Scheme: k8sClient.Scheme(), RelayImage: testRelay, InferenceGatewayURL: testInferenceGateway, InferenceModel: testInferenceModel, AgentImage: "agent-runtime:test",
 		}
 		request := reconcile.Request{NamespacedName: types.NamespacedName{Name: agent.Name}}
 		_, err := reconciler.Reconcile(ctx, request)
@@ -595,7 +676,7 @@ var _ = Describe("Agent Controller", func() {
 		Expect(k8sClient.Create(ctx, agent)).To(Succeed())
 		DeferCleanup(removeAgent, ctx, agent.Name)
 
-		reconciler := &AgentReconciler{Client: k8sClient, APIReader: k8sClient, Scheme: k8sClient.Scheme()}
+		reconciler := &AgentReconciler{Client: k8sClient, APIReader: k8sClient, Scheme: k8sClient.Scheme(), RelayImage: testRelay, InferenceGatewayURL: testInferenceGateway, InferenceModel: testInferenceModel}
 		_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: agent.Name}})
 		Expect(err).NotTo(HaveOccurred())
 
@@ -737,7 +818,7 @@ printf new >"$out/.agents/.outfitter/workflow-composition.json"
 		DeferCleanup(removeAgent, ctx, agent.Name)
 
 		reconciler := &AgentReconciler{
-			Client: k8sClient, APIReader: k8sClient, Scheme: k8sClient.Scheme(), AgentImage: testAgentImage,
+			Client: k8sClient, APIReader: k8sClient, Scheme: k8sClient.Scheme(), RelayImage: testRelay, InferenceGatewayURL: testInferenceGateway, InferenceModel: testInferenceModel, AgentImage: testAgentImage,
 		}
 		request := reconcile.Request{NamespacedName: types.NamespacedName{Name: agent.Name}}
 		_, err := reconciler.Reconcile(ctx, request)
@@ -820,7 +901,7 @@ printf new >"$out/.agents/.outfitter/workflow-composition.json"
 		agent := validAgent(uniqueTestName("guardrail"), organization.Name)
 		Expect(k8sClient.Create(ctx, agent)).To(Succeed())
 		DeferCleanup(removeAgent, ctx, agent.Name)
-		reconciler := &AgentReconciler{Client: k8sClient, APIReader: k8sClient, Scheme: k8sClient.Scheme()}
+		reconciler := &AgentReconciler{Client: k8sClient, APIReader: k8sClient, Scheme: k8sClient.Scheme(), RelayImage: testRelay, InferenceGatewayURL: testInferenceGateway, InferenceModel: testInferenceModel}
 		request := reconcile.Request{NamespacedName: types.NamespacedName{Name: agent.Name}}
 		_, err := reconciler.Reconcile(ctx, request)
 		Expect(err).NotTo(HaveOccurred())

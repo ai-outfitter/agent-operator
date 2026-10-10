@@ -39,6 +39,7 @@ var agentConditionOrder = []string{
 	aioutfitterv1alpha1.AgentConditionWorkspaceReady,
 	aioutfitterv1alpha1.AgentConditionCredentialsReady,
 	aioutfitterv1alpha1.AgentConditionOutfitterSettingsReady,
+	aioutfitterv1alpha1.AgentConditionInferenceReady,
 	aioutfitterv1alpha1.AgentConditionWorkloadReady,
 	aioutfitterv1alpha1.AgentConditionReady,
 }
@@ -50,6 +51,13 @@ type AgentReconciler struct {
 	Scheme            *runtime.Scheme
 	AgentImage        string
 	OutfitterRevision string
+	// RelayImage runs the inference relay sidecar (the webapp image) that
+	// forwards the agent's loopback inference to InferenceGatewayURL with the
+	// Pod's projected identity.
+	RelayImage          string
+	InferenceGatewayURL string
+	// InferenceModel is the model the `outfitter` provider offers.
+	InferenceModel string
 }
 
 // +kubebuilder:rbac:groups=aioutfitter.com,resources=agents,verbs=get;list;watch;create;update;patch;delete
@@ -138,11 +146,19 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 
 	if err := r.ensureOutfitterSettings(ctx, agent, organization); err != nil {
 		setAgentCondition(agent, aioutfitterv1alpha1.AgentConditionOutfitterSettingsReady, metav1.ConditionFalse, "SettingsReconcileFailed", "Outfitter settings could not be reconciled")
-		blockAgentConditions(agent, aioutfitterv1alpha1.AgentConditionWorkloadReady, "SettingsNotReady", "Outfitter settings are not ready")
+		blockAgentConditions(agent, aioutfitterv1alpha1.AgentConditionInferenceReady, "SettingsNotReady", "Outfitter settings are not ready")
 		return r.finishAgent(ctx, statusBase, agent, ctrl.Result{}, err)
 	}
 	agent.Status.CatalogSources = catalogSourceStatuses(organization.Spec.AgentCatalogs)
 	setAgentCondition(agent, aioutfitterv1alpha1.AgentConditionOutfitterSettingsReady, metav1.ConditionTrue, "Ready", "Outfitter settings contain the pinned source; runtime resolution is delegated to Outfitter")
+
+	if r.RelayImage == "" || r.InferenceGatewayURL == "" {
+		setAgentCondition(agent, aioutfitterv1alpha1.AgentConditionInferenceReady, metav1.ConditionFalse, "NotConfigured",
+			"Inference relay is not configured: set --inference-relay-image and --inference-gateway")
+		blockAgentConditions(agent, aioutfitterv1alpha1.AgentConditionWorkloadReady, "InferenceNotReady", "Inference relay is not configured")
+		return r.finishAgent(ctx, statusBase, agent, ctrl.Result{}, nil)
+	}
+	setAgentCondition(agent, aioutfitterv1alpha1.AgentConditionInferenceReady, metav1.ConditionTrue, "Ready", "Inference relay sidecar is configured")
 
 	deployment, err := r.ensureAgentDeployment(ctx, agent, organization)
 	if err != nil {
@@ -221,6 +237,7 @@ func inputValidationMessage(agent *aioutfitterv1alpha1.Agent) string {
 	}
 	reservedVolumes := map[string]struct{}{
 		WorkspaceName: {}, SettingsName: {}, NixStoreName: {}, APITokenVolumeName: {}, A2ACredentialsVolumeName: {}, browserDataName: {},
+		inferenceTokenVolumeName: {},
 	}
 	volumeNames := map[string]struct{}{}
 	for i := range agent.Spec.Volumes {

@@ -34,22 +34,6 @@ const workspaceFinalizer = "workspaces.aioutfitter.com/cleanup"
 const workspaceLabel = "aioutfitter.com/workspace"
 const tenantLabel = "aioutfitter.com/tenant"
 
-// The inference relay sidecar is the runtime's only route to inference. It presents a projected
-// ServiceAccount token bound to inferenceAudience, mounted into the sidecar only, so the runtime
-// container never holds the Pod's inference identity. The runtime reaches it over Pod-shared loopback.
-const (
-	inferenceRelayName             = "inference"
-	inferenceTokenVolumeName       = "inference-token"
-	inferenceAudience              = "outfitter-inference"
-	inferenceTokenMountPath        = "/var/run/secrets/outfitter/inference"
-	inferenceTokenFile             = "token"
-	inferenceRelayPort       int32 = 4141
-)
-
-// inferenceTokenExpirationSeconds is the projected token lifetime; the kubelet rotates it and the
-// relay re-reads the file on every request.
-var inferenceTokenExpirationSeconds = ptr.To[int64](3600)
-
 // defaultTerminationGraceSeconds lets a runtime finish its in-flight stage (bounded by the gateway's
 // one-hour run limit) and persist state before the kubelet force-kills it.
 const defaultTerminationGraceSeconds int64 = 3900
@@ -466,8 +450,6 @@ func (r *WorkspaceReconciler) resources(ctx context.Context, w *api.Workspace) e
 // the environment instead of replaying agent work. The runtime container stays first: status reads its image.
 func (r *WorkspaceReconciler) runtimePod(w *api.Workspace, generation int64, image string) *corev1.Pod {
 	gen := strconv.FormatInt(generation, 10)
-	containerSecurity := &corev1.SecurityContext{AllowPrivilegeEscalation: ptr.To(false), ReadOnlyRootFilesystem: ptr.To(true), Capabilities: &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}}}
-	relayURL := "http://127.0.0.1:" + strconv.Itoa(int(inferenceRelayPort))
 	labels := map[string]string{workspaceLabel: w.Name, workspaceWorkloadLabel: workspaceWorkloadValue, workspaceGenerationLabel: gen}
 	return &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: workspacePodName(w, generation), Namespace: w.Namespace, Labels: labels}, Spec: corev1.PodSpec{
 		ServiceAccountName: w.Name,
@@ -475,22 +457,14 @@ func (r *WorkspaceReconciler) runtimePod(w *api.Workspace, generation int64, ima
 		AutomountServiceAccountToken: ptr.To(false), TerminationGracePeriodSeconds: ptr.To(r.grace()),
 		SecurityContext: &corev1.PodSecurityContext{RunAsNonRoot: ptr.To(true), RunAsUser: ptr.To[int64](1000), RunAsGroup: ptr.To[int64](1000), FSGroup: ptr.To[int64](1000), SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault}},
 		Containers: []corev1.Container{{Name: "runtime", Image: image, ImagePullPolicy: corev1.PullIfNotPresent,
-			SecurityContext: containerSecurity,
+			SecurityContext: restrictedContainerSecurity(),
 			Ports:           []corev1.ContainerPort{{Name: "http", ContainerPort: 8080, Protocol: corev1.ProtocolTCP}},
-			Env:             []corev1.EnvVar{{Name: "HOME", Value: "/workspace"}, {Name: "WORKSPACE_ID", Value: w.Name}, {Name: "WORKSPACE_COMPUTE_GENERATION", Value: gen}, {Name: "INFERENCE_BASE_URL", Value: relayURL + "/v1"}, {Name: "AI_MODEL", Value: r.Model}, {Name: "WORKSPACE_TOKEN", ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: w.Spec.CredentialSecretName}, Key: workspaceTokenKey}}}},
+			Env:             []corev1.EnvVar{{Name: "HOME", Value: "/workspace"}, {Name: "WORKSPACE_ID", Value: w.Name}, {Name: "WORKSPACE_COMPUTE_GENERATION", Value: gen}, {Name: "INFERENCE_BASE_URL", Value: inferenceRelayURL + "/v1"}, {Name: "AI_MODEL", Value: r.Model}, {Name: "WORKSPACE_TOKEN", ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: w.Spec.CredentialSecretName}, Key: workspaceTokenKey}}}},
 			Resources:       corev1.ResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("200m"), corev1.ResourceMemory: resource.MustParse("512Mi")}, Limits: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2"), corev1.ResourceMemory: resource.MustParse("2Gi"), corev1.ResourceEphemeralStorage: resource.MustParse("1Gi")}},
 			VolumeMounts:    []corev1.VolumeMount{{Name: workspaceWorkloadValue, MountPath: "/workspace"}, {Name: "tmp", MountPath: "/tmp"}},
 			ReadinessProbe:  &corev1.Probe{ProbeHandler: corev1.ProbeHandler{HTTPGet: &corev1.HTTPGetAction{Path: "/health", Port: intstr.FromInt32(8080), Scheme: corev1.URISchemeHTTP}}, PeriodSeconds: 3, TimeoutSeconds: 2, SuccessThreshold: 1, FailureThreshold: 3},
-		}, {Name: inferenceRelayName, Image: r.RelayImage, ImagePullPolicy: corev1.PullIfNotPresent,
-			Command:         []string{"node", "workspace/inference-relay.mjs"},
-			SecurityContext: containerSecurity,
-			Env:             []corev1.EnvVar{{Name: "INFERENCE_GATEWAY_URL", Value: r.GatewayURL}, {Name: "INFERENCE_TOKEN_FILE", Value: inferenceTokenMountPath + "/" + inferenceTokenFile}, {Name: "PORT", Value: strconv.Itoa(int(inferenceRelayPort))}},
-			Resources:       corev1.ResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("50m"), corev1.ResourceMemory: resource.MustParse("64Mi")}, Limits: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("500m"), corev1.ResourceMemory: resource.MustParse("256Mi")}},
-			VolumeMounts:    []corev1.VolumeMount{{Name: inferenceTokenVolumeName, MountPath: inferenceTokenMountPath, ReadOnly: true}},
-			ReadinessProbe:  &corev1.Probe{ProbeHandler: corev1.ProbeHandler{HTTPGet: &corev1.HTTPGetAction{Path: "/health", Port: intstr.FromInt32(inferenceRelayPort), Scheme: corev1.URISchemeHTTP}}, PeriodSeconds: 3, TimeoutSeconds: 2, SuccessThreshold: 1, FailureThreshold: 3},
-		}},
-		Volumes: []corev1.Volume{{Name: workspaceWorkloadValue, VolumeSource: corev1.VolumeSource{PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: w.Name}}}, {Name: "tmp", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{SizeLimit: ptr.To(resource.MustParse("256Mi"))}}},
-			{Name: inferenceTokenVolumeName, VolumeSource: corev1.VolumeSource{Projected: &corev1.ProjectedVolumeSource{Sources: []corev1.VolumeProjection{{ServiceAccountToken: &corev1.ServiceAccountTokenProjection{Audience: inferenceAudience, ExpirationSeconds: inferenceTokenExpirationSeconds, Path: inferenceTokenFile}}}}}}},
+		}, inferenceRelayContainer(r.RelayImage, r.GatewayURL)},
+		Volumes: []corev1.Volume{{Name: workspaceWorkloadValue, VolumeSource: corev1.VolumeSource{PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: w.Name}}}, {Name: "tmp", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{SizeLimit: ptr.To(resource.MustParse("256Mi"))}}}, inferenceTokenVolume()},
 	}}
 }
 

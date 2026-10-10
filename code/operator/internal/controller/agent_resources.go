@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"maps"
 	"path"
@@ -26,13 +27,21 @@ import (
 )
 
 const (
-	AgentNameLabel          = "aioutfitter.com/agent"
-	AgentUIDLabel           = "aioutfitter.com/agent-uid"
-	ManagedByLabel          = "app.kubernetes.io/managed-by"
-	RuntimeName             = "agent-runtime"
-	WorkspaceName           = "agent-workspace"
-	LimitRangeName          = "agent-workspace-defaults"
-	SettingsName            = "outfitter-settings"
+	AgentNameLabel = "aioutfitter.com/agent"
+	AgentUIDLabel  = "aioutfitter.com/agent-uid"
+	ManagedByLabel = "app.kubernetes.io/managed-by"
+	RuntimeName    = "agent-runtime"
+	WorkspaceName  = "agent-workspace"
+	LimitRangeName = "agent-workspace-defaults"
+	SettingsName   = "outfitter-settings"
+	SettingsFile   = "settings.yml"
+	// ModelsFile defines the `outfitter` Pi provider. The settings ConfigMap is
+	// mounted as the workspace .agents layer, which outranks catalog sources.
+	ModelsFile = "models.json"
+	// InferenceTokenEnv backs the outfitter provider's apiKey. Pi requires an
+	// env-backed key; the relay discards the bearer and presents the Pod's
+	// projected identity instead, so the value is a placeholder.
+	InferenceTokenEnv       = "OUTFITTER_INFERENCE_TOKEN"
 	SettingsHashAnnotation  = "aioutfitter.com/outfitter-settings-hash"
 	WorkspaceMount          = "/workspace"
 	CredentialsRoot         = "/var/run/agent/credentials"
@@ -197,6 +206,7 @@ func (r *AgentReconciler) ensureAgentNamespace(ctx context.Context, agent *aiout
 	}
 	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, namespace, func() error {
 		namespace.Labels = mergeLabels(namespace.Labels, ownershipLabels(agent))
+		namespace.Labels[OrganizationLabel] = agent.Spec.Memberships[0].Organization
 		return nil
 	})
 	return err
@@ -353,11 +363,11 @@ func (r *AgentReconciler) ensureAgentDeployment(
 	if err != nil {
 		return nil, err
 	}
-	settings, err := renderOutfitterSettings(agent, organization)
+	settingsData, err := r.renderSettingsData(agent, organization)
 	if err != nil {
 		return nil, err
 	}
-	settingsHash := fmt.Sprintf("%x", sha256.Sum256(settings))
+	settingsHash := settingsDataHash(settingsData)
 	providerCopies, err := listProviderCopies(ctx, r.Client, namespace)
 	if err != nil {
 		return nil, err
@@ -448,6 +458,7 @@ func (r *AgentReconciler) ensureAgentDeployment(
 					Name:  "AGENT_SPOOL_PATH",
 					Value: path.Join(WorkspaceMount, ".channels", "agent"),
 				},
+				{Name: InferenceTokenEnv, Value: "relay"},
 			}, runtimeConfigEnv...),
 			VolumeMounts: []corev1.VolumeMount{
 				{Name: WorkspaceName, MountPath: WorkspaceMount},
@@ -464,6 +475,9 @@ func (r *AgentReconciler) ensureAgentDeployment(
 				}},
 			},
 			apiTokenVolume(),
+			// Mounted by the inference relay sidecar only, never the agent
+			// container, init containers or other sidecars.
+			inferenceTokenVolume(),
 		}
 		if agent.Spec.Forge != nil || agent.Spec.TaskPlane != nil {
 			container.Env = append(container.Env,
@@ -594,6 +608,9 @@ func (r *AgentReconciler) ensureAgentDeployment(
 				VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
 			})
 		}
+		// The agent container stays first (Containers[0] is the runtime); the
+		// relay is appended after any other sidecar.
+		containers = append(containers, inferenceRelayContainer(r.RelayImage, r.InferenceGatewayURL))
 		deployment.Spec.Template.Spec.Containers = containers
 		deployment.Spec.Template.Spec.Volumes = volumes
 		return nil
@@ -652,12 +669,95 @@ func renderOutfitterSettings(
 	return yaml.Marshal(outfitterConfig)
 }
 
+// renderSettingsData is the settings ConfigMap's content: the Outfitter
+// settings plus the Pi models.json defining the outfitter provider.
+func (r *AgentReconciler) renderSettingsData(
+	agent *aioutfitterv1alpha1.Agent,
+	organization *aioutfitterv1alpha1.Organization,
+) (map[string]string, error) {
+	settings, err := renderOutfitterSettings(agent, organization)
+	if err != nil {
+		return nil, err
+	}
+	models, err := renderInferenceModels(r.InferenceModel)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]string{SettingsFile: string(settings), ModelsFile: string(models)}, nil
+}
+
+// settingsDataHash covers every settings file, so a catalog or model change
+// rolls the resident Pod instead of leaving it on stale configuration.
+func settingsDataHash(data map[string]string) string {
+	hash := sha256.New()
+	for _, key := range slices.Sorted(maps.Keys(data)) {
+		hash.Write([]byte(key))
+		hash.Write([]byte{0})
+		hash.Write([]byte(data[key]))
+		hash.Write([]byte{0})
+	}
+	return fmt.Sprintf("%x", hash.Sum(nil))
+}
+
+type piModels struct {
+	Providers map[string]piProvider `json:"providers"`
+}
+
+type piProvider struct {
+	BaseURL string            `json:"baseUrl"`
+	API     string            `json:"api"`
+	APIKey  string            `json:"apiKey"`
+	Headers map[string]string `json:"headers"`
+	Compat  piCompat          `json:"compat"`
+	Models  []piModel         `json:"models"`
+}
+
+type piCompat struct {
+	SupportsDeveloperRole   bool `json:"supportsDeveloperRole"`
+	SupportsReasoningEffort bool `json:"supportsReasoningEffort"`
+}
+
+type piModel struct {
+	ID            string   `json:"id"`
+	Name          string   `json:"name"`
+	Reasoning     bool     `json:"reasoning"`
+	Input         []string `json:"input"`
+	ContextWindow int      `json:"contextWindow"`
+	MaxTokens     int      `json:"maxTokens"`
+	Cost          piCost   `json:"cost"`
+}
+
+type piCost struct {
+	Input      float64 `json:"input"`
+	Output     float64 `json:"output"`
+	CacheRead  float64 `json:"cacheRead"`
+	CacheWrite float64 `json:"cacheWrite"`
+}
+
+// renderInferenceModels defines the `outfitter` provider, served by the
+// inference relay sidecar on loopback. Agents opt in with
+// profile.model `outfitter/<model>`; other providers are untouched.
+func renderInferenceModels(model string) ([]byte, error) {
+	return json.MarshalIndent(piModels{Providers: map[string]piProvider{
+		"outfitter": {
+			BaseURL: inferenceRelayURL + "/v1",
+			API:     "openai-completions",
+			APIKey:  "$" + InferenceTokenEnv,
+			Headers: map[string]string{"User-Agent": "ai-outfitter/${AGENT_NAME}"},
+			Models: []piModel{{
+				ID: model, Name: "Outfitter inference", Reasoning: true, Input: []string{"text", "image"},
+				ContextWindow: 128000, MaxTokens: 8192,
+			}},
+		},
+	}}, "", "  ")
+}
+
 func (r *AgentReconciler) ensureOutfitterSettings(
 	ctx context.Context,
 	agent *aioutfitterv1alpha1.Agent,
 	organization *aioutfitterv1alpha1.Organization,
 ) error {
-	settings, err := renderOutfitterSettings(agent, organization)
+	data, err := r.renderSettingsData(agent, organization)
 	if err != nil {
 		return err
 	}
@@ -666,7 +766,7 @@ func (r *AgentReconciler) ensureOutfitterSettings(
 	}}
 	_, err = controllerutil.CreateOrUpdate(ctx, r.Client, configMap, func() error {
 		configMap.Labels = mergeLabels(configMap.Labels, ownershipLabels(agent))
-		configMap.Data = map[string]string{"settings.yml": string(settings)}
+		configMap.Data = data
 		return nil
 	})
 	return err

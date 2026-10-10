@@ -52,7 +52,8 @@ func main() {
 	}
 	var metricsAddr string
 	var agentImage string
-	var workspaceImage, workspaceRelayImage, workspaceGateway, workspaceNamespace, workspaceModel string
+	var workspaceImage, inferenceRelayImage, workspaceGateway, workspaceNamespace, workspaceModel string
+	var inferenceGateway, inferenceModel string
 	var workspaceOnly, workspaceRequireDigest bool
 	var workspaceGraceSeconds int64
 	var gatewayImage string
@@ -111,8 +112,13 @@ func main() {
 		"Outfitter revision present in the configured agent runtime image.")
 	flag.BoolVar(&workspaceOnly, "workspace-only", false, "Run only the temporary Workspace controller")
 	flag.StringVar(&workspaceImage, "workspace-image", "", "Workspace runtime image (empty disables workspaces)")
-	flag.StringVar(&workspaceRelayImage, "inference-relay-image", "",
-		"Inference relay sidecar image for workspace Pods (required with --workspace-image)")
+	flag.StringVar(&inferenceRelayImage, "inference-relay-image", "",
+		"Inference relay sidecar image for agent and workspace Pods (required for agents and with --workspace-image)")
+	flag.StringVar(&inferenceGateway, "inference-gateway",
+		"http://outfitter-webapp.outfitter-cloud.svc.cluster.local:4040",
+		"Workspace gateway URL the inference relay sidecars call")
+	flag.StringVar(&inferenceModel, "inference-model", "GLM-5.3-Flash-EXL3",
+		"Model the agent outfitter inference provider offers")
 	flag.StringVar(&workspaceGateway, "workspace-gateway", "", "Internal workspace inference gateway URL")
 	flag.StringVar(&workspaceNamespace, "workspace-gateway-namespace", "outfitter-cloud", "Workspace gateway namespace")
 	flag.StringVar(&workspaceModel, "workspace-model", "GLM-5.3-Flash-EXL3", "Workspace inference model")
@@ -253,11 +259,14 @@ func main() {
 			os.Exit(1)
 		}
 		if err := (&controller.AgentReconciler{
-			Client:            mgr.GetClient(),
-			APIReader:         mgr.GetAPIReader(),
-			Scheme:            mgr.GetScheme(),
-			AgentImage:        agentImage,
-			OutfitterRevision: outfitterRevision,
+			Client:              mgr.GetClient(),
+			APIReader:           mgr.GetAPIReader(),
+			Scheme:              mgr.GetScheme(),
+			AgentImage:          agentImage,
+			OutfitterRevision:   outfitterRevision,
+			RelayImage:          inferenceRelayImage,
+			InferenceGatewayURL: inferenceGateway,
+			InferenceModel:      inferenceModel,
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "Failed to create controller", "controller", "agent")
 			os.Exit(1)
@@ -271,7 +280,7 @@ func main() {
 	}
 	if workspaceImage != "" {
 		if err := (&controller.WorkspaceReconciler{
-			Image: workspaceImage, RelayImage: workspaceRelayImage,
+			Image: workspaceImage, RelayImage: inferenceRelayImage,
 			GatewayURL: workspaceGateway, GatewayNamespace: workspaceNamespace, Model: workspaceModel,
 			TerminationGracePeriodSeconds: workspaceGraceSeconds,
 			Client:                        mgr.GetClient(),

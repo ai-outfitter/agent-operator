@@ -22,7 +22,7 @@ var _ = Describe("Provider Secret sync", func() {
 	It("syncs provider Secrets to member agents only and rolls the runtime", func() {
 		organization := createAcceptedOrganization(ctx)
 		other := createAcceptedOrganization(ctx)
-		agentReconciler := &AgentReconciler{Client: k8sClient, APIReader: k8sClient, Scheme: k8sClient.Scheme(), AgentImage: testAgentImage}
+		agentReconciler := &AgentReconciler{Client: k8sClient, APIReader: k8sClient, Scheme: k8sClient.Scheme(), RelayImage: testRelay, InferenceGatewayURL: testInferenceGateway, InferenceModel: testInferenceModel, AgentImage: testAgentImage}
 		member := validAgent(uniqueTestName("provider-member"), organization.Name)
 		outsider := validAgent(uniqueTestName("provider-outsider"), other.Name)
 		for _, agent := range []string{member.Name, outsider.Name} {
