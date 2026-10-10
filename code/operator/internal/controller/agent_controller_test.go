@@ -598,6 +598,10 @@ var _ = Describe("Agent Controller", func() {
 		Expect(container.VolumeMounts).To(ContainElement(corev1.VolumeMount{
 			Name: SettingsName, MountPath: WorkspaceMount + "/.agents", ReadOnly: true,
 		}))
+		// A regular file, not the ConfigMap directory's symlink: outfitter dump --strict refuses the latter.
+		Expect(container.VolumeMounts).To(ContainElement(corev1.VolumeMount{
+			Name: SettingsName, MountPath: WorkspaceMount + "/.agents/" + ModelsFile, SubPath: ModelsFile, ReadOnly: true,
+		}))
 		Expect(container.VolumeMounts).To(ContainElement(corev1.VolumeMount{
 			Name: A2ACredentialsVolumeName, MountPath: A2ACredentialsMount, ReadOnly: true,
 		}))

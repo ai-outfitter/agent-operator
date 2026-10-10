@@ -307,6 +307,20 @@ func (r *AgentReconciler) ensurePVC(
 }
 
 // pvcVolume is a pod volume backed by the same-named PersistentVolumeClaim.
+// settingsMount is the operator-rendered `.agents` layer. modelsMount lays
+// models.json over it as a subPath: a ConfigMap directory serves its files as
+// symlinks into `..data`, and `outfitter dump --strict` refuses a root file
+// that resolves through a symlink, while a subPath mount is a regular file.
+func settingsMount() corev1.VolumeMount {
+	return corev1.VolumeMount{Name: SettingsName, MountPath: path.Join(WorkspaceMount, ".agents"), ReadOnly: true}
+}
+
+func modelsMount() corev1.VolumeMount {
+	return corev1.VolumeMount{
+		Name: SettingsName, MountPath: path.Join(WorkspaceMount, ".agents", ModelsFile), SubPath: ModelsFile, ReadOnly: true,
+	}
+}
+
 func pvcVolume(name string) corev1.Volume {
 	return corev1.Volume{
 		Name: name,
@@ -462,7 +476,7 @@ func (r *AgentReconciler) ensureAgentDeployment(
 			}, runtimeConfigEnv...),
 			VolumeMounts: []corev1.VolumeMount{
 				{Name: WorkspaceName, MountPath: WorkspaceMount},
-				{Name: SettingsName, MountPath: path.Join(WorkspaceMount, ".agents"), ReadOnly: true},
+				settingsMount(), modelsMount(),
 				{Name: APITokenVolumeName, MountPath: APITokenMountPath, ReadOnly: true},
 			},
 		}
@@ -534,7 +548,7 @@ func (r *AgentReconciler) ensureAgentDeployment(
 			mounts := append([]corev1.VolumeMount{}, inputMounts...)
 			mounts = append(mounts,
 				corev1.VolumeMount{Name: WorkspaceName, MountPath: WorkspaceMount},
-				corev1.VolumeMount{Name: SettingsName, MountPath: path.Join(WorkspaceMount, ".agents"), ReadOnly: true},
+				settingsMount(), modelsMount(),
 			)
 			if needsNixStore {
 				mounts = append(mounts, corev1.VolumeMount{Name: NixStoreName, MountPath: NixMount})
@@ -578,7 +592,7 @@ func (r *AgentReconciler) ensureAgentDeployment(
 			mounts := append([]corev1.VolumeMount{}, inputMounts...)
 			mounts = append(mounts,
 				corev1.VolumeMount{Name: WorkspaceName, MountPath: WorkspaceMount},
-				corev1.VolumeMount{Name: SettingsName, MountPath: path.Join(WorkspaceMount, ".agents"), ReadOnly: true},
+				settingsMount(), modelsMount(),
 			)
 			if needsNixStore {
 				mounts = append(mounts, corev1.VolumeMount{Name: NixStoreName, MountPath: NixMount})
