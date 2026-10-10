@@ -30,17 +30,22 @@ const (
 	LegacyGatewaySecretName  = "forge-gateway"
 	ForgeRoutesConfigMapName = "forge-routes"
 	ForgeSpoolPVCName        = "forge-spool"
-	OrganizationLabel        = "aioutfitter.com/organization"
-	appNameLabel             = "app.kubernetes.io/name"
-	appInstanceLabel         = "app.kubernetes.io/instance"
-	namespaceNameLabel       = "kubernetes.io/metadata.name"
-	forgeRoutesKey           = "forge-routes.json"
-	legacyForgeRoutesKey     = "routes.json"
-	forgeWebhookSecretKey    = "FORGE_WEBHOOK_SECRET"
-	defaultOrgCredentials    = "organization-credentials"
-	defaultAgentCredentials  = "agent-credentials"
-	agentA2ACredentialsKey   = "a2a-credentials.json"
-	httpPortName             = "http"
+	// OrganizationLabel names an Organization (its slug). The organization
+	// namespace carries it, and so does each agent namespace: with the
+	// agent-runtime ServiceAccount and AgentNameLabel it is how the inference
+	// gateway attributes a resident agent's projected token. Agents administer
+	// their own namespace, so the label must never select a trusted peer.
+	OrganizationLabel       = "aioutfitter.com/organization"
+	appNameLabel            = "app.kubernetes.io/name"
+	appInstanceLabel        = "app.kubernetes.io/instance"
+	namespaceNameLabel      = "kubernetes.io/metadata.name"
+	forgeRoutesKey          = "forge-routes.json"
+	legacyForgeRoutesKey    = "routes.json"
+	forgeWebhookSecretKey   = "FORGE_WEBHOOK_SECRET"
+	defaultOrgCredentials   = "organization-credentials"
+	defaultAgentCredentials = "agent-credentials"
+	agentA2ACredentialsKey  = "a2a-credentials.json"
+	httpPortName            = "http"
 )
 
 type gatewayRoute struct{ Username, URL, Token string }
@@ -269,7 +274,7 @@ func (r *OrganizationReconciler) ensureAgentA2A(ctx context.Context, org *aioutf
 	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, policy, func() error {
 		tcp := corev1.ProtocolTCP
 		policy.Labels = mergeLabels(policy.Labels, labels)
-		policy.Spec = networkingv1.NetworkPolicySpec{PodSelector: metav1.LabelSelector{MatchLabels: map[string]string{appNameLabel: RuntimeName, appInstanceLabel: agent.Name}}, PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeIngress}, Ingress: []networkingv1.NetworkPolicyIngressRule{{From: []networkingv1.NetworkPolicyPeer{{NamespaceSelector: &metav1.LabelSelector{MatchLabels: map[string]string{OrganizationLabel: org.Name}}, PodSelector: &metav1.LabelSelector{MatchLabels: map[string]string{appNameLabel: ForgeGatewayName}}}}, Ports: []networkingv1.NetworkPolicyPort{{Protocol: &tcp, Port: ptr.To(intstr.FromInt32(A2APort))}}}}}
+		policy.Spec = networkingv1.NetworkPolicySpec{PodSelector: metav1.LabelSelector{MatchLabels: map[string]string{appNameLabel: RuntimeName, appInstanceLabel: agent.Name}}, PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeIngress}, Ingress: []networkingv1.NetworkPolicyIngressRule{{From: []networkingv1.NetworkPolicyPeer{{NamespaceSelector: &metav1.LabelSelector{MatchLabels: map[string]string{namespaceNameLabel: organizationNamespace(org.Name)}}, PodSelector: &metav1.LabelSelector{MatchLabels: map[string]string{appNameLabel: ForgeGatewayName}}}}, Ports: []networkingv1.NetworkPolicyPort{{Protocol: &tcp, Port: ptr.To(intstr.FromInt32(A2APort))}}}}}
 		return controllerutil.SetControllerReference(org, policy, r.Scheme)
 	})
 	return err

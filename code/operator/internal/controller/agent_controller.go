@@ -50,6 +50,13 @@ type AgentReconciler struct {
 	Scheme            *runtime.Scheme
 	AgentImage        string
 	OutfitterRevision string
+	// RelayImage runs the inference relay sidecar (the webapp image) that
+	// forwards the agent's loopback inference to InferenceGatewayURL with the
+	// Pod's projected identity.
+	RelayImage          string
+	InferenceGatewayURL string
+	// InferenceModel is the model the `outfitter` provider offers.
+	InferenceModel string
 }
 
 // +kubebuilder:rbac:groups=aioutfitter.com,resources=agents,verbs=get;list;watch;create;update;patch;delete
@@ -221,6 +228,7 @@ func inputValidationMessage(agent *aioutfitterv1alpha1.Agent) string {
 	}
 	reservedVolumes := map[string]struct{}{
 		WorkspaceName: {}, SettingsName: {}, NixStoreName: {}, APITokenVolumeName: {}, A2ACredentialsVolumeName: {}, browserDataName: {},
+		inferenceTokenVolumeName: {}, AgentsLayerName: {},
 	}
 	volumeNames := map[string]struct{}{}
 	for i := range agent.Spec.Volumes {

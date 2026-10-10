@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -33,6 +34,8 @@ const (
 	testWorkflowID             = "software-factory"
 	testCommunityCatalogName   = "community-profiles"
 	testAgentImage             = "agent-runtime:default"
+	testInferenceGateway       = "http://gateway.example.test:4040"
+	testInferenceModel         = "test-inference-model"
 )
 
 var _ = Describe("Agent Controller", func() {
@@ -124,11 +127,14 @@ var _ = Describe("Agent Controller", func() {
 		DeferCleanup(removeAgent, ctx, agent.Name)
 
 		reconciler := &AgentReconciler{
-			Client:            k8sClient,
-			APIReader:         k8sClient,
-			Scheme:            k8sClient.Scheme(),
-			AgentImage:        "example.test/agent-runtime@sha256:" + strings.Repeat("a", 64),
-			OutfitterRevision: "c44205ef35265c893ad9f088772c35c71753bfb7",
+			Client:              k8sClient,
+			APIReader:           k8sClient,
+			Scheme:              k8sClient.Scheme(),
+			RelayImage:          testRelay,
+			InferenceGatewayURL: testInferenceGateway,
+			InferenceModel:      testInferenceModel,
+			AgentImage:          "example.test/agent-runtime@sha256:" + strings.Repeat("a", 64),
+			OutfitterRevision:   "c44205ef35265c893ad9f088772c35c71753bfb7",
 		}
 		request := reconcile.Request{NamespacedName: types.NamespacedName{Name: agent.Name}}
 		_, err := reconciler.Reconcile(ctx, request)
@@ -139,6 +145,9 @@ var _ = Describe("Agent Controller", func() {
 		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: namespaceName}, namespace)).To(Succeed())
 		Expect(namespace.Labels).To(HaveKeyWithValue(AgentNameLabel, agent.Name))
 		Expect(namespace.Labels).To(HaveKeyWithValue(AgentUIDLabel, string(agent.UID)))
+		// The inference gateway attributes the agent-runtime token to this
+		// agent and organization through the namespace labels.
+		Expect(namespace.Labels).To(HaveKeyWithValue(OrganizationLabel, organization.Name))
 
 		serviceAccount := &corev1.ServiceAccount{}
 		Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: namespaceName, Name: RuntimeName}, serviceAccount)).To(Succeed())
@@ -165,6 +174,15 @@ var _ = Describe("Agent Controller", func() {
 		Expect(settingsYAML).To(ContainSubstring("github: ai-outfitter/community-profiles"))
 		Expect(settingsYAML).To(ContainSubstring("ref: " + testCatalogRevision))
 		Expect(settingsYAML).To(ContainSubstring("path: .agents"))
+		var models piModels
+		Expect(json.Unmarshal([]byte(settings.Data[ModelsFile]), &models)).To(Succeed())
+		Expect(models.Providers).To(HaveKey("outfitter"))
+		outfitterProvider := models.Providers["outfitter"]
+		Expect(outfitterProvider.BaseURL).To(Equal("http://127.0.0.1:4141/v1"))
+		Expect(outfitterProvider.API).To(Equal("openai-completions"))
+		Expect(outfitterProvider.APIKey).To(Equal("$" + InferenceTokenEnv))
+		Expect(outfitterProvider.Models).To(ConsistOf(HaveField("ID", testInferenceModel)))
+		Expect(settings.Data[ModelsFile]).NotTo(ContainSubstring("headers"))
 
 		actual := &aioutfitterv1alpha1.Agent{}
 		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: agent.Name}, actual)).To(Succeed())
@@ -276,6 +294,47 @@ var _ = Describe("Agent Controller", func() {
 			}
 		}
 		Expect(hasTokenSource).To(BeTrue())
+
+		// Inference leaves the Pod only through the relay sidecar, which alone
+		// mounts the audience-bound projected token. It is a native sidecar:
+		// the first init container, restarted Always, with no probes (it
+		// listens on loopback, which a kubelet probe cannot reach).
+		agentContainer := deployment.Spec.Template.Spec.Containers[0]
+		Expect(agentContainer.Name).To(Equal("agent"))
+		Expect(agentContainer.Env).To(ContainElement(corev1.EnvVar{Name: InferenceTokenEnv, Value: "relay"}))
+		Expect(deployment.Spec.Template.Spec.Containers).NotTo(ContainElement(HaveField("Name", inferenceRelayName)))
+		relay := deployment.Spec.Template.Spec.InitContainers[0]
+		Expect(relay.Name).To(Equal(inferenceRelayName))
+		Expect(relay.RestartPolicy).To(HaveValue(Equal(corev1.ContainerRestartPolicyAlways)))
+		Expect(relay.ReadinessProbe).To(BeNil())
+		Expect(relay.LivenessProbe).To(BeNil())
+		Expect(relay.Image).To(Equal(testRelay))
+		Expect(relay.Command).To(Equal(inferenceRelayCommand))
+		Expect(relay.Env).To(ContainElements(
+			corev1.EnvVar{Name: "INFERENCE_GATEWAY_URL", Value: testInferenceGateway},
+			corev1.EnvVar{Name: "INFERENCE_TOKEN_FILE", Value: "/var/run/secrets/outfitter/inference/token"},
+			corev1.EnvVar{Name: "PORT", Value: "4141"},
+		))
+		Expect(relay.VolumeMounts).To(ConsistOf(corev1.VolumeMount{
+			Name: inferenceTokenVolumeName, MountPath: "/var/run/secrets/outfitter/inference", ReadOnly: true,
+		}))
+		for _, container := range deployment.Spec.Template.Spec.Containers {
+			Expect(container.VolumeMounts).NotTo(ContainElement(HaveField("Name", inferenceTokenVolumeName)),
+				"container %s must not hold the inference identity", container.Name)
+		}
+		for _, initContainer := range deployment.Spec.Template.Spec.InitContainers[1:] {
+			Expect(initContainer.RestartPolicy).To(BeNil(), "init container %s is not a sidecar", initContainer.Name)
+			Expect(initContainer.VolumeMounts).NotTo(ContainElement(HaveField("Name", inferenceTokenVolumeName)),
+				"init container %s must not hold the inference identity", initContainer.Name)
+		}
+		Expect(deployment.Spec.Template.Spec.Volumes).To(ContainElement(And(
+			HaveField("Name", inferenceTokenVolumeName),
+			HaveField("Projected.Sources", ConsistOf(HaveField("ServiceAccountToken", And(
+				HaveField("Audience", "outfitter-inference"),
+				HaveField("ExpirationSeconds", HaveValue(Equal(int64(3600)))),
+				HaveField("Path", "token"),
+			)))),
+		)))
 	})
 
 	It("projects Agent channel and GitHub notification overrides", func() {
@@ -291,7 +350,7 @@ var _ = Describe("Agent Controller", func() {
 		Expect(k8sClient.Create(ctx, agent)).To(Succeed())
 		DeferCleanup(removeAgent, ctx, agent.Name)
 
-		reconciler := &AgentReconciler{Client: k8sClient, APIReader: k8sClient, Scheme: k8sClient.Scheme()}
+		reconciler := &AgentReconciler{Client: k8sClient, APIReader: k8sClient, Scheme: k8sClient.Scheme(), RelayImage: testRelay, InferenceGatewayURL: testInferenceGateway, InferenceModel: testInferenceModel}
 		_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: agent.Name}})
 		Expect(err).NotTo(HaveOccurred())
 
@@ -313,7 +372,7 @@ var _ = Describe("Agent Controller", func() {
 		DeferCleanup(removeAgent, ctx, agent.Name)
 
 		reconciler := &AgentReconciler{
-			Client: k8sClient, APIReader: k8sClient, Scheme: k8sClient.Scheme(), AgentImage: testAgentImage,
+			Client: k8sClient, APIReader: k8sClient, Scheme: k8sClient.Scheme(), RelayImage: testRelay, InferenceGatewayURL: testInferenceGateway, InferenceModel: testInferenceModel, AgentImage: testAgentImage,
 		}
 		request := reconcile.Request{NamespacedName: types.NamespacedName{Name: agent.Name}}
 		_, err := reconciler.Reconcile(ctx, request)
@@ -333,7 +392,10 @@ var _ = Describe("Agent Controller", func() {
 
 		Expect(k8sClient.Get(ctx, deploymentKey, deployment)).To(Succeed())
 		Expect(deployment.Spec.Template.Spec.Containers[0].Image).To(Equal(current.Spec.Image))
-		Expect(deployment.Spec.Template.Spec.InitContainers[0].Image).To(Equal(current.Spec.Image))
+		// InitContainers[0] is the inference relay, which runs the relay image.
+		for _, initContainer := range deployment.Spec.Template.Spec.InitContainers[1:] {
+			Expect(initContainer.Image).To(Equal(current.Spec.Image), "init container %s", initContainer.Name)
+		}
 	})
 
 	It("rolls out when Organization catalog settings change", func() {
@@ -343,7 +405,7 @@ var _ = Describe("Agent Controller", func() {
 		DeferCleanup(removeAgent, ctx, agent.Name)
 
 		reconciler := &AgentReconciler{
-			Client: k8sClient, APIReader: k8sClient, Scheme: k8sClient.Scheme(), AgentImage: testAgentImage,
+			Client: k8sClient, APIReader: k8sClient, Scheme: k8sClient.Scheme(), RelayImage: testRelay, InferenceGatewayURL: testInferenceGateway, InferenceModel: testInferenceModel, AgentImage: testAgentImage,
 		}
 		request := reconcile.Request{NamespacedName: types.NamespacedName{Name: agent.Name}}
 		_, err := reconciler.Reconcile(ctx, request)
@@ -379,7 +441,7 @@ var _ = Describe("Agent Controller", func() {
 		DeferCleanup(removeAgent, ctx, agent.Name)
 
 		reconciler := &AgentReconciler{
-			Client: k8sClient, APIReader: k8sClient, Scheme: k8sClient.Scheme(), AgentImage: "link-agent:default",
+			Client: k8sClient, APIReader: k8sClient, Scheme: k8sClient.Scheme(), RelayImage: testRelay, InferenceGatewayURL: testInferenceGateway, InferenceModel: testInferenceModel, AgentImage: "link-agent:default",
 		}
 		request := reconcile.Request{NamespacedName: types.NamespacedName{Name: agent.Name}}
 		_, err := reconciler.Reconcile(ctx, request)
@@ -454,7 +516,7 @@ var _ = Describe("Agent Controller", func() {
 		DeferCleanup(removeAgent, ctx, agent.Name)
 
 		reconciler := &AgentReconciler{
-			Client: k8sClient, APIReader: k8sClient, Scheme: k8sClient.Scheme(), AgentImage: "agent-runtime:test",
+			Client: k8sClient, APIReader: k8sClient, Scheme: k8sClient.Scheme(), RelayImage: testRelay, InferenceGatewayURL: testInferenceGateway, InferenceModel: testInferenceModel, AgentImage: "agent-runtime:test",
 		}
 		request := reconcile.Request{NamespacedName: types.NamespacedName{Name: agent.Name}}
 		_, err := reconciler.Reconcile(ctx, request)
@@ -514,42 +576,58 @@ var _ = Describe("Agent Controller", func() {
 		Expect(container.VolumeMounts).To(ContainElement(corev1.VolumeMount{
 			Name: testRuntimeConfigName, MountPath: testRuntimeConfigMountPath, ReadOnly: true,
 		}))
-		Expect(container.VolumeMounts).To(ContainElement(corev1.VolumeMount{
-			Name: SettingsName, MountPath: WorkspaceMount + "/.agents", ReadOnly: true,
-		}))
+		// The .agents layer is an emptyDir of regular files: a ConfigMap volume
+		// serves symlinks into `..data`, which outfitter dump --strict refuses.
+		agentsLayer := corev1.VolumeMount{Name: AgentsLayerName, MountPath: WorkspaceMount + "/.agents", ReadOnly: true}
+		Expect(container.VolumeMounts).To(ContainElement(agentsLayer))
+		Expect(container.VolumeMounts).NotTo(ContainElement(HaveField("Name", SettingsName)))
+		Expect(deployment.Spec.Template.Spec.Volumes).To(ContainElement(And(
+			HaveField("Name", AgentsLayerName), HaveField("EmptyDir", Not(BeNil())),
+		)))
 		Expect(container.VolumeMounts).To(ContainElement(corev1.VolumeMount{
 			Name: A2ACredentialsVolumeName, MountPath: A2ACredentialsMount, ReadOnly: true,
 		}))
-		Expect(deployment.Spec.Template.Spec.InitContainers).To(HaveLen(5))
-		for _, initContainer := range deployment.Spec.Template.Spec.InitContainers {
+		initContainers := deployment.Spec.Template.Spec.InitContainers
+		initNames := make([]string, 0, len(initContainers))
+		for _, initContainer := range initContainers {
+			initNames = append(initNames, initContainer.Name)
+		}
+		Expect(initNames).To(Equal([]string{
+			inferenceRelayName, "copy-settings", seedNixStoreName, "sync-agent-catalog",
+			"setup-wait-for-mail", "setup-mail-bootstrap", "export-workflow",
+		}))
+		for _, initContainer := range initContainers[1:] {
 			Expect(initContainer.Image).To(Equal(agent.Spec.Image))
 		}
-		Expect(deployment.Spec.Template.Spec.InitContainers[1].Name).To(Equal("sync-agent-catalog"))
-		Expect(deployment.Spec.Template.Spec.InitContainers[1].Command).To(Equal([]string{"sh", "-c", catalogSyncScript}))
-		Expect(deployment.Spec.Template.Spec.InitContainers[1].EnvFrom).To(ContainElement(corev1.EnvFromSource{
+		copySettings := initContainers[1]
+		Expect(copySettings.Command).To(Equal([]string{"sh", "-c", "cp -L /etc/outfitter-settings/* /workspace/.agents/"}))
+		Expect(copySettings.Env).To(ContainElement(corev1.EnvVar{Name: HomeEnvName, Value: WorkspaceMount}))
+		Expect(copySettings.VolumeMounts).To(ConsistOf(
+			corev1.VolumeMount{Name: SettingsName, MountPath: "/etc/outfitter-settings", ReadOnly: true},
+			corev1.VolumeMount{Name: AgentsLayerName, MountPath: WorkspaceMount + "/.agents"},
+		))
+		Expect(initContainers[3].Command).To(Equal([]string{"sh", "-c", catalogSyncScript}))
+		Expect(initContainers[3].EnvFrom).To(ContainElement(corev1.EnvFromSource{
 			SecretRef: &corev1.SecretEnvSource{LocalObjectReference: corev1.LocalObjectReference{Name: secretName}},
 		}))
-		Expect(deployment.Spec.Template.Spec.InitContainers[1].VolumeMounts).To(ContainElements(
+		Expect(initContainers[3].VolumeMounts).To(ContainElements(
 			corev1.VolumeMount{Name: WorkspaceName, MountPath: WorkspaceMount},
-			corev1.VolumeMount{Name: SettingsName, MountPath: WorkspaceMount + "/.agents", ReadOnly: true},
+			agentsLayer,
 			corev1.VolumeMount{Name: NixStoreName, MountPath: NixMount},
 		))
-		Expect(deployment.Spec.Template.Spec.InitContainers[1].VolumeMounts).NotTo(ContainElement(
+		Expect(initContainers[3].VolumeMounts).NotTo(ContainElement(
 			corev1.VolumeMount{Name: APITokenVolumeName, MountPath: APITokenMountPath, ReadOnly: true},
 		))
-		Expect(deployment.Spec.Template.Spec.InitContainers[2].Name).To(Equal("setup-wait-for-mail"))
-		Expect(deployment.Spec.Template.Spec.InitContainers[2].Command).To(Equal([]string{"sh", "-c", "echo mail-ready"}))
-		Expect(deployment.Spec.Template.Spec.InitContainers[3].Name).To(Equal("setup-mail-bootstrap"))
-		Expect(deployment.Spec.Template.Spec.InitContainers[4].Name).To(Equal("export-workflow"))
-		Expect(deployment.Spec.Template.Spec.InitContainers[4].Command).To(Equal([]string{"sh", "-c", workflowExportScript}))
-		Expect(deployment.Spec.Template.Spec.InitContainers[4].Env).To(ContainElements(
+		Expect(initContainers[4].Command).To(Equal([]string{"sh", "-c", "echo mail-ready"}))
+		Expect(initContainers[6].Command).To(Equal([]string{"sh", "-c", workflowExportScript}))
+		Expect(initContainers[6].Env).To(ContainElements(
 			corev1.EnvVar{Name: HomeEnvName, Value: WorkspaceMount},
 			corev1.EnvVar{Name: OutfitterWorkflowEnv, Value: testWorkflowID},
 			corev1.EnvVar{Name: WorkflowExportDirEnv, Value: WorkflowExportDir},
 		))
-		Expect(deployment.Spec.Template.Spec.InitContainers[4].VolumeMounts).To(ContainElements(
+		Expect(initContainers[6].VolumeMounts).To(ContainElements(
 			corev1.VolumeMount{Name: WorkspaceName, MountPath: WorkspaceMount},
-			corev1.VolumeMount{Name: SettingsName, MountPath: WorkspaceMount + "/.agents", ReadOnly: true},
+			agentsLayer,
 			corev1.VolumeMount{Name: NixStoreName, MountPath: NixMount},
 		))
 		Expect(deployment.Spec.Template.Spec.InitContainers).To(ContainElement(MatchFields(IgnoreExtras, Fields{
@@ -595,7 +673,7 @@ var _ = Describe("Agent Controller", func() {
 		Expect(k8sClient.Create(ctx, agent)).To(Succeed())
 		DeferCleanup(removeAgent, ctx, agent.Name)
 
-		reconciler := &AgentReconciler{Client: k8sClient, APIReader: k8sClient, Scheme: k8sClient.Scheme()}
+		reconciler := &AgentReconciler{Client: k8sClient, APIReader: k8sClient, Scheme: k8sClient.Scheme(), RelayImage: testRelay, InferenceGatewayURL: testInferenceGateway, InferenceModel: testInferenceModel}
 		_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: agent.Name}})
 		Expect(err).NotTo(HaveOccurred())
 
@@ -737,7 +815,7 @@ printf new >"$out/.agents/.outfitter/workflow-composition.json"
 		DeferCleanup(removeAgent, ctx, agent.Name)
 
 		reconciler := &AgentReconciler{
-			Client: k8sClient, APIReader: k8sClient, Scheme: k8sClient.Scheme(), AgentImage: testAgentImage,
+			Client: k8sClient, APIReader: k8sClient, Scheme: k8sClient.Scheme(), RelayImage: testRelay, InferenceGatewayURL: testInferenceGateway, InferenceModel: testInferenceModel, AgentImage: testAgentImage,
 		}
 		request := reconcile.Request{NamespacedName: types.NamespacedName{Name: agent.Name}}
 		_, err := reconciler.Reconcile(ctx, request)
@@ -820,7 +898,7 @@ printf new >"$out/.agents/.outfitter/workflow-composition.json"
 		agent := validAgent(uniqueTestName("guardrail"), organization.Name)
 		Expect(k8sClient.Create(ctx, agent)).To(Succeed())
 		DeferCleanup(removeAgent, ctx, agent.Name)
-		reconciler := &AgentReconciler{Client: k8sClient, APIReader: k8sClient, Scheme: k8sClient.Scheme()}
+		reconciler := &AgentReconciler{Client: k8sClient, APIReader: k8sClient, Scheme: k8sClient.Scheme(), RelayImage: testRelay, InferenceGatewayURL: testInferenceGateway, InferenceModel: testInferenceModel}
 		request := reconcile.Request{NamespacedName: types.NamespacedName{Name: agent.Name}}
 		_, err := reconciler.Reconcile(ctx, request)
 		Expect(err).NotTo(HaveOccurred())

@@ -52,7 +52,8 @@ func main() {
 	}
 	var metricsAddr string
 	var agentImage string
-	var workspaceImage, workspaceGateway, workspaceNamespace, workspaceModel string
+	var workspaceImage, inferenceRelayImage, workspaceGateway, workspaceNamespace, workspaceModel string
+	var inferenceGateway, inferenceModel string
 	var workspaceOnly, workspaceRequireDigest bool
 	var workspaceGraceSeconds int64
 	var gatewayImage string
@@ -111,13 +112,20 @@ func main() {
 		"Outfitter revision present in the configured agent runtime image.")
 	flag.BoolVar(&workspaceOnly, "workspace-only", false, "Run only the temporary Workspace controller")
 	flag.StringVar(&workspaceImage, "workspace-image", "", "Workspace runtime image (empty disables workspaces)")
+	flag.StringVar(&inferenceRelayImage, "inference-relay-image", "",
+		"Inference relay sidecar image for agent and workspace Pods (required for agents and with --workspace-image)")
+	flag.StringVar(&inferenceGateway, "inference-gateway",
+		"http://outfitter-webapp.outfitter-cloud.svc.cluster.local:4040",
+		"Workspace gateway URL the inference relay sidecars call")
+	flag.StringVar(&inferenceModel, "inference-model", "GLM-5.3-Flash-EXL3",
+		"Model the agent outfitter inference provider offers")
 	flag.StringVar(&workspaceGateway, "workspace-gateway", "", "Internal workspace inference gateway URL")
 	flag.StringVar(&workspaceNamespace, "workspace-gateway-namespace", "outfitter-cloud", "Workspace gateway namespace")
 	flag.StringVar(&workspaceModel, "workspace-model", "GLM-5.3-Flash-EXL3", "Workspace inference model")
 	flag.Int64Var(&workspaceGraceSeconds, "workspace-termination-grace-seconds", 3900,
 		"Pod termination grace for workspace runtimes; sized to let a one-hour run finish and persist")
 	flag.BoolVar(&workspaceRequireDigest, "workspace-image-require-digest", false,
-		"Refuse to start unless --workspace-image is digest-pinned "+
+		"Refuse to start unless --workspace-image and --inference-relay-image are digest-pinned "+
 			"(set for production; leave unset for local tag-based images)")
 	opts := zap.Options{
 		Development: true,
@@ -127,6 +135,13 @@ func main() {
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 	if workspaceOnly && workspaceImage == "" {
 		setupLog.Error(fmt.Errorf("--workspace-image is required with --workspace-only"), "Invalid workspace configuration")
+		os.Exit(1)
+	}
+	// Agent Deployments and Workspace Pods both run the inference relay sidecar; fail at startup
+	// rather than reconcile workloads that cannot reach inference.
+	if inferenceRelayImage == "" && (!workspaceOnly || workspaceImage != "") {
+		setupLog.Error(fmt.Errorf("--inference-relay-image is required for the Agent controller and with --workspace-image"),
+			"Invalid inference configuration")
 		os.Exit(1)
 	}
 	if workspaceGraceSeconds < 1 {
@@ -142,6 +157,16 @@ func main() {
 			os.Exit(1)
 		}
 		setupLog.Info("Workspace image is not digest-pinned; acceptable for local images only", "image", workspaceImage)
+	}
+	if !controller.ImageIsDigestPinned(inferenceRelayImage) {
+		// The relay runs beside the runtime in every Workspace Pod, so a tag drifts the same way.
+		if workspaceRequireDigest {
+			setupLog.Error(fmt.Errorf("--inference-relay-image must be digest-pinned (name@sha256:...)"),
+				"Invalid inference configuration", "image", inferenceRelayImage)
+			os.Exit(1)
+		}
+		setupLog.Info("Inference relay image is not digest-pinned; acceptable for local images only",
+			"image", inferenceRelayImage)
 	}
 
 	// if the enable-http2 flag is false (the default), http/2 should be disabled
@@ -251,11 +276,14 @@ func main() {
 			os.Exit(1)
 		}
 		if err := (&controller.AgentReconciler{
-			Client:            mgr.GetClient(),
-			APIReader:         mgr.GetAPIReader(),
-			Scheme:            mgr.GetScheme(),
-			AgentImage:        agentImage,
-			OutfitterRevision: outfitterRevision,
+			Client:              mgr.GetClient(),
+			APIReader:           mgr.GetAPIReader(),
+			Scheme:              mgr.GetScheme(),
+			AgentImage:          agentImage,
+			OutfitterRevision:   outfitterRevision,
+			RelayImage:          inferenceRelayImage,
+			InferenceGatewayURL: inferenceGateway,
+			InferenceModel:      inferenceModel,
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "Failed to create controller", "controller", "agent")
 			os.Exit(1)
@@ -269,7 +297,8 @@ func main() {
 	}
 	if workspaceImage != "" {
 		if err := (&controller.WorkspaceReconciler{
-			Image: workspaceImage, GatewayURL: workspaceGateway, GatewayNamespace: workspaceNamespace, Model: workspaceModel,
+			Image: workspaceImage, RelayImage: inferenceRelayImage,
+			GatewayURL: workspaceGateway, GatewayNamespace: workspaceNamespace, Model: workspaceModel,
 			TerminationGracePeriodSeconds: workspaceGraceSeconds,
 			Client:                        mgr.GetClient(),
 			APIReader:                     mgr.GetAPIReader(),

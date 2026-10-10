@@ -59,9 +59,11 @@ type WorkspaceReconciler struct {
 	client.Client
 	// APIReader bypasses the informer cache. Pod existence decides interruption and the one-writer
 	// guard, so those reads must never lag behind a Pod the controller just created or deleted.
-	APIReader        client.Reader
-	Scheme           *runtime.Scheme
-	Image            string
+	APIReader client.Reader
+	Scheme    *runtime.Scheme
+	Image     string
+	// RelayImage runs the inference relay sidecar (the webapp image).
+	RelayImage       string
 	GatewayURL       string
 	GatewayNamespace string
 	Model            string
@@ -445,7 +447,8 @@ func (r *WorkspaceReconciler) resources(ctx context.Context, w *api.Workspace) e
 }
 
 // runtimePod is the direct runtime Pod for one compute generation. It never restarts: any exit interrupts
-// the environment instead of replaying agent work.
+// the environment instead of replaying agent work. The inference relay is a native sidecar, which the
+// kubelet restarts despite the Pod's Never policy and stops once the runtime exits.
 func (r *WorkspaceReconciler) runtimePod(w *api.Workspace, generation int64, image string) *corev1.Pod {
 	gen := strconv.FormatInt(generation, 10)
 	labels := map[string]string{workspaceLabel: w.Name, workspaceWorkloadLabel: workspaceWorkloadValue, workspaceGenerationLabel: gen}
@@ -454,15 +457,16 @@ func (r *WorkspaceReconciler) runtimePod(w *api.Workspace, generation int64, ima
 		RestartPolicy:      corev1.RestartPolicyNever, DNSPolicy: corev1.DNSClusterFirst,
 		AutomountServiceAccountToken: ptr.To(false), TerminationGracePeriodSeconds: ptr.To(r.grace()),
 		SecurityContext: &corev1.PodSecurityContext{RunAsNonRoot: ptr.To(true), RunAsUser: ptr.To[int64](1000), RunAsGroup: ptr.To[int64](1000), FSGroup: ptr.To[int64](1000), SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault}},
+		InitContainers:  []corev1.Container{inferenceRelayContainer(r.RelayImage, r.GatewayURL)},
 		Containers: []corev1.Container{{Name: "runtime", Image: image, ImagePullPolicy: corev1.PullIfNotPresent,
-			SecurityContext: &corev1.SecurityContext{AllowPrivilegeEscalation: ptr.To(false), ReadOnlyRootFilesystem: ptr.To(true), Capabilities: &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}}},
+			SecurityContext: restrictedContainerSecurity(),
 			Ports:           []corev1.ContainerPort{{Name: "http", ContainerPort: 8080, Protocol: corev1.ProtocolTCP}},
-			Env:             []corev1.EnvVar{{Name: "HOME", Value: "/workspace"}, {Name: "WORKSPACE_ID", Value: w.Name}, {Name: "WORKSPACE_COMPUTE_GENERATION", Value: gen}, {Name: "INFERENCE_BASE_URL", Value: r.GatewayURL + "/inference/" + w.Name + "/v1"}, {Name: "AI_MODEL", Value: r.Model}, {Name: "WORKSPACE_TOKEN", ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: w.Spec.CredentialSecretName}, Key: workspaceTokenKey}}}},
+			Env:             []corev1.EnvVar{{Name: "HOME", Value: "/workspace"}, {Name: "WORKSPACE_ID", Value: w.Name}, {Name: "WORKSPACE_COMPUTE_GENERATION", Value: gen}, {Name: "INFERENCE_BASE_URL", Value: inferenceRelayURL + "/v1"}, {Name: "AI_MODEL", Value: r.Model}, {Name: "WORKSPACE_TOKEN", ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: w.Spec.CredentialSecretName}, Key: workspaceTokenKey}}}},
 			Resources:       corev1.ResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("200m"), corev1.ResourceMemory: resource.MustParse("512Mi")}, Limits: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2"), corev1.ResourceMemory: resource.MustParse("2Gi"), corev1.ResourceEphemeralStorage: resource.MustParse("1Gi")}},
 			VolumeMounts:    []corev1.VolumeMount{{Name: workspaceWorkloadValue, MountPath: "/workspace"}, {Name: "tmp", MountPath: "/tmp"}},
 			ReadinessProbe:  &corev1.Probe{ProbeHandler: corev1.ProbeHandler{HTTPGet: &corev1.HTTPGetAction{Path: "/health", Port: intstr.FromInt32(8080), Scheme: corev1.URISchemeHTTP}}, PeriodSeconds: 3, TimeoutSeconds: 2, SuccessThreshold: 1, FailureThreshold: 3},
 		}},
-		Volumes: []corev1.Volume{{Name: workspaceWorkloadValue, VolumeSource: corev1.VolumeSource{PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: w.Name}}}, {Name: "tmp", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{SizeLimit: ptr.To(resource.MustParse("256Mi"))}}}},
+		Volumes: []corev1.Volume{{Name: workspaceWorkloadValue, VolumeSource: corev1.VolumeSource{PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: w.Name}}}, {Name: "tmp", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{SizeLimit: ptr.To(resource.MustParse("256Mi"))}}}, inferenceTokenVolume()},
 	}}
 }
 
