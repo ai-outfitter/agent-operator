@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"maps"
 	"path"
@@ -19,6 +20,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -32,6 +34,12 @@ const (
 	OrganizationSlugLabel = "outfitter.ai/organization"
 	// InferenceProviderLabel marks a provider Secret and names its kind.
 	InferenceProviderLabel = "outfitter.ai/inference-provider"
+	// ProviderOwnerKindLabel is "organization" or "user". Only organization
+	// keys reach member agents; a member's own key stays in the organization
+	// namespace for the gateway's per-run use (delegation: webapp#223).
+	ProviderOwnerKindLabel = "outfitter.ai/owner-kind"
+	// ProviderOwnerOrganization is the owner kind of organization keys.
+	ProviderOwnerOrganization = "organization"
 	// ProviderSourceAnnotation records "<namespace>/<name>" of the canonical
 	// Secret on each operator-owned replica.
 	ProviderSourceAnnotation = "outfitter.ai/source"
@@ -110,12 +118,15 @@ func (r *ProviderSecretReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		}
 		for j := range sources.Items {
 			source := &sources.Items[j]
-			if !source.DeletionTimestamp.IsZero() {
+			if !source.DeletionTimestamp.IsZero() || source.Labels[ProviderOwnerKindLabel] != ProviderOwnerOrganization {
 				continue
 			}
 			key := types.NamespacedName{Namespace: namespace, Name: providerCopyName(source.Name)}
 			desired[key] = struct{}{}
-			if err := r.ensureCopy(ctx, organization, agent, source, key); err != nil {
+			if err := r.ensureCopy(ctx, organization, agent, source, key); errors.Is(err, errForeignSecret) {
+				// One colliding Secret must not stop the organization's other copies.
+				logf.FromContext(ctx).Info("Skipping provider copy over a Secret the operator does not own", "secret", key)
+			} else if err != nil {
 				return ctrl.Result{}, err
 			}
 		}
@@ -139,6 +150,8 @@ func (r *ProviderSecretReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	}
 	return ctrl.Result{}, nil
 }
+
+var errForeignSecret = errors.New("provider copy would overwrite a Secret the operator does not own")
 
 func isMemberOf(agent *aioutfitterv1alpha1.Agent, slug string) bool {
 	return slices.ContainsFunc(agent.Spec.Memberships, func(m aioutfitterv1alpha1.Membership) bool {
@@ -173,7 +186,7 @@ func (r *ProviderSecretReconciler) ensureCopy(
 	}
 	if replica.ResourceVersion != "" && replica.Annotations[ProviderSourceAnnotation] != sourceRef {
 		// Never overwrite a Secret this controller did not create.
-		return fmt.Errorf("secret %s exists and is not a provider replica of %s", key, sourceRef)
+		return fmt.Errorf("%w: %s is not a replica of %s", errForeignSecret, key, sourceRef)
 	}
 	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, replica, func() error {
 		labels := maps.Clone(source.Labels)
@@ -247,7 +260,7 @@ func (r *ProviderSecretReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&aioutfitterv1alpha1.Organization{}).
 		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(organizationForProviderSecret), providerSecrets).
-		Watches(&aioutfitterv1alpha1.Agent{}, handler.EnqueueRequestsFromMapFunc(organizationsForAgent)).
+		Watches(&aioutfitterv1alpha1.Agent{}, handler.EnqueueRequestsFromMapFunc(r.organizationsForAgent)).
 		Watches(&corev1.Namespace{}, handler.EnqueueRequestsFromMapFunc(r.organizationsForAgentNamespace)).
 		Named("providersecret").
 		Complete(r)
@@ -265,14 +278,27 @@ func organizationForProviderSecret(_ context.Context, object client.Object) []re
 	return nil
 }
 
-func organizationsForAgent(_ context.Context, object client.Object) []reconcile.Request {
+// organizationsForAgent maps an Agent to its organizations, including those
+// it still holds copies from, so leaving an organization removes its keys.
+func (r *ProviderSecretReconciler) organizationsForAgent(ctx context.Context, object client.Object) []reconcile.Request {
 	agent, ok := object.(*aioutfitterv1alpha1.Agent)
 	if !ok {
 		return nil
 	}
-	requests := make([]reconcile.Request, 0, len(agent.Spec.Memberships))
+	slugs := map[string]struct{}{}
 	for _, membership := range agent.Spec.Memberships {
-		requests = append(requests, reconcile.Request{NamespacedName: types.NamespacedName{Name: membership.Organization}})
+		slugs[membership.Organization] = struct{}{}
+	}
+	if copies, err := listProviderCopies(ctx, r.Client, agentNamespace(agent.Name)); err == nil {
+		for _, replica := range copies {
+			if slug := replica.Labels[OrganizationSlugLabel]; slug != "" {
+				slugs[slug] = struct{}{}
+			}
+		}
+	}
+	requests := make([]reconcile.Request, 0, len(slugs))
+	for slug := range slugs {
+		requests = append(requests, reconcile.Request{NamespacedName: types.NamespacedName{Name: slug}})
 	}
 	return requests
 }
@@ -288,5 +314,5 @@ func (r *ProviderSecretReconciler) organizationsForAgentNamespace(ctx context.Co
 	if err := r.Get(ctx, types.NamespacedName{Name: name}, agent); err != nil {
 		return nil
 	}
-	return organizationsForAgent(ctx, agent)
+	return r.organizationsForAgent(ctx, agent)
 }

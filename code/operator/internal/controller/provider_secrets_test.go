@@ -52,7 +52,7 @@ var _ = Describe("Provider Secret sync", func() {
 
 		source := &corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{Name: "openai-org", Namespace: sourceNamespace, Labels: map[string]string{
-				InferenceProviderLabel: "openai", "outfitter.ai/owner-kind": "organization", "outfitter.ai/owner-id": "org-1",
+				InferenceProviderLabel: "openai", ProviderOwnerKindLabel: ProviderOwnerOrganization, "outfitter.ai/owner-id": "org-1",
 			}},
 			Data: map[string][]byte{testAPIKey: []byte("v1"), "baseUrl": []byte("https://api.example.test"), "model": []byte("m")},
 		}
@@ -70,6 +70,19 @@ var _ = Describe("Provider Secret sync", func() {
 		Expect(replica.Annotations).To(HaveKeyWithValue(ProviderSourceAnnotation, sourceNamespace+"/"+source.Name))
 		Expect(replica.OwnerReferences).To(HaveLen(1))
 		Expect(replica.OwnerReferences[0].UID).To(Equal(organization.UID))
+
+		By("keeping a member's own key out of agent namespaces")
+		personal := &corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{Name: "openai-user", Namespace: sourceNamespace, Labels: map[string]string{
+				InferenceProviderLabel: "openai", ProviderOwnerKindLabel: "user", "outfitter.ai/owner-id": "user-1",
+			}},
+			Data: map[string][]byte{testAPIKey: []byte("mine")},
+		}
+		Expect(k8sClient.Create(ctx, personal)).To(Succeed())
+		reconcileOrg(organization.Name)
+		Expect(apierrors.IsNotFound(k8sClient.Get(ctx, types.NamespacedName{
+			Namespace: agentNamespace(member.Name), Name: providerCopyName(personal.Name),
+		}, &corev1.Secret{}))).To(BeTrue())
 
 		outsiderCopies, err := listProviderCopies(ctx, k8sClient, agentNamespace(outsider.Name))
 		Expect(err).NotTo(HaveOccurred())
@@ -99,6 +112,12 @@ var _ = Describe("Provider Secret sync", func() {
 		Expect(k8sClient.Get(ctx, deploymentKey, deployment)).To(Succeed())
 		Expect(deployment.Spec.Template.Annotations[ProviderChecksumAnnotation]).NotTo(Equal(firstChecksum))
 
+		By("reconciling an organization the agent left while it still holds its copies")
+		Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(member), member)).To(Succeed())
+		member.Spec.Memberships[0].Organization = other.Name
+		Expect(sync.organizationsForAgent(ctx, member)).To(ContainElement(
+			reconcile.Request{NamespacedName: types.NamespacedName{Name: organization.Name}}))
+
 		By("removing copies when the source is deleted")
 		Expect(k8sClient.Delete(ctx, source)).To(Succeed())
 		reconcileOrg(organization.Name)
@@ -111,7 +130,7 @@ var _ = Describe("Provider Secret sync", func() {
 		}
 	})
 
-	It("refuses to overwrite a Secret it does not own", func() {
+	It("skips, without overwriting, a Secret it does not own", func() {
 		organization := createAcceptedOrganization(ctx)
 		agent := validAgent(uniqueTestName("provider-collide"), organization.Name)
 		Expect(k8sClient.Create(ctx, agent)).To(Succeed())
@@ -123,12 +142,12 @@ var _ = Describe("Provider Secret sync", func() {
 		}, Data: map[string][]byte{testAPIKey: []byte("user")}})).To(Succeed())
 		Expect(k8sClient.Create(ctx, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{
 			Name: "anthropic", Namespace: OrganizationProviderNamespace(organization.Name),
-			Labels: map[string]string{InferenceProviderLabel: "anthropic"},
+			Labels: map[string]string{InferenceProviderLabel: "anthropic", ProviderOwnerKindLabel: ProviderOwnerOrganization},
 		}, Data: map[string][]byte{testAPIKey: []byte("org")}})).To(Succeed())
 
 		sync := &ProviderSecretReconciler{Client: k8sClient, Scheme: k8sClient.Scheme()}
 		_, err := sync.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: organization.Name}})
-		Expect(err).To(HaveOccurred())
+		Expect(err).NotTo(HaveOccurred(), "a collision is skipped, not fatal")
 		existing := &corev1.Secret{}
 		Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: agentNamespace(agent.Name), Name: providerCopyName("anthropic")}, existing)).To(Succeed())
 		Expect(existing.Data[testAPIKey]).To(Equal([]byte("user")))
