@@ -358,6 +358,11 @@ func (r *AgentReconciler) ensureAgentDeployment(
 		return nil, err
 	}
 	settingsHash := fmt.Sprintf("%x", sha256.Sum256(settings))
+	providerCopies, err := listProviderCopies(ctx, r.Client, namespace)
+	if err != nil {
+		return nil, err
+	}
+	providerVolume, providerChecksum, hasProviders := providerSecretVolume(providerCopies)
 
 	deployment := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: RuntimeName, Namespace: namespace}}
 	_, err = controllerutil.CreateOrUpdate(ctx, r.Client, deployment, func() error {
@@ -373,6 +378,11 @@ func (r *AgentReconciler) ensureAgentDeployment(
 		// rendered settings part of the PodTemplate so a catalog revision change
 		// creates a fresh Pod instead of leaving a running resident on stale data.
 		deployment.Spec.Template.Annotations[SettingsHashAnnotation] = settingsHash
+		if hasProviders {
+			deployment.Spec.Template.Annotations[ProviderChecksumAnnotation] = providerChecksum
+		} else {
+			delete(deployment.Spec.Template.Annotations, ProviderChecksumAnnotation)
+		}
 		deployment.Spec.Template.Spec.ServiceAccountName = RuntimeName
 		// No pod-wide token automount: the browser sidecar runs an
 		// unsandboxed Chromium and must never hold agent-runtime API
@@ -482,6 +492,11 @@ func (r *AgentReconciler) ensureAgentDeployment(
 			container.VolumeMounts = append(container.VolumeMounts,
 				corev1.VolumeMount{Name: NixStoreName, MountPath: NixMount})
 			volumes = append(volumes, pvcVolume(NixStoreName))
+		}
+		if hasProviders {
+			container.VolumeMounts = append(container.VolumeMounts,
+				corev1.VolumeMount{Name: providerVolumeName, MountPath: ProviderMountRoot, ReadOnly: true})
+			volumes = append(volumes, providerVolume)
 		}
 		inputEnvFrom, inputMounts, inputVolumes := inputProjection(agent)
 		container.EnvFrom = inputEnvFrom
