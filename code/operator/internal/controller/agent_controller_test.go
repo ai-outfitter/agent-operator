@@ -113,6 +113,7 @@ var _ = Describe("Agent Controller", func() {
 	It("reconciles the workload while reporting missing referenced objects", func() {
 		organization := createAcceptedOrganization(ctx)
 		agent := validAgent(uniqueTestName(researcherAgentSlug), organization.Name)
+		agent.Spec.Profile.Model = "outfitter/gpt-6-luna"
 		agent.Spec.Channels = []string{"slack", "github"}
 		secretName := "model-credentials"
 		configName := testRuntimeConfigName
@@ -181,7 +182,7 @@ var _ = Describe("Agent Controller", func() {
 		Expect(outfitterProvider.BaseURL).To(Equal("http://127.0.0.1:4141/v1"))
 		Expect(outfitterProvider.API).To(Equal("openai-completions"))
 		Expect(outfitterProvider.APIKey).To(Equal("$" + InferenceTokenEnv))
-		Expect(outfitterProvider.Models).To(ConsistOf(HaveField("ID", testInferenceModel)))
+		Expect(outfitterProvider.Models).To(ConsistOf(HaveField("ID", "gpt-6-luna")))
 		Expect(settings.Data[ModelsFile]).NotTo(ContainSubstring("headers"))
 
 		actual := &aioutfitterv1alpha1.Agent{}
