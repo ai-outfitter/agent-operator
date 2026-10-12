@@ -154,6 +154,7 @@ var _ = Describe("Temporary Workspace lifecycle", func() {
 		runtime, relay := pod.Spec.Containers[0], pod.Spec.InitContainers[0]
 		Expect(runtime.Name).To(Equal("runtime"))
 		Expect(runtime.Env).To(ContainElement(And(HaveField("Name", "INFERENCE_BASE_URL"), HaveField("Value", "http://127.0.0.1:4141/v1"))))
+		Expect(runtime.Env).To(ContainElement(And(HaveField("Name", "WORKSPACE_GATEWAY_URL"), HaveField("Value", testGateway))))
 		Expect(runtime.Env).To(ContainElement(HaveField("Name", "WORKSPACE_TOKEN")))
 		Expect(runtime.VolumeMounts).ToNot(ContainElement(HaveField("Name", inferenceTokenVolumeName)), "the runtime never holds the inference identity")
 		Expect(relay.Name).To(Equal(inferenceRelayName))

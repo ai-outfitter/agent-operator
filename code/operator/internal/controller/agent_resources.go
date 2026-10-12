@@ -712,7 +712,14 @@ func (r *AgentReconciler) renderSettingsData(
 	if err != nil {
 		return nil, err
 	}
-	models, err := renderInferenceModels(r.InferenceModel)
+	model := r.InferenceModel
+	if selected, ok := strings.CutPrefix(agent.Spec.Profile.Model, "outfitter/"); ok {
+		if selected == "" {
+			return nil, fmt.Errorf("outfitter agent model must not be empty")
+		}
+		model = selected
+	}
+	models, err := renderInferenceModels(model)
 	if err != nil {
 		return nil, err
 	}

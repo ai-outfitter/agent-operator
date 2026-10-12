@@ -88,7 +88,9 @@ headroom or the new Pod is not admitted.
 
 The `outfitter-settings` ConfigMap carries a `models.json` that defines the Pi
 provider `outfitter` (`baseUrl: http://127.0.0.1:4141/v1`,
-`api: openai-completions`, one model named by `--inference-model`). Its
+`api: openai-completions`, one model named by the Agent's
+`profile.model: outfitter/<model>` when selected, otherwise by
+`--inference-model`). Its
 `apiKey` reads `OUTFITTER_INFERENCE_TOKEN`, which the operator sets to a
 placeholder: Pi requires an env-backed key and the relay discards the bearer.
 
