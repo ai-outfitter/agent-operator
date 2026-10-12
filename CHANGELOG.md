@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.18.0](https://github.com/ai-outfitter/agent-operator/compare/agent-operator-v0.17.0...agent-operator-v0.18.0) (2026-10-12)
+
+
+### Features
+
+* **operator:** sync organization inference provider Secrets to agents ([#98](https://github.com/ai-outfitter/agent-operator/issues/98)) ([9a03803](https://github.com/ai-outfitter/agent-operator/commit/9a03803db6c06de56934ff31f7231f8e5aff9fce))
+* **workspaces:** run an inference relay sidecar with a projected pod identity ([#101](https://github.com/ai-outfitter/agent-operator/issues/101)) ([8adde85](https://github.com/ai-outfitter/agent-operator/commit/8adde85ef728d52ec54a1227ca60befe8066d970))
+
+
+### Bug Fixes
+
+* **operator:** separate workflow gateway and honor resident inference models ([#102](https://github.com/ai-outfitter/agent-operator/issues/102)) ([c2c985b](https://github.com/ai-outfitter/agent-operator/commit/c2c985b905742e1b46d3fbf4c35d05cf0487738d))
+
 ## [0.17.0](https://github.com/ai-outfitter/agent-operator/compare/agent-operator-v0.16.0...agent-operator-v0.17.0) (2026-10-06)
 
 
