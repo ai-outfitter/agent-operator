@@ -2,4 +2,4 @@
 # __ORG__ placeholder then survives rendering and the deploy must refuse.
 clusters:
   prod:
-    agents: [luce, vega]
+    agents: [mira, atlas]

@@ -10,7 +10,7 @@ spec:
 apiVersion: aioutfitter.com/v1alpha1
 kind: Agent
 metadata:
-  name: __ORG__-luce
+  name: __ORG__-mira
 spec:
   profile:
-    agent: luce
+    agent: mira

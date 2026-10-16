@@ -101,7 +101,7 @@ if [[ -n "$cluster" ]]; then
 
   # A catalog picks its own deployment prefix once, at the top of the table.
   # Every Agent it deploys is then named <organization>-<id>, which is what
-  # keeps two catalogs' `luce` from colliding on one cluster: the operator
+  # keeps two catalogs' `mira` from colliding on one cluster: the operator
   # derives the namespace agent-<name>, so the prefix separates them all the
   # way down. The prefix is chosen for the cluster, not copied from a forge
   # org login — it only needs to be unique among the catalogs sharing this
@@ -170,7 +170,7 @@ fi
 # a placeholder with no prefix behind it is refused, and so is a prefixed
 # manifest that hard-codes its own name. The name is the whole point — the
 # operator derives namespace agent-<name>, so <org>-<id> is what keeps two
-# catalogs' `luce` apart on one cluster.
+# catalogs' `mira` apart on one cluster.
 temporary="$(mktemp -d)"
 trap 'rm -rf "$temporary" "${temporary_table:-}"' EXIT
 
