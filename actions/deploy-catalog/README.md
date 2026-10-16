@@ -22,7 +22,7 @@ serves several clusters, and nothing is discovered:
 # clusters.yaml, at the catalog root
 clusters:
   nonprod:
-    agents: [luce, nonprod-bot]
+    agents: [mira, nonprod-bot]
   prod:
     agents: [prod-bot]
 ```
@@ -49,9 +49,9 @@ ever confirm what it just discovered.
 
 ## One persona per catalog
 
-A persona — `luce`, `vega` — is deployed **once per catalog**. `Agent` is
+A persona — `mira`, `atlas` — is deployed **once per catalog**. `Agent` is
 cluster-scoped and the operator derives the namespace `agent-<name>` from it,
-so two catalogs that both run `luce` on the same cluster would land on the
+so two catalogs that both run `mira` on the same cluster would land on the
 same cluster-scoped object and the same namespace. The name is therefore
 `<organization>-<id>`, and the namespace `agent-<organization>-<id>`.
 
@@ -61,7 +61,7 @@ prefix MUST be unique among the catalogs that deploy to the same cluster.
 
 A forge login can be long or awkward as a Kubernetes name. For example, the
 `ai-outfitter` GitHub org's bot login stutters (`ai-outfitter-outfitter-bot`),
-and `unsupervisedcom-luce` reads poorly. So each catalog picks its own short
+and `examplecom-mira` reads poorly. So each catalog picks its own short
 prefix instead: the `Unsupervisedcom` GitHub org's catalog declares
 `organization: unsupervised`, and the `ai-outfitter` GitHub org's catalog
 declares `organization: outfitter`.
@@ -74,7 +74,7 @@ top of `clusters.yaml`:
 organization: unsupervised      # this catalog's deployment prefix, unique on this cluster
 clusters:
   prod:
-    agents: [luce, vega]
+    agents: [mira, atlas]
 ```
 
 and each manifest names its `Agent` with the `__ORG__` placeholder:
@@ -83,12 +83,12 @@ and each manifest names its `Agent` with the `__ORG__` placeholder:
 apiVersion: aioutfitter.com/v1alpha1
 kind: Agent
 metadata:
-  name: __ORG__-luce            # applied as unsupervised-luce
+  name: __ORG__-mira            # applied as example-mira
 ```
 
-`agents/luce/deployment.yaml` must then declare exactly
-`Agent/unsupervised-luce`. The RBAC preflight, the convergence loop, the
-derived namespace `agent-unsupervised-luce`, and the action's `agents`
+`agents/mira/deployment.yaml` must then declare exactly
+`Agent/example-mira`. The RBAC preflight, the convergence loop, the
+derived namespace `agent-example-mira`, and the action's `agents`
 output all use the rendered name.
 
 The key and the placeholder are required together, and the deploy fails closed

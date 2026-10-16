@@ -4,6 +4,6 @@
 organization: acme
 clusters:
   prod:
-    agents: [luce, vega]
+    agents: [mira, atlas]
   unprefixed:
     agents: [bare]

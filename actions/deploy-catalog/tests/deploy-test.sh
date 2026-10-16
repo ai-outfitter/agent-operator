@@ -89,19 +89,19 @@ fi
 # catalog-chosen short name (here "acme"), not a forge org login, rendered
 # from clusters.yaml exactly like __REVISION__.
 contains "the selection log still names bare ids" \
-  "names for 'prod': luce vega" run organized CLUSTER=prod
+  "names for 'prod': mira atlas" run organized CLUSTER=prod
 contains "the declared organization is logged" \
   "organization: acme" run organized CLUSTER=prod
 contains "__ORG__ renders into the Agent name" \
-  "acme-luce is ready" run organized CLUSTER=prod
+  "acme-mira is ready" run organized CLUSTER=prod
 contains "every selected agent is prefixed" \
-  "acme-vega is ready" run organized CLUSTER=prod
+  "acme-atlas is ready" run organized CLUSTER=prod
 expect_ok "an organization-scoped deploy succeeds" run organized CLUSTER=prod
 
 # The rendered name is what the preflight and the converge loop use, so a grant
 # scoped to the unprefixed name must not satisfy them.
 expect_fail "the preflight asserts the prefixed name" "expected authorization was denied" \
-  run organized CLUSTER=prod STUB_DENY="patch agents.aioutfitter.com/acme-luce"
+  run organized CLUSTER=prod STUB_DENY="patch agents.aioutfitter.com/acme-mira"
 
 # Fail closed in both directions.
 expect_fail "__ORG__ without an organization is refused" "no organization is declared" \

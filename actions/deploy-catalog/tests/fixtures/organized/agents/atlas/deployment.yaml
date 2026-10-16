@@ -1,7 +1,7 @@
 apiVersion: aioutfitter.com/v1alpha1
 kind: Agent
 metadata:
-  name: __ORG__-vega
+  name: __ORG__-atlas
 spec:
   profile:
-    agent: vega
+    agent: atlas

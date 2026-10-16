@@ -38,12 +38,12 @@ func TestSignedDurableFanoutAndCollision(t *testing.T) {
 	}))
 	defer a2a.Close()
 	path := filepath.Join(t.TempDir(), "spool.db")
-	g, err := Open(Config{Organization: artera, Owner: artera, Secret: "secret", SpoolPath: path, Routes: []Route{{Username: "luce", URL: a2a.URL, Token: "luce-token"}, {Username: "vega", URL: a2a.URL, Token: "vega-token"}}})
+	g, err := Open(Config{Organization: artera, Owner: artera, Secret: "secret", SpoolPath: path, Routes: []Route{{Username: "mira", URL: a2a.URL, Token: "mira-token"}, {Username: "atlas", URL: a2a.URL, Token: "atlas-token"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = g.Close() }()
-	body := `{"action":"opened","repository":{"full_name":"artera/artera","owner":{"username":"artera"}},"issue":{"number":7,"html_url":"https://git.ncrmro.com/artera/artera/issues/7","body":"hello @vega","assignees":[{"username":"luce"}]},"sender":{"username":"nicholas"}}`
+	body := `{"action":"opened","repository":{"full_name":"artera/artera","owner":{"username":"artera"}},"issue":{"number":7,"html_url":"https://git.ncrmro.com/artera/artera/issues/7","body":"hello @atlas","assignees":[{"username":"mira"}]},"sender":{"username":"nicholas"}}`
 	w := httptest.NewRecorder()
 	g.Handler().ServeHTTP(w, signedRequest(t, body, "delivery-1", "secret"))
 	if w.Code != http.StatusAccepted {
@@ -64,11 +64,11 @@ func TestSignedDurableFanoutAndCollision(t *testing.T) {
 	if len(received) != 2 {
 		t.Fatalf("deliveries=%v", received)
 	}
-	if !strings.Contains(received["Bearer luce-token"], `forgejo:artera:delivery-1:luce`) {
-		t.Fatal("missing Luce message id")
+	if !strings.Contains(received["Bearer mira-token"], `forgejo:artera:delivery-1:mira`) {
+		t.Fatal("missing Mira message id")
 	}
-	if !strings.Contains(received["Bearer vega-token"], `forgejo:artera:delivery-1:vega`) {
-		t.Fatal("missing Vega message id")
+	if !strings.Contains(received["Bearer atlas-token"], `forgejo:artera:delivery-1:atlas`) {
+		t.Fatal("missing Atlas message id")
 	}
 	w = httptest.NewRecorder()
 	g.Handler().ServeHTTP(w, signedRequest(t, body, "delivery-1", "secret"))
@@ -84,7 +84,7 @@ func TestSignedDurableFanoutAndCollision(t *testing.T) {
 
 func TestRejectsSignatureOwnerAndDuplicateRoutes(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "spool.db")
-	g, err := Open(Config{Organization: "artera", Owner: "artera", Secret: "secret", SpoolPath: path, Routes: []Route{{Username: "luce", URL: "http://invalid", Token: "x"}}})
+	g, err := Open(Config{Organization: "artera", Owner: "artera", Secret: "secret", SpoolPath: path, Routes: []Route{{Username: "mira", URL: "http://invalid", Token: "x"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
