@@ -43,5 +43,6 @@ pointing that default at the Outfitter container is pending follow-up work.
 - [Use case: researcher wiki maintainer](docs/documentation/usecases.researcher-wiki-maintainer.md)
   — an end-to-end example composition (email a paper, get a wiki commit).
 - [Architecture](docs/architecture.md) — the primitives-vs-composition design.
+- [Resident voice interaction](docs/resident-voice-interaction.md) — proposed Slack audio, live huddle, and telephone goals; voice clips first.
 - [Contributing](CONTRIBUTING.md) — local development (Nix, devenv, a local
   cluster).
