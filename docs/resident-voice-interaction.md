@@ -269,7 +269,8 @@ contents, identifiers, and file URLs are deliberately omitted from this document
 
 The user supplied a local copy of the Slack clip through the shared filesystem.
 Its size (143,893 bytes) and duration (11.075918 seconds) match the previously
-observed Slack attachment. No independent Slack byte digest was available.
+observed Slack attachment. At benchmark time no independent Slack byte digest
+was available; the managed rollout below later verified the original bytes.
 Identical decoded 16 kHz mono PCM and cached `ggml-small.en-tdrz.bin` model bytes
 were verified by SHA-256 on both hosts. Both ran Whisper.cpp 1.8.7 with English,
 four CPU threads, default decoding, and text/JSON output.
@@ -291,47 +292,47 @@ large-model quality evaluation.
 
 Both hosts demonstrate sub-second transcription on repeated runs of this clip.
 The workstation is a practical first local backend for this deployment. A
-persistent service, authenticated Slack download, resident task integration, and
-the actual Slack response remain to be implemented and verified. This experiment
+persistent local service and an actual Slack response were outside this
+benchmark. The managed download and read path were verified later below. This experiment
 did not change the existing inference service or deploy a transcription service.
 Private audio, transcripts, hashes, and runtime logs remain outside the repository.
 
-## Local implementation (2026-10-20)
+## Implemented adapters (2026-10-20)
 
-The Channels `feat/audio-transcription` worktree implements a batch `Transcriber`
+Channels implements a batch `Transcriber`
 contract, OpenAI-compatible and Whisper.cpp HTTP protocols, explicit endpoint /
 model / credential configuration, a packaged `outfitter-transcribe` CLI, and
 Slack audio context fallback. It accepts mounted inference API-key files but
 requires a separately selected transcription model. Native Slack transcripts
 bypass audio upload. No automatic local-to-hosted failover is enabled.
 
-The webapp `feat/resident-audio-download` worktree adds a managed audio-download
+The webapp provides a managed audio-download
 operation that verifies current binding, channel membership, exact message/file
 association, provider file metadata, and bounded downloads. Slack bot credentials
-stay inside the platform. Platform deployment and a resident runtime update plus
-backend configuration are still required to activate this for Luce.
+stay inside the platform. The deployed gateway and Luce runtime now support this
+path, as verified in the rollout below.
 
 The packaged CLI was exercised against a local Whisper.cpp HTTP server using the
 original m4a clip. Automated tests cover hosted request construction and provider
-boundaries; live hosted transcription is not yet verified. The temporary local server was stopped after validation. These are
-local changes, not a release or a verified live Slack reply.
+boundaries. The temporary local server was stopped after validation. The hosted
+rollout below verifies a live Slack read; no Slack reply was sent during testing.
 
 ### Managed inference correction
 
 Managed residents should use the existing Outfitter relay at
 `http://127.0.0.1:4141/v1`, with `TRANSCRIPTION_API=openai` and an explicit
-`TRANSCRIPTION_MODEL=gpt-transcribe`. The agent needs no provider key. The sidecar
+`TRANSCRIPTION_MODEL=whisper-1`. The agent needs no provider key. The sidecar
 attaches its rotating projected ServiceAccount token; the gateway resolves the
 organization's saved providers through the web app. Provider Secret sync also
 exists, but reading a generic cluster key bypasses the resident's resolution.
 
-The webapp draft now extends that relay/gateway with bounded multipart audio,
+The deployed webapp extends that relay/gateway with bounded multipart audio,
 shared admission leases, and resolved OpenAI credentials. The first managed
 version supports official OpenAI endpoints only and does not substitute chat
 models or silently switch providers. Local Whisper.cpp remains an explicit
 Channels backend. A live chat request through Luce's current relay returned
 HTTP 200 with `gpt-6-luna` on 2026-10-20. That verifies the credential path, not
-transcription. Deployment and the exact-clip Slack check remain pending.
+transcription. The subsequent audio acceptance is recorded below.
 
 ### Rollout tracking
 
@@ -341,11 +342,38 @@ now pins that commit through a read-only operator-managed ConfigMap mount; a
 catalog pin alone would have been shadowed by the older image-baked profile.
 Her transcription environment points to the loopback relay without an API key.
 
-Gateway and managed Slack download delivery is tracked in
-[webapp issue #483](https://github.com/ai-outfitter/webapp/issues/483), carrying
-forward the tested implementation from draft PR #482 through canonical review.
-Until its deployment and exact-clip validation finish, live managed voice support
-remains unverified.
+Gateway and managed Slack download support merged in
+[webapp PR #487](https://github.com/ai-outfitter/webapp/pull/487), commit
+`e5d73c20d7bec3d164774567057ad56fa5d4da12`, after independent formal approval,
+PR CI, and merge-queue CI. The Actions deployment completed successfully.
+Both gateway replicas and the resident operator use published image
+`ghcr.io/ai-outfitter/webapp@sha256:bd2560db532077ed153030db2f8d435c18d044e6bf3e7f61a93e29d466448015`.
+Luce's reconciled inference init-container image was checked directly, and
+Channels reported ready after restart.
+
+Live acceptance used the original attachment through Luce's binding-scoped
+`files.download`: HTTP 200, 143,893 bytes, and a SHA-256 matching the user's local
+copy. Her installed Channels `managedSlackActions.read` then returned the target
+message with attributed OpenAI transcript context through the loopback relay.
+Gateway usage recorded Luce, the resolved OpenAI provider, the speech model, and
+HTTP 200. No provider key was added to the agent.
+
+The complete managed read took 6.466 seconds with `gpt-transcribe`, 6.420 seconds
+with `gpt-4o-transcribe`, and 4.970 seconds with `whisper-1`. These single live
+measurements include Slack context and download latency, and are not comparable
+to the local CLI-only benchmark above. The outputs differed; `whisper-1` gave
+more complete, coherent text for this clip and was selected in Luce's runtime
+configuration. A final read after restart, with no per-command model override,
+returned attributed `whisper-1` transcript context in 7.978 seconds. No model's
+accuracy has been scored against a human reference.
+Audio, transcripts, attachment hashes, and detailed receipts remain private.
+
+This verifies the real managed Slack read and transcription path. It does not
+claim a newly delivered Slack event or an agent-written reply: the test sent no
+Slack message and did not acknowledge an event. Huddles, phone conversations,
+streaming turn-taking, and a persistent self-hosted speech server remain future
+work. Local Whisper.cpp remains an explicitly selectable adapter; hosted failure
+does not silently redirect private audio to another provider.
 
 ## Provider references
 
