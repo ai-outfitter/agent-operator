@@ -3,6 +3,6 @@
     "github": {
       "mode": "webhook"
     },
-    "channels": []
+    "channels": null
   }
 }
