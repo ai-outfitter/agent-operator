@@ -1,0 +1,12 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: voice-preview
+resources:
+  - namespace.yaml
+  - workloads.yaml
+  - network-policy.yaml
+  - ingress.yaml
+images:
+  - name: voice-runtime
+    newName: 216577824627.dkr.ecr.us-east-1.amazonaws.com/ai-outfitter/voice-preview
+    newTag: REPLACE_WITH_REVIEWED_COMMIT

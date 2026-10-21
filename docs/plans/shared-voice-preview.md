@@ -1,6 +1,6 @@
 # Shared voice preview milestone
 
-Status: plan for adversarial review. Do not merge or release during this milestone.
+Status: simplified after Claude review of plan commit 30f27c0. Do not merge or release during this milestone.
 
 ## Outcome
 
@@ -35,15 +35,21 @@ Use existing task transport and one explicitly allowlisted test resident/user.
 No new user identity database, meeting provider, provider switching UI, or new
 conversation-memory contract.
 
-Decision for review: should this milestone add an isolated --voice-only
-controller mode that reconciles the two Deployments/Service/PVC from one
-namespaced configuration object, or use ordinary Kustomize assets first?
-The full Organization/Agent voice CRD design is deferred until an actual call
-validates the runtime contract. Prefer fewer controllers and less schema.
-If no controller is necessary, operator-repository deployment changes are the
-implementation; explicitly state that this does not implement automatic Agent
-voice provisioning. Never claim a new operator binary was tested if only
-manifests were deployed.
+Claude review decision: manifests only. No controller mode, CRD, operator image,
+or automatic Agent/Organization voice provisioning. The existing resident
+operator stays unchanged and this milestone does not re-test its binary.
+One flat deployment directory reuses the webapp image. A separate, explicitly
+applied NetworkPolicy in agent-outfitter-vega allows only the preview broker to
+reach A2A; no resident Deployment or existing policy is patched.
+
+Build the exact webapp commit manually, push it to a nonprod ECR repository with
+immutable tags, and pin the resulting digest. Split internal LIVEKIT_URL from
+browser LIVEKIT_PUBLIC_URL. Publish only exact /residents, /sessions and /end
+broker paths. Worker routes remain ClusterIP-only. Warm one worker job process.
+
+Media decision is pending user input. The internal-only overlay supports cluster
+smoke tests. Public media infrastructure or an existing hosted project is required
+for the real browser audio gate; do not mark that gate complete for an API test.
 
 LiveKit is optional infrastructure: the runtime always requires a configured
 LiveKit endpoint, but the deployment may use an existing shared service instead
@@ -72,8 +78,8 @@ came from without logging values. Do not copy production credentials blindly.
    release or merge. Record upstream base and image source commits.
 4. Apply only isolated nonprod resources after checking kubectl context, RBAC,
    storage, image pull and connection prerequisites. Do not replace the active
-   resident operator or patch/delete existing residents. Stop if that would be
-   necessary and report the concrete blocker.
+   resident operator or patch/delete existing residents. The separately named preview NetworkPolicy is the only resident-namespace
+   addition. Stop if replacing resident workloads is necessary.
 5. Configure only the webapp branch preview with broker URL/token; preserve
    production/base-preview settings. Authenticate and exercise the browser UI.
 6. Record exactly which gates passed and keep the PR draft until live acceptance.

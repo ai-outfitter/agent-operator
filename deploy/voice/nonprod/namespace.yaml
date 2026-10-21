@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: voice-preview
+  labels:
+    app.kubernetes.io/part-of: voice-preview
+    pod-security.kubernetes.io/enforce: restricted

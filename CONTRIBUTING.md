@@ -99,3 +99,20 @@ legacy ConfigMap values and preservation of existing A2A client credentials.
 Use `GOFLAGS=-buildvcs=false make test` if the local Go toolchain cannot stamp
 VCS metadata in a detached worktree. These are local checks, not evidence of a
 live webhook cutover; see `docs/documentation/github-event-workflows.md`.
+
+## Shared voice manifest check
+
+The opt-in EKS preview lives in `deploy/voice` and reuses the webapp voice image.
+It does not rebuild or replace the resident operator. With kubectl, Python 3,
+and read access to the nonprod API discovery endpoints:
+
+```sh
+set -o pipefail
+kubectl --context webapp-nonprod create --dry-run=client --validate=false \
+  -k deploy/voice/nonprod -o json | python3 deploy/voice/check-render.py
+kubectl kustomize deploy/voice/livekit-internal
+```
+
+The small check asserts singleton SQLite, credential separation and exact public
+routes. Server-side validation and actual call acceptance are separate deployment
+gates documented in `deploy/voice/README.md`.

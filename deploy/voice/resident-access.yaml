@@ -1,0 +1,23 @@
+# Apply separately; the only resource added outside voice-preview.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-voice-preview-a2a
+  namespace: agent-outfitter-vega
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: agent-runtime
+      app.kubernetes.io/instance: outfitter-vega
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: voice-preview
+          podSelector:
+            matchLabels:
+              app: voice-broker
+      ports:
+        - port: 8788
+          protocol: TCP
