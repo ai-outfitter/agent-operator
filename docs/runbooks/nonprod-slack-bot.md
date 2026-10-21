@@ -168,10 +168,10 @@ kubectl --context unsup-nonprod-engineer \
 tar -C "$HOME" -cf - .pi | \
   kubectl --context unsup-nonprod-engineer \
     -n agent-nonprod-bot exec -i nonprod-bot-pi-seeder -- \
-    tar -C /workspace -xf -
+    tar -C /home/nonprod-bot -xf -
 kubectl --context unsup-nonprod-engineer \
   -n agent-nonprod-bot exec nonprod-bot-pi-seeder -- \
-  test -s /workspace/.pi/agent/auth.json
+  test -s /home/nonprod-bot/.pi/agent/auth.json
 kubectl --context unsup-nonprod-engineer \
   -n agent-nonprod-bot delete pod/nonprod-bot-pi-seeder --wait=true
 kubectl --context unsup-nonprod-engineer \

@@ -334,7 +334,8 @@ func runForgeGateway() {
 	}
 	gateway, err := forgegateway.Open(forgegateway.Config{
 		Organization: os.Getenv("ORGANIZATION"), Owner: os.Getenv("FORGE_OWNER"),
-		Secret: os.Getenv("FORGE_WEBHOOK_SECRET"), SpoolPath: os.Getenv("SPOOL_PATH"), Routes: routes,
+		Provider: os.Getenv("FORGE_PROVIDER"),
+		Secret:   os.Getenv("FORGE_WEBHOOK_SECRET"), SpoolPath: os.Getenv("SPOOL_PATH"), Routes: routes,
 	})
 	if err != nil {
 		slog.Error("open forge gateway", "error", err)

@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    "@ai-outfitter/channels": "https://github.com/ai-outfitter/channels/archive/7e5c252309b44e8835c421ee34c500998dac5554.tar.gz",
+    "@earendil-works/pi-coding-agent": "0.80.10"
+  }
+}

@@ -108,9 +108,6 @@ func (r *OrganizationReconciler) finalize(
 
 func validateOrganization(organization *aioutfitterv1alpha1.Organization) string {
 	const httpScheme = "http"
-	if len(organization.Spec.AgentCatalogs) == 0 {
-		return "organizations must declare at least one agent catalog"
-	}
 	for _, repository := range organization.Spec.Repositories {
 		parsed, err := url.Parse(repository.URI)
 		if err != nil || parsed.Scheme == "" {

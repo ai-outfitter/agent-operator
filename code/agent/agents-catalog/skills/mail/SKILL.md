@@ -46,7 +46,7 @@ Repeat until INBOX is empty:
 
    ```bash
    xin reply <emailId> --text "…your reply…"
-   # long bodies: xin reply <emailId> --text @/workspace/reply.txt
+   # long bodies: xin reply <emailId> --text @$HOME/reply.txt
    ```
 
    Confirm the returned JSON has `"ok": true` before moving on. If it is

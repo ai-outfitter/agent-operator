@@ -20,8 +20,8 @@ spec:
       command: ["sleep", "3600"]
       volumeMounts:
         - name: workspace
-          mountPath: /workspace
+          mountPath: /home/researcher
   volumes:
     - name: workspace
       persistentVolumeClaim:
-        claimName: agent-workspace
+        claimName: agent-home

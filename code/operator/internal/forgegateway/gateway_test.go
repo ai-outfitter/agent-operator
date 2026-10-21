@@ -17,7 +17,7 @@ import (
 func signedRequest(t *testing.T, body, delivery, secret string) *http.Request {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodPost, "/webhooks/forgejo", strings.NewReader(body))
-	req.Header.Set("X-Forgejo-Event", "issues")
+	req.Header.Set("X-Forgejo-Event", eventIssues)
 	req.Header.Set("X-Forgejo-Delivery", delivery)
 	mac := hmac.New(sha256.New, []byte(secret))
 	_, _ = io.WriteString(mac, body)
@@ -38,7 +38,7 @@ func TestSignedDurableFanoutAndCollision(t *testing.T) {
 	}))
 	defer a2a.Close()
 	path := filepath.Join(t.TempDir(), "spool.db")
-	g, err := Open(Config{Organization: artera, Owner: artera, Secret: "secret", SpoolPath: path, Routes: []Route{{Username: "luce", URL: a2a.URL, Token: "luce-token"}, {Username: "vega", URL: a2a.URL, Token: "vega-token"}}})
+	g, err := Open(Config{Organization: artera, Owner: artera, Secret: "secret", SpoolPath: path, Routes: []Route{{Username: testLuce, URL: a2a.URL, Token: "luce-token"}, {Username: testVega, URL: a2a.URL, Token: "vega-token"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +84,7 @@ func TestSignedDurableFanoutAndCollision(t *testing.T) {
 
 func TestRejectsSignatureOwnerAndDuplicateRoutes(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "spool.db")
-	g, err := Open(Config{Organization: "artera", Owner: "artera", Secret: "secret", SpoolPath: path, Routes: []Route{{Username: "luce", URL: "http://invalid", Token: "x"}}})
+	g, err := Open(Config{Organization: "artera", Owner: "artera", Secret: "secret", SpoolPath: path, Routes: []Route{{Username: testLuce, URL: "http://invalid", Token: "x"}}})
 	if err != nil {
 		t.Fatal(err)
 	}

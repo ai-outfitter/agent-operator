@@ -12,17 +12,24 @@
 #
 # Offline is the default: the image ships a prebuilt extension cache and the
 # runtime never fetches executable code. An Agent CR may set PI_OFFLINE=0
-# together with a writable XDG_CACHE_HOME (e.g. /workspace/.cache) so a
+# together with a writable XDG_CACHE_HOME (e.g. $HOME/.cache) so a
 # profile-pinned npm extension version is installed once from the registry and
 # then served from the workspace cache; Outfitter verifies exact-pinned npm
 # versions against that cache on every start.
 #
 set -euo pipefail
-export HOME="/workspace"
+: "${HOME:?The operator must set the agent home}"
 export PATH="/bin:/usr/bin:/usr/local/bin${PATH:+:$PATH}"
 export NIX_CONFIG="${NIX_CONFIG:-experimental-features = nix-command flakes}"
-export XDG_CACHE_HOME="${XDG_CACHE_HOME:-/opt/agent/.cache}"
-export PI_CODING_AGENT_SESSION_DIR="${PI_CODING_AGENT_SESSION_DIR:-/workspace/.pi/agent/sessions}"
+export XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
+export XDG_DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
+export XDG_STATE_HOME="${XDG_STATE_HOME:-$HOME/.local/state}"
+export XDG_CACHE_HOME="${XDG_CACHE_HOME:-$HOME/.cache}"
+# Seed the packaged extension cache into the normal writable user cache.
+mkdir -p "$XDG_CACHE_HOME"
+cp -R --no-clobber /opt/agent/.cache/. "$XDG_CACHE_HOME/"
+chmod -R u+w "$XDG_CACHE_HOME/outfitter"
+export PI_CODING_AGENT_SESSION_DIR="${PI_CODING_AGENT_SESSION_DIR:-$HOME/.pi/agent/sessions}"
 if [ -z "${PI_OFFLINE:-}" ]; then
   export PI_OFFLINE=1
 fi

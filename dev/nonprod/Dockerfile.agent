@@ -20,9 +20,10 @@ COPY dev/nonprod/agent-entrypoint.mjs /opt/link/agent-entrypoint.mjs
 
 RUN test -n "$CHANNELS_REVISION" \
     && printf '%s\n' "$CHANNELS_REVISION" > /opt/channels/REVISION \
-    && mkdir -p /nix/store /workspace/.pi/agent \
-    && chown -R 1000:1000 /workspace
+    && mkdir -p /nix/store /home/nonprod-bot/.pi/agent \
+    && chown -R 1000:1000 /home/nonprod-bot
 
+ENV HOME=/home/nonprod-bot
 USER 1000:1000
-WORKDIR /workspace
+WORKDIR /home/nonprod-bot
 ENTRYPOINT ["node", "/opt/link/agent-entrypoint.mjs"]

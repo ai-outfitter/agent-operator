@@ -22,9 +22,9 @@ import (
 
 type Route struct{ Username, URL, Token string }
 type Config struct {
-	Listen, Organization, Owner, Secret, SpoolPath string
-	Routes                                         []Route
-	Logger                                         *slog.Logger
+	Listen, Organization, Owner, Secret, SpoolPath, Provider string
+	Routes                                                   []Route
+	Logger                                                   *slog.Logger
 }
 type Gateway struct {
 	cfg    Config
@@ -64,12 +64,22 @@ type pullRequest struct {
 	Assignees         []forgeUser `json:"assignees"`
 	RequestedReviewer *forgeUser  `json:"requested_reviewer"`
 	User              forgeUser
+	Head              struct {
+		SHA string `json:"sha"`
+	} `json:"head"`
 }
 type comment struct {
 	Body    string    `json:"body"`
 	HTMLURL string    `json:"html_url"`
 	User    forgeUser `json:"user"`
 }
+type review struct {
+	Body     string `json:"body"`
+	HTMLURL  string `json:"html_url"`
+	State    string `json:"state"`
+	CommitID string `json:"commit_id"`
+}
+
 type event struct {
 	Action            string
 	Repository        repository
@@ -79,16 +89,24 @@ type event struct {
 	Assignee          *forgeUser
 	RequestedReviewer *forgeUser `json:"requested_reviewer"`
 	Sender            forgeUser
+	Review            *review `json:"review"`
 }
 type forwarded struct {
 	Provider, Action, Actor, Repository string
 	Number                              int
 	URL, Reason                         string
+	Event, Workflow, HeadSHA            string `json:",omitempty"`
 }
 
 const actionOpened = "opened"
 
 func Open(cfg Config) (*Gateway, error) {
+	if cfg.Provider == "" {
+		cfg.Provider = providerForgejo
+	}
+	if cfg.Provider != providerForgejo && cfg.Provider != providerGitHub {
+		return nil, fmt.Errorf("unsupported forge provider %q", cfg.Provider)
+	}
 	if cfg.Logger == nil {
 		cfg.Logger = slog.Default()
 	}
@@ -124,7 +142,7 @@ func (g *Gateway) Close() error { return g.db.Close() }
 func (g *Gateway) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
-	mux.HandleFunc("/webhooks/forgejo", g.webhook)
+	mux.HandleFunc("/webhooks/"+g.cfg.Provider, g.webhook)
 	return mux
 }
 
@@ -133,7 +151,11 @@ func (g *Gateway) webhook(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	delivery := r.Header.Get("X-Forgejo-Delivery")
+	prefix, signatureHeader := "X-Forgejo-", "X-Forgejo-Signature"
+	if g.cfg.Provider == providerGitHub {
+		prefix, signatureHeader = "X-GitHub-", "X-Hub-Signature-256"
+	}
+	delivery := r.Header.Get(prefix + "Delivery")
 	if delivery == "" {
 		http.Error(w, "missing delivery", http.StatusBadRequest)
 		return
@@ -143,7 +165,7 @@ func (g *Gateway) webhook(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid body", 400)
 		return
 	}
-	want, err := hex.DecodeString(strings.TrimPrefix(r.Header.Get("X-Forgejo-Signature"), "sha256="))
+	want, err := hex.DecodeString(strings.TrimPrefix(r.Header.Get(signatureHeader), "sha256="))
 	if err != nil {
 		http.Error(w, "invalid signature", http.StatusUnauthorized)
 		return
@@ -152,6 +174,10 @@ func (g *Gateway) webhook(w http.ResponseWriter, r *http.Request) {
 	mac.Write(body)
 	if !hmac.Equal(want, mac.Sum(nil)) {
 		http.Error(w, "invalid signature", http.StatusUnauthorized)
+		return
+	}
+	if g.cfg.Provider == providerGitHub && r.Header.Get(prefix+"Event") == "ping" {
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 	var e event
@@ -168,7 +194,7 @@ func (g *Gateway) webhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	digest := fmt.Sprintf("%x", sha256.Sum256(body))
-	eventName := r.Header.Get("X-Forgejo-Event")
+	eventName := r.Header.Get(prefix + "Event")
 	tx, err := g.db.Begin()
 	if err != nil {
 		http.Error(w, "spool unavailable", http.StatusServiceUnavailable)
@@ -194,6 +220,9 @@ func (g *Gateway) webhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	targets, states := g.targets(tx, eventName, e)
+	if g.cfg.Provider == providerGitHub {
+		targets, states = g.githubTargets(eventName, e), nil
+	}
 	for subject, names := range states {
 		encoded, _ := json.Marshal(names)
 		if _, err = tx.Exec(`INSERT INTO route_state(subject,usernames) VALUES(?,?) ON CONFLICT(subject) DO UPDATE SET usernames=excluded.usernames`, subject, string(encoded)); err != nil {
@@ -202,10 +231,11 @@ func (g *Gateway) webhook(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	for username, item := range targets {
-		item.Provider = "forgejo"
+		item.Provider = g.cfg.Provider
+		item.Event = eventName
 		item.Action = e.Action
 		raw, _ := json.Marshal(item)
-		mid := fmt.Sprintf("forgejo:%s:%s:%s", g.cfg.Organization, delivery, username)
+		mid := fmt.Sprintf("%s:%s:%s:%s", g.cfg.Provider, g.cfg.Organization, delivery, username)
 		if _, err = tx.Exec(`INSERT OR IGNORE INTO a2a_deliveries(message_id,username,payload) VALUES(?,?,?)`, mid, username, string(raw)); err != nil {
 			http.Error(w, "spool unavailable", http.StatusServiceUnavailable)
 			return
@@ -285,7 +315,7 @@ func (g *Gateway) targets(tx *sql.Tx, kind string, e event) (map[string]forwarde
 	}
 	subject := ""
 	switch kind {
-	case "issues":
+	case eventIssues:
 		if e.Issue == nil {
 			return t, state
 		}
@@ -294,11 +324,11 @@ func (g *Gateway) targets(tx *sql.Tx, kind string, e event) (map[string]forwarde
 		text = e.Issue.Body
 		subject = fmt.Sprintf("%s:issue:%d", repo, number)
 		now := usernames(e.Issue.Assignees)
-		if e.Action == actionOpened || e.Action == "assigned" {
-			add(difference(now, g.prior(tx, subject+":assignees")), "assigned")
+		if e.Action == actionOpened || e.Action == reasonAssigned {
+			add(difference(now, g.prior(tx, subject+":assignees")), reasonAssigned)
 		}
 		state[subject+":assignees"] = now
-	case "pull_request":
+	case eventPullRequest:
 		if e.PullRequest == nil {
 			return t, state
 		}
@@ -307,20 +337,20 @@ func (g *Gateway) targets(tx *sql.Tx, kind string, e event) (map[string]forwarde
 		text = e.PullRequest.Body
 		subject = fmt.Sprintf("%s:pull:%d", repo, number)
 		now := usernames(e.PullRequest.Assignees)
-		if e.Action == actionOpened || e.Action == "assigned" {
-			add(difference(now, g.prior(tx, subject+":assignees")), "assigned")
+		if e.Action == actionOpened || e.Action == reasonAssigned {
+			add(difference(now, g.prior(tx, subject+":assignees")), reasonAssigned)
 		}
 		state[subject+":assignees"] = now
-		if e.Action == "review_requested" {
+		if e.Action == reasonReviewRequested {
 			u := e.RequestedReviewer
 			if u == nil {
 				u = e.PullRequest.RequestedReviewer
 			}
 			if u != nil {
-				add([]string{strings.ToLower(u.name())}, "review_requested")
+				add([]string{strings.ToLower(u.name())}, reasonReviewRequested)
 			}
 		}
-	case "issue_comment":
+	case eventIssueComment:
 		if e.Comment == nil {
 			return t, state
 		}
@@ -335,9 +365,9 @@ func (g *Gateway) targets(tx *sql.Tx, kind string, e event) (map[string]forwarde
 	default:
 		return t, state
 	}
-	if e.Action == actionOpened || e.Action == "created" || e.Action == "edited" {
+	if e.Action == actionOpened || e.Action == actionCreated || e.Action == "edited" {
 		now := mentions(text)
-		add(difference(now, g.prior(tx, subject+":mentions")), "mentioned")
+		add(difference(now, g.prior(tx, subject+":mentions")), reasonMentioned)
 		state[subject+":mentions"] = now
 	}
 	return t, state
@@ -372,7 +402,12 @@ func (g *Gateway) deliverPending(ctx context.Context) {
 		if !ok {
 			continue
 		}
-		body, _ := json.Marshal(map[string]any{"message": map[string]any{"messageId": x.m, "role": "ROLE_USER", "parts": []map[string]any{{"text": x.p}}}, "configuration": map[string]any{"returnImmediately": true}})
+		parts := []map[string]any{{"text": x.p}}
+		var activation forwarded
+		if json.Unmarshal([]byte(x.p), &activation) == nil && activation.Provider == providerGitHub {
+			parts = []map[string]any{{"data": activation}, {"text": githubWorkflowInstruction(activation.Workflow)}}
+		}
+		body, _ := json.Marshal(map[string]any{"message": map[string]any{"messageId": x.m, "role": "ROLE_USER", "parts": parts}, "configuration": map[string]any{"returnImmediately": true}})
 		req, _ := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(route.URL, "/")+"/message:send", strings.NewReader(string(body)))
 		req.Header.Set("Authorization", "Bearer "+route.Token)
 		req.Header.Set("Content-Type", "application/a2a+json")

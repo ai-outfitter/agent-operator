@@ -27,8 +27,8 @@ spec:
           memory: 128Mi
       volumeMounts:
         - name: workspace
-          mountPath: /workspace
+          mountPath: /home/nonprod-bot
   volumes:
     - name: workspace
       persistentVolumeClaim:
-        claimName: agent-workspace
+        claimName: agent-home

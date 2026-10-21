@@ -1,0 +1,43 @@
+{
+  "apiVersion": "networking.k8s.io/v1",
+  "kind": "Ingress",
+  "metadata": {
+    "name": "github-events",
+    "namespace": "org-unsupervised",
+    "annotations": {
+      "cert-manager.io/cluster-issuer": "letsencrypt-cloudflare-dns"
+    }
+  },
+  "spec": {
+    "ingressClassName": "nginx",
+    "rules": [
+      {
+        "host": "github-events-unsupervised.unsupervised.wtf",
+        "http": {
+          "paths": [
+            {
+              "path": "/webhooks/github",
+              "pathType": "Exact",
+              "backend": {
+                "service": {
+                  "name": "forge-gateway",
+                  "port": {
+                    "number": 80
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "tls": [
+      {
+        "hosts": [
+          "github-events-unsupervised.unsupervised.wtf"
+        ],
+        "secretName": "github-events-tls"
+      }
+    ]
+  }
+}

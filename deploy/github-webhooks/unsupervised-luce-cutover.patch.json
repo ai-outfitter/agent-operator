@@ -1,0 +1,10 @@
+{
+  "spec": {
+    "github": {
+      "mode": "webhook"
+    },
+    "channels": [
+      "slack"
+    ]
+  }
+}

@@ -63,7 +63,7 @@ devenv tasks run demo:m1
    Here `From` is the return address exposed by the delivered JMAP Email. Local
    JMAP delivery does not require an SMTP `Return-Path` header.
 8. Require exactly one matching original in `Processed` and none in `INBOX`.
-9. Confirm `/workspace/.pi/agent/auth.json` exists and is non-empty when the
+9. Confirm `$HOME/.pi/agent/auth.json` exists and is non-empty when the
    source file exists locally.
 10. Restart the Deployment, then prove the original remains outside `INBOX` and
     the sender mailbox still contains exactly one reply.

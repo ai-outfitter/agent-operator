@@ -106,7 +106,7 @@ var _ = Describe("Agent Controller", func() {
 		}}
 		Expect(inputValidationMessage(agent)).To(ContainSubstring("exactly one Secret or ConfigMap"))
 		agent.Spec.Volumes = []corev1.Volume{{Name: testInputConfigName, VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{LocalObjectReference: corev1.LocalObjectReference{Name: testInputConfigName}}}}}
-		agent.Spec.VolumeMounts = []corev1.VolumeMount{{Name: testInputConfigName, MountPath: WorkspaceMount + "/config", ReadOnly: true}}
+		agent.Spec.VolumeMounts = []corev1.VolumeMount{{Name: testInputConfigName, MountPath: agentHome(agent) + "/config", ReadOnly: true}}
 		Expect(inputValidationMessage(agent)).To(ContainSubstring("overlaps reserved path"))
 	})
 
@@ -157,13 +157,13 @@ var _ = Describe("Agent Controller", func() {
 		Expect(roleBinding.RoleRef).To(Equal(rbacv1.RoleRef{APIGroup: rbacv1.GroupName, Kind: "ClusterRole", Name: "admin"}))
 
 		quota := &corev1.ResourceQuota{}
-		Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: namespaceName, Name: WorkspaceName}, quota)).To(Succeed())
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: namespaceName, Name: HomeVolumeName}, quota)).To(Succeed())
 		Expect(quota.Spec.Hard).To(Equal(agent.Spec.Workspace.ResourceQuota.Hard))
 		limitRange := &corev1.LimitRange{}
 		Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: namespaceName, Name: LimitRangeName}, limitRange)).To(Succeed())
 		Expect(limitRange.Spec.Limits).To(HaveLen(1))
 		claim := &corev1.PersistentVolumeClaim{}
-		Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: namespaceName, Name: WorkspaceName}, claim)).To(Succeed())
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: namespaceName, Name: HomeVolumeName}, claim)).To(Succeed())
 		Expect(claim.Spec.Resources.Requests[corev1.ResourceStorage]).To(Equal(resource.MustParse("10Gi")))
 
 		settings := &corev1.ConfigMap{}
@@ -223,7 +223,7 @@ var _ = Describe("Agent Controller", func() {
 		Expect(deployment.Spec.Template.Spec.Containers[0].Env).To(ContainElements(
 			corev1.EnvVar{Name: "AGENT_ENDPOINT_ID", Value: "link:" + agent.Name},
 			corev1.EnvVar{Name: "AGENT_PRINCIPAL_ID", Value: "link:" + agent.Name},
-			corev1.EnvVar{Name: "AGENT_SPOOL_PATH", Value: "/workspace/.channels/agent"},
+			corev1.EnvVar{Name: "AGENT_SPOOL_PATH", Value: agentHome(agent) + "/.local/state/channels/agent"},
 			corev1.EnvVar{Name: OutfitterChannelsEnv, Value: "github,slack"},
 			corev1.EnvVar{Name: GitHubNotifyOrgsEnv, Value: testOutfitterOrg},
 			corev1.EnvVar{Name: GitHubNotifyPollMSEnv, Value: "60000"},
@@ -434,7 +434,7 @@ var _ = Describe("Agent Controller", func() {
 		Expect(settings.Data["settings.yml"]).To(ContainSubstring("ref: " + newRevision))
 	})
 
-	It("adds a browser sidecar when spec.browser is enabled", func() {
+	It("keeps the browser profile on the resident home across deployment recreation and browser toggles", func() {
 		organization := createAcceptedOrganization(ctx)
 		agent := validAgent(uniqueTestName("browser"), organization.Name)
 		agent.Spec.Browser = &aioutfitterv1alpha1.BrowserSpec{Enabled: true}
@@ -484,7 +484,33 @@ var _ = Describe("Agent Controller", func() {
 		for _, volume := range deployment.Spec.Template.Spec.Volumes {
 			volumeNames = append(volumeNames, volume.Name)
 		}
-		Expect(volumeNames).To(ContainElement(browserDataName))
+		Expect(volumeNames).To(ContainElement(HomeVolumeName))
+		Expect(volumeNames).NotTo(ContainElement("browser-data"))
+		Expect(containers[0].WorkingDir).To(Equal("/home/" + agent.Name))
+		Expect(containers[0].Env).To(ContainElement(corev1.EnvVar{Name: "HOME", Value: "/home/" + agent.Name}))
+		Expect(containers[0].VolumeMounts).To(ContainElement(identityMount()))
+		Expect(containers[1].Args).To(ContainElement("--user-data-dir=/home/" + agent.Name + "/.config/chromium"))
+		Expect(containers[1].VolumeMounts).To(ConsistOf(
+			identityMount(),
+			corev1.VolumeMount{Name: HomeVolumeName, MountPath: "/home/" + agent.Name + "/.config/chromium", SubPath: ".config/chromium"},
+			corev1.VolumeMount{Name: HomeVolumeName, MountPath: "/home/" + agent.Name + "/.cache/chromium", SubPath: ".cache/chromium"},
+		))
+		Expect(deployment.Spec.Template.Spec.Hostname).To(Equal(RuntimeName))
+		Expect(deployment.Spec.Strategy.Type).To(Equal(appsv1.RecreateDeploymentStrategyType))
+		Expect(deployment.Spec.Template.Spec.InitContainers[1].Name).To(Equal("init-agent-home"))
+		Expect(deployment.Spec.Template.Spec.Volumes).To(ContainElement(pvcVolume(HomeVolumeName)))
+		claim := &corev1.PersistentVolumeClaim{}
+		claimKey := types.NamespacedName{Namespace: deploymentKey.Namespace, Name: HomeVolumeName}
+		Expect(k8sClient.Get(ctx, claimKey, claim)).To(Succeed())
+		claimUID := claim.UID
+		// Replacing the workload must reconnect to the same home claim.
+		Expect(k8sClient.Delete(ctx, deployment)).To(Succeed())
+		_, err = reconciler.Reconcile(ctx, request)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(k8sClient.Get(ctx, deploymentKey, deployment)).To(Succeed())
+		Expect(k8sClient.Get(ctx, claimKey, claim)).To(Succeed())
+		Expect(claim.UID).To(Equal(claimUID))
+		Expect(deployment.Spec.Template.Spec.Volumes).To(ContainElement(pvcVolume(HomeVolumeName)))
 
 		// Disabling the browser removes the sidecar again.
 		current := &aioutfitterv1alpha1.Agent{}
@@ -495,6 +521,17 @@ var _ = Describe("Agent Controller", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(k8sClient.Get(ctx, deploymentKey, deployment)).To(Succeed())
 		Expect(deployment.Spec.Template.Spec.Containers).To(HaveLen(1))
+		Expect(k8sClient.Get(ctx, claimKey, claim)).To(Succeed())
+		Expect(claim.UID).To(Equal(claimUID))
+		Expect(k8sClient.Get(ctx, request.NamespacedName, current)).To(Succeed())
+		current.Spec.Browser = &aioutfitterv1alpha1.BrowserSpec{Enabled: true}
+		Expect(k8sClient.Update(ctx, current)).To(Succeed())
+		_, err = reconciler.Reconcile(ctx, request)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(k8sClient.Get(ctx, deploymentKey, deployment)).To(Succeed())
+		Expect(deployment.Spec.Template.Spec.Containers[1].VolumeMounts).To(Equal(containers[1].VolumeMounts))
+		Expect(k8sClient.Get(ctx, claimKey, claim)).To(Succeed())
+		Expect(claim.UID).To(Equal(claimUID))
 	})
 
 	It("projects references and becomes ready after the agent runtime starts", func() {
@@ -555,7 +592,7 @@ var _ = Describe("Agent Controller", func() {
 		// id is what lets the durable JSONL transcript on the workspace PVC resume
 		// across pod restarts.
 		Expect(container.Args).To(Equal([]string{
-			"run", researcherAgentSlug, "--strict", "--", "--mode", "rpc", "--session-id", agent.Name,
+			"run", researcherAgentSlug, "--strict", "--", piModeFlag, piRPCMode, piSessionIDFlag, agent.Name,
 			"--provider", "openrouter", "--model", "anthropic/claude-sonnet",
 		}))
 		Expect(container.Stdin).To(BeTrue())
@@ -564,7 +601,7 @@ var _ = Describe("Agent Controller", func() {
 			corev1.EnvVar{Name: "AGENT_HARNESS", Value: "pi"},
 			corev1.EnvVar{Name: "A2A_SERVER", Value: "1"},
 			corev1.EnvVar{Name: "A2A_HOST", Value: "0.0.0.0"},
-			corev1.EnvVar{Name: A2AWorkflowManifestEnv, Value: WorkflowManifestPath},
+			corev1.EnvVar{Name: A2AWorkflowManifestEnv, Value: agentHome(agent) + "/.local/share/outfitter/workflow/.agents/.outfitter/workflow-composition.json"},
 			corev1.EnvVar{Name: A2AWorkflowEnv, Value: testWorkflowID},
 		))
 		Expect(container.Ports).To(ContainElement(corev1.ContainerPort{
@@ -579,7 +616,7 @@ var _ = Describe("Agent Controller", func() {
 		}))
 		// The .agents layer is an emptyDir of regular files: a ConfigMap volume
 		// serves symlinks into `..data`, which outfitter dump --strict refuses.
-		agentsLayer := corev1.VolumeMount{Name: AgentsLayerName, MountPath: WorkspaceMount + "/.agents", ReadOnly: true}
+		agentsLayer := corev1.VolumeMount{Name: AgentsLayerName, MountPath: agentHome(agent) + "/.agents", ReadOnly: true}
 		Expect(container.VolumeMounts).To(ContainElement(agentsLayer))
 		Expect(container.VolumeMounts).NotTo(ContainElement(HaveField("Name", SettingsName)))
 		Expect(deployment.Spec.Template.Spec.Volumes).To(ContainElement(And(
@@ -594,40 +631,44 @@ var _ = Describe("Agent Controller", func() {
 			initNames = append(initNames, initContainer.Name)
 		}
 		Expect(initNames).To(Equal([]string{
-			inferenceRelayName, "copy-settings", seedNixStoreName, "sync-agent-catalog",
-			"setup-wait-for-mail", "setup-mail-bootstrap", "export-workflow",
+			inferenceRelayName, "init-agent-home", "copy-settings", seedNixStoreName, catalogSyncContainerName,
+			"setup-wait-for-mail", "setup-mail-bootstrap", workflowExportContainerName,
 		}))
 		for _, initContainer := range initContainers[1:] {
 			Expect(initContainer.Image).To(Equal(agent.Spec.Image))
+			if initContainer.Name != seedNixStoreName {
+				Expect(initContainer.WorkingDir).To(Equal("/home/" + agent.Name))
+			}
 		}
-		copySettings := initContainers[1]
-		Expect(copySettings.Command).To(Equal([]string{"sh", "-c", "cp -L /etc/outfitter-settings/* /workspace/.agents/"}))
-		Expect(copySettings.Env).To(ContainElement(corev1.EnvVar{Name: HomeEnvName, Value: WorkspaceMount}))
+		copySettings := initContainers[2]
+		Expect(copySettings.Command).To(Equal([]string{"sh", "-c", "cp -L /etc/outfitter-settings/* " + agentHome(agent) + "/.agents/"}))
+		Expect(copySettings.Env).To(ContainElement(corev1.EnvVar{Name: HomeEnvName, Value: agentHome(agent)}))
 		Expect(copySettings.VolumeMounts).To(ConsistOf(
+			identityMount(),
 			corev1.VolumeMount{Name: SettingsName, MountPath: "/etc/outfitter-settings", ReadOnly: true},
-			corev1.VolumeMount{Name: AgentsLayerName, MountPath: WorkspaceMount + "/.agents"},
+			corev1.VolumeMount{Name: AgentsLayerName, MountPath: agentHome(agent) + "/.agents"},
 		))
-		Expect(initContainers[3].Command).To(Equal([]string{"sh", "-c", catalogSyncScript}))
-		Expect(initContainers[3].EnvFrom).To(ContainElement(corev1.EnvFromSource{
+		Expect(initContainers[4].Command).To(Equal([]string{"sh", "-c", catalogSyncScript}))
+		Expect(initContainers[4].EnvFrom).To(ContainElement(corev1.EnvFromSource{
 			SecretRef: &corev1.SecretEnvSource{LocalObjectReference: corev1.LocalObjectReference{Name: secretName}},
 		}))
-		Expect(initContainers[3].VolumeMounts).To(ContainElements(
-			corev1.VolumeMount{Name: WorkspaceName, MountPath: WorkspaceMount},
+		Expect(initContainers[4].VolumeMounts).To(ContainElements(
+			corev1.VolumeMount{Name: HomeVolumeName, MountPath: agentHome(agent)},
 			agentsLayer,
 			corev1.VolumeMount{Name: NixStoreName, MountPath: NixMount},
 		))
-		Expect(initContainers[3].VolumeMounts).NotTo(ContainElement(
+		Expect(initContainers[4].VolumeMounts).NotTo(ContainElement(
 			corev1.VolumeMount{Name: APITokenVolumeName, MountPath: APITokenMountPath, ReadOnly: true},
 		))
-		Expect(initContainers[4].Command).To(Equal([]string{"sh", "-c", "echo mail-ready"}))
-		Expect(initContainers[6].Command).To(Equal([]string{"sh", "-c", workflowExportScript}))
-		Expect(initContainers[6].Env).To(ContainElements(
-			corev1.EnvVar{Name: HomeEnvName, Value: WorkspaceMount},
+		Expect(initContainers[5].Command).To(Equal([]string{"sh", "-c", "echo mail-ready"}))
+		Expect(initContainers[7].Command).To(Equal([]string{"sh", "-c", workflowExportScript}))
+		Expect(initContainers[7].Env).To(ContainElements(
+			corev1.EnvVar{Name: HomeEnvName, Value: agentHome(agent)},
 			corev1.EnvVar{Name: OutfitterWorkflowEnv, Value: testWorkflowID},
-			corev1.EnvVar{Name: WorkflowExportDirEnv, Value: WorkflowExportDir},
+			corev1.EnvVar{Name: WorkflowExportDirEnv, Value: agentHome(agent) + "/.local/share/outfitter/workflow"},
 		))
-		Expect(initContainers[6].VolumeMounts).To(ContainElements(
-			corev1.VolumeMount{Name: WorkspaceName, MountPath: WorkspaceMount},
+		Expect(initContainers[7].VolumeMounts).To(ContainElements(
+			corev1.VolumeMount{Name: HomeVolumeName, MountPath: agentHome(agent)},
 			agentsLayer,
 			corev1.VolumeMount{Name: NixStoreName, MountPath: NixMount},
 		))
@@ -636,13 +677,13 @@ var _ = Describe("Agent Controller", func() {
 			"Image":   Equal(agent.Spec.Image),
 			"Command": Equal([]string{"sh", "-c", "echo setup-ready"}),
 			"Env": ContainElement(corev1.EnvVar{
-				Name: HomeEnvName, Value: WorkspaceMount,
+				Name: HomeEnvName, Value: agentHome(agent),
 			}),
 			"EnvFrom": ContainElement(corev1.EnvFromSource{
 				SecretRef: &corev1.SecretEnvSource{LocalObjectReference: corev1.LocalObjectReference{Name: secretName}},
 			}),
 			"VolumeMounts": ContainElements(
-				corev1.VolumeMount{Name: WorkspaceName, MountPath: WorkspaceMount},
+				corev1.VolumeMount{Name: HomeVolumeName, MountPath: agentHome(agent)},
 				corev1.VolumeMount{Name: NixStoreName, MountPath: NixMount},
 				corev1.VolumeMount{
 					Name: testRuntimeConfigName, MountPath: testRuntimeConfigMountPath, ReadOnly: true,
@@ -838,7 +879,7 @@ printf new >"$out/.agents/.outfitter/workflow-composition.json"
 					}
 					// seed-nix-store only copies store paths; it must never
 					// carry the API token.
-					if initContainer.Name == "seed-nix-store" {
+					if initContainer.Name == seedNixStoreName {
 						Expect(mount.Name).NotTo(Equal(APITokenVolumeName))
 					}
 				}
@@ -853,11 +894,11 @@ printf new >"$out/.agents/.outfitter/workflow-composition.json"
 				mountNames = append(mountNames, mount.Name)
 			}
 			if expected {
-				Expect(initNames).To(ContainElement("seed-nix-store"))
+				Expect(initNames).To(ContainElement(seedNixStoreName))
 				Expect(volumeNames).To(ContainElement(NixStoreName))
 				Expect(mountNames).To(ContainElement(NixStoreName))
 			} else {
-				Expect(initNames).NotTo(ContainElement("seed-nix-store"))
+				Expect(initNames).NotTo(ContainElement(seedNixStoreName))
 				Expect(volumeNames).NotTo(ContainElement(NixStoreName))
 				Expect(mountNames).NotTo(ContainElement(NixStoreName))
 			}
@@ -905,7 +946,7 @@ printf new >"$out/.agents/.outfitter/workflow-composition.json"
 		Expect(err).NotTo(HaveOccurred())
 
 		quota := &corev1.ResourceQuota{}
-		key := types.NamespacedName{Namespace: agentNamespace(agent.Name), Name: WorkspaceName}
+		key := types.NamespacedName{Namespace: agentNamespace(agent.Name), Name: HomeVolumeName}
 		Expect(k8sClient.Get(ctx, key, quota)).To(Succeed())
 		quota.Spec.Hard[corev1.ResourceRequestsCPU] = resource.MustParse("999")
 		Expect(k8sClient.Update(ctx, quota)).To(Succeed())

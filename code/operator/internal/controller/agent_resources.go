@@ -31,8 +31,8 @@ const (
 	AgentUIDLabel  = "aioutfitter.com/agent-uid"
 	ManagedByLabel = "app.kubernetes.io/managed-by"
 	RuntimeName    = "agent-runtime"
-	WorkspaceName  = "agent-workspace"
-	LimitRangeName = "agent-workspace-defaults"
+	HomeVolumeName = "agent-home"
+	LimitRangeName = "agent-defaults"
 	SettingsName   = "outfitter-settings"
 	SettingsFile   = "settings.yml"
 	// ModelsFile defines the `outfitter` Pi provider. The settings ConfigMap is
@@ -48,11 +48,11 @@ const (
 	// projected identity instead, so the value is a placeholder.
 	InferenceTokenEnv       = "OUTFITTER_INFERENCE_TOKEN"
 	SettingsHashAnnotation  = "aioutfitter.com/outfitter-settings-hash"
-	WorkspaceMount          = "/workspace"
 	CredentialsRoot         = "/var/run/agent/credentials"
 	NixStoreName            = "agent-nix-store"
 	NixMount                = "/nix"
 	HomeEnvName             = "HOME"
+	IdentityVolumeName      = "agent-identity"
 	OutfitterChannelsEnv    = "OUTFITTER_CHANNELS"
 	GitHubNotifyOrgsEnv     = "GITHUB_NOTIFY_ORGS"
 	GitHubNotifyPollMSEnv   = "GITHUB_NOTIFY_POLL_MS"
@@ -100,8 +100,6 @@ const (
 	A2AWorkflowEnv                 = "A2A_WORKFLOW"
 	OutfitterWorkflowEnv           = "OUTFITTER_WORKFLOW"
 	WorkflowExportDirEnv           = "WORKFLOW_EXPORT_DIR"
-	WorkflowExportDir              = "/workspace/.outfitter/workflow"
-	WorkflowManifestPath           = WorkflowExportDir + "/.agents/.outfitter/workflow-composition.json"
 )
 
 // apiTokenExpirationSeconds matches the kubelet-managed kube-api-access
@@ -132,6 +130,28 @@ var defaultNixStoreSize = resource.MustParse("20Gi")
 // /nix store.
 var agentFSGroup = ptr.To[int64](1000)
 
+// Build the passwd entry from the runtime image so getpwuid and HOME agree.
+// Identity metadata is regenerated each boot; application state lives on the home PVC.
+const agentHomeInitScript = `set -eu
+umask 077
+mkdir -p "$HOME/.config/chromium" "$HOME/.cache/chromium" "$HOME/.local/share" "$HOME/.local/state"
+: > /identity/passwd
+if [ -f /etc/passwd ]; then
+  while IFS=: read -r name password uid gid gecos home shell; do
+    if [ "$uid" != 1000 ] && [ "$name" != "$AGENT_NAME" ]; then
+      printf '%s:%s:%s:%s:%s:%s:%s\n' "$name" "$password" "$uid" "$gid" "$gecos" "$home" "$shell" >> /identity/passwd
+    fi
+  done < /etc/passwd
+else
+  printf 'root:x:0:0:root:/root:/bin/sh\n' >> /identity/passwd
+fi
+printf '%s:x:1000:1000:Resident agent:%s:/bin/sh\n' "$AGENT_NAME" "$HOME" >> /identity/passwd
+chmod 644 /identity/passwd`
+
+func identityMount() corev1.VolumeMount {
+	return corev1.VolumeMount{Name: IdentityVolumeName, MountPath: "/etc/passwd", SubPath: "passwd", ReadOnly: true}
+}
+
 // Each image boot merges its immutable store closure into the persistent store.
 // --no-clobber keeps the agent's existing store paths and Nix state intact.
 // SOURCE_NIX and DESTINATION_NIX make the exact upgrade behavior testable without
@@ -151,7 +171,7 @@ outfitter sync`
 // refuses an existing destination. Staging preserves the last valid export if
 // composition fails and makes every successful restart idempotent.
 const workflowExportScript = `set -eu
-workflow_export_dir="${WORKFLOW_EXPORT_DIR:-` + WorkflowExportDir + `}"
+workflow_export_dir="${WORKFLOW_EXPORT_DIR:?}"
 workflow_staging_dir="${workflow_export_dir}.next"
 workflow_live_agents="$workflow_export_dir/.agents"
 workflow_backup_agents="$workflow_export_dir/.agents.previous"
@@ -242,7 +262,7 @@ func (r *AgentReconciler) ensureWorkspaceResources(
 		return nil, err
 	}
 
-	quota := &corev1.ResourceQuota{ObjectMeta: metav1.ObjectMeta{Name: WorkspaceName, Namespace: namespace}}
+	quota := &corev1.ResourceQuota{ObjectMeta: metav1.ObjectMeta{Name: HomeVolumeName, Namespace: namespace}}
 	if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, quota, func() error {
 		quota.Labels = mergeLabels(quota.Labels, labels)
 		quota.Spec.Hard = agent.Spec.Workspace.ResourceQuota.Hard.DeepCopy()
@@ -269,7 +289,7 @@ func (r *AgentReconciler) ensureWorkspaceResources(
 	if workspaceSize.IsZero() {
 		workspaceSize = defaultWorkspaceSize.DeepCopy()
 	}
-	if err := r.ensurePVC(ctx, namespace, WorkspaceName, labels, storageClass, workspaceSize); err != nil {
+	if err := r.ensurePVC(ctx, namespace, HomeVolumeName, labels, storageClass, workspaceSize); err != nil {
 		return nil, err
 	}
 	// Persistent Nix store, closure image variant only (see imageNeedsNixStore):
@@ -315,22 +335,24 @@ func (r *AgentReconciler) ensurePVC(
 // copy-settings fills with regular files. A ConfigMap volume serves its files
 // as symlinks into `..data`, and `outfitter dump --strict` refuses a root file
 // that resolves through a symlink, even through a subPath mount.
-func settingsMount() corev1.VolumeMount {
-	return corev1.VolumeMount{Name: AgentsLayerName, MountPath: path.Join(WorkspaceMount, ".agents"), ReadOnly: true}
+func settingsMount(agent *aioutfitterv1alpha1.Agent) corev1.VolumeMount {
+	return corev1.VolumeMount{Name: AgentsLayerName, MountPath: agentConfigPath(agent), ReadOnly: agent.Spec.Pi == nil}
 }
 
 // copySettingsContainer dereferences the settings ConfigMap's files into the
 // .agents emptyDir before any other step reads the layer.
-func copySettingsContainer(image string) corev1.Container {
+func copySettingsContainer(image string, agent *aioutfitterv1alpha1.Agent) corev1.Container {
 	return corev1.Container{
 		Name:            "copy-settings",
+		WorkingDir:      agentHome(agent),
 		Image:           image,
 		ImagePullPolicy: corev1.PullIfNotPresent,
-		Command:         []string{"sh", "-c", "cp -L " + SettingsMountPath + "/* " + path.Join(WorkspaceMount, ".agents") + "/"},
-		Env:             []corev1.EnvVar{{Name: HomeEnvName, Value: WorkspaceMount}},
+		Command:         []string{"sh", "-c", "cp -L " + SettingsMountPath + "/* " + agentConfigPath(agent) + "/"},
+		Env:             []corev1.EnvVar{{Name: HomeEnvName, Value: agentHome(agent)}},
 		VolumeMounts: []corev1.VolumeMount{
+			identityMount(),
 			{Name: SettingsName, MountPath: SettingsMountPath, ReadOnly: true},
-			{Name: AgentsLayerName, MountPath: path.Join(WorkspaceMount, ".agents")},
+			{Name: AgentsLayerName, MountPath: agentConfigPath(agent)},
 		},
 	}
 }
@@ -402,6 +424,13 @@ func (r *AgentReconciler) ensureAgentDeployment(
 		return nil, err
 	}
 	providerVolume, providerChecksum, hasProviders := providerSecretVolume(providerCopies)
+	transportHash := ""
+	if agent.Spec.Forge != nil || agent.Spec.TaskPlane != nil {
+		transportHash, err = transportCredentialHash(ctx, r.Client, namespace, agentCredentialSecretName(agent), agentA2ACredentialsKey)
+		if err != nil {
+			return nil, err
+		}
+	}
 
 	deployment := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: RuntimeName, Namespace: namespace}}
 	_, err = controllerutil.CreateOrUpdate(ctx, r.Client, deployment, func() error {
@@ -417,11 +446,18 @@ func (r *AgentReconciler) ensureAgentDeployment(
 		// rendered settings part of the PodTemplate so a catalog revision change
 		// creates a fresh Pod instead of leaving a running resident on stale data.
 		deployment.Spec.Template.Annotations[SettingsHashAnnotation] = settingsHash
+		if transportHash != "" {
+			deployment.Spec.Template.Annotations[credentialHashAnnotation] = transportHash
+		} else {
+			delete(deployment.Spec.Template.Annotations, credentialHashAnnotation)
+		}
 		if hasProviders {
 			deployment.Spec.Template.Annotations[ProviderChecksumAnnotation] = providerChecksum
 		} else {
 			delete(deployment.Spec.Template.Annotations, ProviderChecksumAnnotation)
 		}
+		// Stable hostname keeps Chromium's profile lock valid across pod replacement.
+		deployment.Spec.Template.Spec.Hostname = RuntimeName
 		deployment.Spec.Template.Spec.ServiceAccountName = RuntimeName
 		// No pod-wide token automount: the browser sidecar runs an
 		// unsandboxed Chromium and must never hold agent-runtime API
@@ -436,7 +472,7 @@ func (r *AgentReconciler) ensureAgentDeployment(
 		}
 
 		runtimeArgs := []string{
-			"run", agent.Spec.Profile.Agent, "--strict", "--", "--mode", "rpc", "--session-id", agent.Name,
+			"run", agent.Spec.Profile.Agent, "--strict", "--", piModeFlag, piRPCMode, piSessionIDFlag, agent.Name,
 		}
 		if agent.Spec.Profile.Model != "" {
 			provider, model, _ := strings.Cut(agent.Spec.Profile.Model, "/")
@@ -447,7 +483,7 @@ func (r *AgentReconciler) ensureAgentDeployment(
 			Name:            "agent",
 			Image:           runtimeImage,
 			ImagePullPolicy: corev1.PullIfNotPresent,
-			WorkingDir:      WorkspaceMount,
+			WorkingDir:      agentHome(agent),
 			// The resident invocation, stated here rather than assumed from the image.
 			//
 			// The stock Outfitter container's entrypoint is bare `outfitter`, which prints
@@ -465,13 +501,15 @@ func (r *AgentReconciler) ensureAgentDeployment(
 			// restarts — Channels treats the JSONL transcript on the workspace PVC
 			// as the canonical conversation state. Outfitter 1.3.0 made that
 			// transcript durable by defaulting PI_CODING_AGENT_SESSION_DIR under
-			// $HOME (= /workspace, the PVC) — see outfitter #243 — so a stable
+			// $HOME (the persistent agent home) — see outfitter #243 — so a stable
 			// --session-id is all that is needed to resume it.
 			Args:  runtimeArgs,
 			Stdin: true,
 			Env: append([]corev1.EnvVar{
-				{Name: HomeEnvName, Value: WorkspaceMount},
+				{Name: HomeEnvName, Value: agentHome(agent)},
 				{Name: "AGENT_NAME", Value: agent.Name},
+				{Name: "USER", Value: agent.Name},
+				{Name: "LOGNAME", Value: agent.Name},
 				{Name: "AGENT_SLUG", Value: agent.Spec.Profile.Agent},
 				{Name: "AGENT_HARNESS", Value: agent.Spec.Profile.Harness},
 				{Name: "AGENT_ORGANIZATION", Value: organization.Name},
@@ -485,18 +523,23 @@ func (r *AgentReconciler) ensureAgentDeployment(
 				},
 				{
 					Name:  "AGENT_SPOOL_PATH",
-					Value: path.Join(WorkspaceMount, ".channels", "agent"),
+					Value: path.Join(agentHome(agent), ".local/state/channels", "agent"),
 				},
 				{Name: InferenceTokenEnv, Value: "relay"},
 			}, runtimeConfigEnv...),
 			VolumeMounts: []corev1.VolumeMount{
-				{Name: WorkspaceName, MountPath: WorkspaceMount},
-				settingsMount(),
+				identityMount(),
+				{Name: HomeVolumeName, MountPath: agentHome(agent)},
+				settingsMount(agent),
 				{Name: APITokenVolumeName, MountPath: APITokenMountPath, ReadOnly: true},
 			},
 		}
+		if agent.Spec.Pi != nil {
+			configureDirectPi(&container, agent)
+		}
 		volumes := []corev1.Volume{
-			pvcVolume(WorkspaceName),
+			pvcVolume(HomeVolumeName),
+			{Name: IdentityVolumeName, VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}},
 			{
 				Name: SettingsName,
 				VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{
@@ -525,7 +568,7 @@ func (r *AgentReconciler) ensureAgentDeployment(
 		}
 		if taskPlane := agent.Spec.TaskPlane; taskPlane != nil {
 			container.Env = append(container.Env,
-				corev1.EnvVar{Name: A2AWorkflowManifestEnv, Value: WorkflowManifestPath},
+				corev1.EnvVar{Name: A2AWorkflowManifestEnv, Value: path.Join(agentHome(agent), ".local/share/outfitter/workflow/.agents/.outfitter/workflow-composition.json")},
 				corev1.EnvVar{Name: A2AWorkflowEnv, Value: taskPlane.Workflow},
 			)
 		}
@@ -547,13 +590,16 @@ func (r *AgentReconciler) ensureAgentDeployment(
 		container.VolumeMounts = append(container.VolumeMounts, inputMounts...)
 		volumes = append(volumes, inputVolumes...)
 
-		// The inference relay is a native sidecar and starts first; copy-settings
-		// then fills the .agents layer every later step mounts.
-		initContainers := make([]corev1.Container, 0, len(agent.Spec.Setup)+5)
-		initContainers = append(initContainers,
+		initContainers := []corev1.Container{
 			inferenceRelayContainer(r.RelayImage, r.InferenceGatewayURL),
-			copySettingsContainer(runtimeImage),
-		)
+			{
+				Name: "init-agent-home", Image: runtimeImage, ImagePullPolicy: corev1.PullIfNotPresent,
+				Command: []string{"sh", "-c", agentHomeInitScript}, WorkingDir: agentHome(agent),
+				Env:          []corev1.EnvVar{{Name: HomeEnvName, Value: agentHome(agent)}, {Name: "AGENT_NAME", Value: agent.Name}},
+				VolumeMounts: []corev1.VolumeMount{{Name: HomeVolumeName, MountPath: agentHome(agent)}, {Name: IdentityVolumeName, MountPath: "/identity"}},
+			},
+			copySettingsContainer(runtimeImage, agent),
+		}
 		if needsNixStore {
 			// Merge the current image's store paths on every boot. A prior .seeded
 			// marker is informational only: image upgrades can introduce new hashes,
@@ -567,28 +613,29 @@ func (r *AgentReconciler) ensureAgentDeployment(
 			})
 		}
 		if sync := agent.Spec.CatalogSync; sync != nil && sync.Enabled {
-			mounts := append([]corev1.VolumeMount{}, inputMounts...)
+			mounts := append([]corev1.VolumeMount{identityMount()}, inputMounts...)
 			mounts = append(mounts,
-				corev1.VolumeMount{Name: WorkspaceName, MountPath: WorkspaceMount},
-				settingsMount(),
+				corev1.VolumeMount{Name: HomeVolumeName, MountPath: agentHome(agent)},
+				settingsMount(agent),
 			)
 			if needsNixStore {
 				mounts = append(mounts, corev1.VolumeMount{Name: NixStoreName, MountPath: NixMount})
 			}
 			initContainers = append(initContainers, corev1.Container{
-				Name:            "sync-agent-catalog",
+				Name:            catalogSyncContainerName,
 				Image:           runtimeImage,
 				ImagePullPolicy: corev1.PullIfNotPresent,
 				Command:         []string{"sh", "-c", catalogSyncScript},
+				WorkingDir:      agentHome(agent),
 				EnvFrom:         inputEnvFrom,
-				Env:             []corev1.EnvVar{{Name: HomeEnvName, Value: WorkspaceMount}},
+				Env:             []corev1.EnvVar{{Name: HomeEnvName, Value: agentHome(agent)}},
 				VolumeMounts:    mounts,
 			})
 		}
 		for _, step := range agent.Spec.Setup {
-			mounts := append([]corev1.VolumeMount{}, inputMounts...)
+			mounts := append([]corev1.VolumeMount{identityMount()}, inputMounts...)
 			mounts = append(mounts,
-				corev1.VolumeMount{Name: WorkspaceName, MountPath: WorkspaceMount})
+				corev1.VolumeMount{Name: HomeVolumeName, MountPath: agentHome(agent)})
 			if needsNixStore {
 				mounts = append(mounts, corev1.VolumeMount{Name: NixStoreName, MountPath: NixMount})
 			}
@@ -605,30 +652,32 @@ func (r *AgentReconciler) ensureAgentDeployment(
 				Image:           runtimeImage,
 				ImagePullPolicy: corev1.PullIfNotPresent,
 				Command:         []string{"sh", "-c", step.Script},
+				WorkingDir:      agentHome(agent),
 				EnvFrom:         inputEnvFrom,
-				Env:             []corev1.EnvVar{{Name: HomeEnvName, Value: WorkspaceMount}},
+				Env:             []corev1.EnvVar{{Name: HomeEnvName, Value: agentHome(agent)}},
 				VolumeMounts:    mounts,
 			})
 		}
 		if taskPlane := agent.Spec.TaskPlane; taskPlane != nil {
-			mounts := append([]corev1.VolumeMount{}, inputMounts...)
+			mounts := append([]corev1.VolumeMount{identityMount()}, inputMounts...)
 			mounts = append(mounts,
-				corev1.VolumeMount{Name: WorkspaceName, MountPath: WorkspaceMount},
-				settingsMount(),
+				corev1.VolumeMount{Name: HomeVolumeName, MountPath: agentHome(agent)},
+				settingsMount(agent),
 			)
 			if needsNixStore {
 				mounts = append(mounts, corev1.VolumeMount{Name: NixStoreName, MountPath: NixMount})
 			}
 			initContainers = append(initContainers, corev1.Container{
-				Name:            "export-workflow",
+				Name:            workflowExportContainerName,
 				Image:           runtimeImage,
 				ImagePullPolicy: corev1.PullIfNotPresent,
 				Command:         []string{"sh", "-c", workflowExportScript},
+				WorkingDir:      agentHome(agent),
 				EnvFrom:         inputEnvFrom,
 				Env: []corev1.EnvVar{
-					{Name: HomeEnvName, Value: WorkspaceMount},
+					{Name: HomeEnvName, Value: agentHome(agent)},
 					{Name: OutfitterWorkflowEnv, Value: taskPlane.Workflow},
-					{Name: WorkflowExportDirEnv, Value: WorkflowExportDir},
+					{Name: WorkflowExportDirEnv, Value: path.Join(agentHome(agent), ".local/share/outfitter/workflow")},
 				},
 				VolumeMounts: mounts,
 			})
@@ -638,11 +687,7 @@ func (r *AgentReconciler) ensureAgentDeployment(
 		if browser := agent.Spec.Browser; browser != nil && browser.Enabled {
 			container.Env = append(container.Env,
 				corev1.EnvVar{Name: BrowserCDPURLEnvName, Value: BrowserCDPURL})
-			containers = []corev1.Container{container, browserSidecar(browser)}
-			volumes = append(volumes, corev1.Volume{
-				Name:         browserDataName,
-				VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
-			})
+			containers = []corev1.Container{container, browserSidecar(agent)}
 		}
 		deployment.Spec.Template.Spec.Containers = containers
 		deployment.Spec.Template.Spec.Volumes = volumes
@@ -687,7 +732,7 @@ func renderOutfitterSettings(
 	outfitterConfig := outfitterSettings{
 		DefaultAgent:   agent.Spec.Profile.Agent,
 		DefaultHarness: agent.Spec.Profile.Harness,
-		CacheDirectory: path.Join(WorkspaceMount, ".agents-cache"),
+		CacheDirectory: path.Join(agentHome(agent), ".cache/outfitter"),
 		// The baked payload trails the catalog: the entrypoint launches from
 		// $HOME so the image's /opt/agent/.agents is no longer the implicit
 		// workspace layer (which outranks every source and shadowed the
@@ -708,6 +753,9 @@ func (r *AgentReconciler) renderSettingsData(
 	agent *aioutfitterv1alpha1.Agent,
 	organization *aioutfitterv1alpha1.Organization,
 ) (map[string]string, error) {
+	if agent.Spec.Pi != nil {
+		return renderPiSettings(agent)
+	}
 	settings, err := renderOutfitterSettings(agent, organization)
 	if err != nil {
 		return nil, err
@@ -823,8 +871,10 @@ func (r *AgentReconciler) runtimeConfigurationEnvironment(
 	pollMS := DefaultGitHubNotifyPoll
 	filters := DefaultGitHubFilters
 	notifyOrgs := ""
-	if catalog := organization.Spec.AgentCatalogs[0]; catalog.GitHub != nil {
-		notifyOrgs = strings.SplitN(*catalog.GitHub, "/", 2)[0]
+	if organization.Spec.Forge != nil {
+		notifyOrgs = organization.Spec.Forge.Owner
+	} else if len(organization.Spec.AgentCatalogs) > 0 && organization.Spec.AgentCatalogs[0].GitHub != nil {
+		notifyOrgs = strings.SplitN(*organization.Spec.AgentCatalogs[0].GitHub, "/", 2)[0]
 	}
 	if github := agent.Spec.GitHub; github != nil {
 		if len(github.NotifyOrgs) > 0 {
@@ -847,6 +897,20 @@ func (r *AgentReconciler) runtimeConfigurationEnvironment(
 	}
 	if notifyOrgs != "" {
 		values = append(values, corev1.EnvVar{Name: GitHubNotifyOrgsEnv, Value: notifyOrgs})
+	}
+	// A typed webhook selection owns intake selection. Legacy envFrom must not
+	// reactivate notification polling when a resident has switched to webhooks.
+	if agent.Spec.GitHub != nil && agent.Spec.GitHub.Mode == "webhook" {
+		if slices.Contains(agent.Spec.Channels, "github") {
+			return nil, fmt.Errorf("GitHub webhook mode cannot include the github polling channel")
+		}
+		channels := joinedSet(agent.Spec.Channels)
+		if channels == "" {
+			channels = "off"
+		}
+		values = slices.DeleteFunc(values, func(value corev1.EnvVar) bool { return value.Name == OutfitterChannelsEnv })
+		values = append(values, corev1.EnvVar{Name: OutfitterChannelsEnv, Value: channels})
+		delete(explicit, OutfitterChannelsEnv)
 	}
 	return slices.DeleteFunc(values, func(value corev1.EnvVar) bool { return explicit[value.Name] }), nil
 }
@@ -926,13 +990,17 @@ func inputProjection(
 	return envFrom, mounts, volumes
 }
 
-const browserDataName = "browser-data"
+// agentHome uses the stable resident identity, not the changeable profile slug.
+func agentHome(agent *aioutfitterv1alpha1.Agent) string {
+	return path.Join("/home", agent.Name)
+}
 
 // browserSidecar builds the headless-Chrome container. The Pod securityContext
 // already forces uid/gid 1000, which is why --no-sandbox is required: the
 // Chrome sandbox needs either root-owned helpers or user namespaces, and the
 // agent Pod grants neither. The DevTools listener binds loopback only.
-func browserSidecar(browser *aioutfitterv1alpha1.BrowserSpec) corev1.Container {
+func browserSidecar(agent *aioutfitterv1alpha1.Agent) corev1.Container {
+	browser := agent.Spec.Browser
 	image := browser.Image
 	if image == "" {
 		image = defaultBrowserImage
@@ -951,11 +1019,14 @@ func browserSidecar(browser *aioutfitterv1alpha1.BrowserSpec) corev1.Container {
 			"--no-sandbox",
 			"--disable-gpu",
 			"--disable-dev-shm-usage",
-			"--user-data-dir=/data",
+			"--user-data-dir=" + path.Join(agentHome(agent), ".config/chromium"),
 		},
+		Env:       []corev1.EnvVar{{Name: HomeEnvName, Value: agentHome(agent)}},
 		Resources: browser.Resources,
 		VolumeMounts: []corev1.VolumeMount{
-			{Name: browserDataName, MountPath: "/data"},
+			identityMount(),
+			{Name: HomeVolumeName, MountPath: path.Join(agentHome(agent), ".config/chromium"), SubPath: ".config/chromium"},
+			{Name: HomeVolumeName, MountPath: path.Join(agentHome(agent), ".cache/chromium"), SubPath: ".cache/chromium"},
 		},
 	}
 }

@@ -89,3 +89,13 @@ MUST include `reset` or `destroy` in its name and require explicit confirmation.
 
 See [AGENTS.md](AGENTS.md): work on the current branch and do not create branches,
 commit, or push unless asked.
+
+## GitHub webhook routing regression
+
+From `code/operator`, run `go test ./internal/forgegateway` for signed GitHub
+and Forgejo intake, typed workflow routing, and durable delivery replay. Run
+`make test` for the controller suite, including webhook-mode selection over
+legacy ConfigMap values and preservation of existing A2A client credentials.
+Use `GOFLAGS=-buildvcs=false make test` if the local Go toolchain cannot stamp
+VCS metadata in a detached worktree. These are local checks, not evidence of a
+live webhook cutover; see `docs/documentation/github-event-workflows.md`.
