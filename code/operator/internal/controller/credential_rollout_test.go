@@ -93,6 +93,13 @@ func TestTransportCredentialRotationRollsGateway(t *testing.T) {
 	if len(requests) != 1 || requests[0].Name != agent.Name {
 		t.Fatal("credential update does not enqueue its resident")
 	}
+	bad := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "unrelated", Namespace: "other-agent", Labels: map[string]string{AgentNameLabel: "other"}}, Data: map[string][]byte{agentA2ACredentialsKey: []byte("broken")}}
+	if err := c.Create(ctx, bad); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := removeGatewayCredential([]byte(`{"other":"keep"}`), "unused"); err != nil {
+		t.Fatal(err)
+	}
 	if err := r.cleanupStaleAgentA2A(ctx, org, nil); err != nil {
 		t.Fatal(err)
 	}

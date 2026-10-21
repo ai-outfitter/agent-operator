@@ -569,6 +569,9 @@ func (r *AgentReconciler) ensureAgentDeployment(
 			// container, init containers or other sidecars.
 			inferenceTokenVolume(),
 		}
+		if agent.Spec.Pi != nil {
+			volumes = append(volumes, corev1.Volume{Name: piEmptyCatalogVolume, VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}})
+		}
 		if agent.Spec.Forge != nil || agent.Spec.TaskPlane != nil {
 			container.Env = append(container.Env,
 				corev1.EnvVar{Name: "A2A_SERVER", Value: "1"},

@@ -250,7 +250,7 @@ func inputValidationMessage(agent *aioutfitterv1alpha1.Agent) string {
 		}
 	}
 	reservedVolumes := map[string]struct{}{
-		HomeVolumeName: {}, IdentityVolumeName: {}, SettingsName: {}, NixStoreName: {}, APITokenVolumeName: {}, A2ACredentialsVolumeName: {},
+		piEmptyCatalogVolume: {}, HomeVolumeName: {}, IdentityVolumeName: {}, SettingsName: {}, NixStoreName: {}, APITokenVolumeName: {}, A2ACredentialsVolumeName: {},
 		inferenceTokenVolumeName: {}, AgentsLayerName: {},
 	}
 	volumeNames := map[string]struct{}{}

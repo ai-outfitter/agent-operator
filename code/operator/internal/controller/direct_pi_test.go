@@ -62,8 +62,8 @@ func TestDirectPiWithoutCatalog(t *testing.T) {
 		}
 	}
 	for _, mount := range container.VolumeMounts {
-		if strings.HasSuffix(mount.MountPath, "/.agents") {
-			t.Fatal("catalog mount retained")
+		if strings.HasSuffix(mount.MountPath, "/.agents") && (mount.Name != piEmptyCatalogVolume || !mount.ReadOnly) {
+			t.Fatal("catalog skills are not isolated")
 		}
 	}
 	before := deployment.Spec.Template.Annotations[SettingsHashAnnotation]

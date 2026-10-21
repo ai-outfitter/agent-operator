@@ -12,6 +12,7 @@ import (
 )
 
 const (
+	piEmptyCatalogVolume        = "pi-empty-catalog"
 	githubWebhookMode           = "webhook"
 	githubChannelSource         = "github"
 	githubPATKey                = "GITHUB_PERSONAL_ACCESS_TOKEN"
@@ -59,6 +60,7 @@ func renderPiSettings(agent *aioutfitterv1alpha1.Agent) (map[string]string, erro
 
 func configureDirectPi(container *corev1.Container, agent *aioutfitterv1alpha1.Agent) {
 	container.Command = []string{"pi"}
+	container.VolumeMounts = append(container.VolumeMounts, corev1.VolumeMount{Name: piEmptyCatalogVolume, MountPath: path.Join(agentHome(agent), ".agents"), ReadOnly: true})
 	container.Args = []string{piModeFlag, piRPCMode, piSessionIDFlag, agent.Name, "--no-approve", "--no-skills", "--no-prompt-templates", "--no-themes"}
 	if agent.Spec.Forge != nil {
 		container.Env = append(container.Env, corev1.EnvVar{Name: "GH_TOKEN", ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: agentCredentialSecretName(agent)}, Key: githubPATKey, Optional: ptr.To(true)}}})

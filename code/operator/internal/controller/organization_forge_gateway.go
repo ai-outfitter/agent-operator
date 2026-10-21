@@ -230,7 +230,8 @@ func (r *OrganizationReconciler) cleanupStaleAgentA2A(ctx context.Context, org *
 		}
 		updated, err := removeGatewayCredential(raw, "forge-gateway:"+org.Name)
 		if err != nil {
-			return err
+			ctrl.LoggerFrom(ctx).Error(err, "Skipping malformed A2A credential document", "namespace", secret.Namespace, "secret", secret.Name)
+			continue
 		}
 		if string(updated) == string(raw) {
 			continue
@@ -476,6 +477,9 @@ func removeGatewayCredential(raw []byte, principal string) ([]byte, error) {
 	var config map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &config); err != nil {
 		return nil, err
+	}
+	if len(config["credentials"]) == 0 {
+		return raw, nil
 	}
 	var entries []map[string]json.RawMessage
 	if err := json.Unmarshal(config["credentials"], &entries); err != nil {

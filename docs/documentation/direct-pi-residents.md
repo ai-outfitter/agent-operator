@@ -43,7 +43,9 @@ files retain the existing `$HOME/.pi/agent/sessions` path on the home PVC, and C
 store path and acceptance history. Channels task sessions load the same Pi
 configuration directory, including its system prompt and packages.
 
-Pi ignores untrusted project configuration at startup. No catalog skills or
+Pi ignores untrusted project configuration at startup. A separate empty,
+read-only volume masks `$HOME/.agents`, preventing leftover catalog skills
+from being discovered by Channels task sessions. No catalog skills or
 profile inheritance are needed. Configuration validation and an authenticated
 A2A read are useful checks, but verify a real provider event and the resident's
 response before claiming migration is complete.
