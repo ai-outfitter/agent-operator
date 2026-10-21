@@ -69,9 +69,10 @@ type pullRequest struct {
 	} `json:"head"`
 }
 type comment struct {
-	Body    string    `json:"body"`
-	HTMLURL string    `json:"html_url"`
-	User    forgeUser `json:"user"`
+	InReplyToID int64     `json:"in_reply_to_id"`
+	Body        string    `json:"body"`
+	HTMLURL     string    `json:"html_url"`
+	User        forgeUser `json:"user"`
 }
 type review struct {
 	Body     string `json:"body"`
@@ -219,9 +220,12 @@ func (g *Gateway) webhook(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "spool unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	targets, states := g.targets(tx, eventName, e)
+	var targets map[string]forwarded
+	var states map[string][]string
 	if g.cfg.Provider == providerGitHub {
-		targets, states = g.githubTargets(eventName, e), nil
+		targets = g.githubTargets(eventName, e)
+	} else {
+		targets, states = g.targets(tx, eventName, e)
 	}
 	for subject, names := range states {
 		encoded, _ := json.Marshal(names)

@@ -4,6 +4,7 @@ import "strings"
 
 const (
 	providerGitHub        = "github"
+	eventReviewComment    = "pull_request_review_comment"
 	providerForgejo       = "forgejo"
 	eventIssues           = "issues"
 	eventPullRequest      = "pull_request"
@@ -64,18 +65,7 @@ func (g *Gateway) githubTargets(kind string, e event) map[string]forwarded {
 	}
 	switch kind {
 	case eventIssues:
-		if e.Issue == nil {
-			return targets
-		}
-		if e.Action == reasonAssigned && e.Assignee != nil {
-			add(e.Assignee.name(), reasonAssigned, workflowImplement)
-		}
-		if e.Action == actionOpened {
-			for _, user := range e.Issue.Assignees {
-				add(user.name(), reasonAssigned, workflowImplement)
-			}
-			mention(e.Issue.Body)
-		}
+		routeGitHubIssue(e, add)
 	case eventPullRequest:
 		if e.PullRequest == nil {
 			return targets
@@ -94,7 +84,9 @@ func (g *Gateway) githubTargets(kind string, e event) map[string]forwarded {
 		mention(e.Comment.Body)
 		// Replies on an agent-authored thread are conversational too. Assignment
 		// alone does not make an agent the addressee of every comment.
-		add(e.Issue.User.name(), "reply", workflowRespond)
+		if _, agentActor := g.routes[strings.ToLower(base.Actor)]; !agentActor {
+			add(e.Issue.User.name(), "reply", workflowRespond)
+		}
 	case eventReview:
 		if e.PullRequest == nil || e.Review == nil || e.Action != "submitted" {
 			return targets
@@ -102,12 +94,12 @@ func (g *Gateway) githubTargets(kind string, e event) map[string]forwarded {
 		base.URL, base.HeadSHA = e.Review.HTMLURL, e.Review.CommitID
 		if strings.EqualFold(e.Review.State, "changes_requested") {
 			add(e.PullRequest.User.name(), "review_feedback", workflowRevise)
-		} else if e.Review.Body != "" {
+		} else if e.Review.Body != "" || strings.EqualFold(e.Review.State, "commented") {
 			add(e.PullRequest.User.name(), "review_feedback", workflowRespond)
 		}
 		mention(e.Review.Body)
-	case "pull_request_review_comment":
-		if e.PullRequest == nil || e.Comment == nil || e.Action != actionCreated {
+	case eventReviewComment:
+		if e.PullRequest == nil || e.Comment == nil || e.Action != actionCreated || e.Comment.InReplyToID == 0 {
 			return targets
 		}
 		base.URL = e.Comment.HTMLURL
@@ -126,4 +118,29 @@ func githubSubject(e event) forwarded {
 		base.Number, base.URL, base.HeadSHA = e.PullRequest.Number, e.PullRequest.HTMLURL, e.PullRequest.Head.SHA
 	}
 	return base
+}
+
+func routeGitHubIssue(e event, add func(string, string, string)) {
+	if e.Issue == nil {
+		return
+	}
+	if e.Action == reasonAssigned && e.Assignee != nil {
+		add(e.Assignee.name(), reasonAssigned, workflowImplement)
+	}
+	if e.Action == actionOpened {
+		// GitHub emits an assigned delivery separately, so do not also wake an
+		// assignee through a mention in this same newly opened issue.
+		for _, username := range mentions(e.Issue.Body) {
+			assigned := false
+			for _, user := range e.Issue.Assignees {
+				if strings.EqualFold(user.name(), username) {
+					assigned = true
+					break
+				}
+			}
+			if !assigned {
+				add(username, reasonMentioned, workflowRespond)
+			}
+		}
+	}
 }

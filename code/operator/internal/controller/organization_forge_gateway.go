@@ -79,6 +79,9 @@ func (r *OrganizationReconciler) reconcileForgeGateway(ctx context.Context, org 
 		return ctrl.Result{}, err
 	}
 	if org.Spec.Forge == nil {
+		if err := r.cleanupStaleAgentA2A(ctx, org, nil); err != nil {
+			return ctrl.Result{}, err
+		}
 		setOrganizationCondition(org, aioutfitterv1alpha1.OrganizationConditionForgeGatewayReady, metav1.ConditionFalse, "NotConfigured", "Forge gateway is not configured")
 		setOrganizationCondition(org, aioutfitterv1alpha1.OrganizationConditionForgeRoutesReady, metav1.ConditionFalse, "NotConfigured", "Forge routes are not configured")
 		return ctrl.Result{}, nil
@@ -110,6 +113,9 @@ func (r *OrganizationReconciler) reconcileForgeGateway(ctx context.Context, org 
 		}
 		seen[key] = agent.Name
 		members = append(members, *agent)
+	}
+	if err := r.cleanupStaleAgentA2A(ctx, org, members); err != nil {
+		return ctrl.Result{}, err
 	}
 	if len(members) == 0 {
 		setOrganizationCondition(org, aioutfitterv1alpha1.OrganizationConditionForgeRoutesReady, metav1.ConditionFalse, "NoRoutes", "No member Agent declares spec.forge.username")
@@ -165,9 +171,6 @@ func (r *OrganizationReconciler) reconcileForgeGateway(ctx context.Context, org 
 			return ctrl.Result{}, err
 		}
 	}
-	if err := r.cleanupStaleAgentA2A(ctx, org, members); err != nil {
-		return ctrl.Result{}, err
-	}
 	routesJSON, _ := json.Marshal(routes)
 	publicJSON, _ := json.Marshal(public)
 	if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, credentials, func() error {
@@ -209,6 +212,34 @@ func (r *OrganizationReconciler) cleanupStaleAgentA2A(ctx context.Context, org *
 	desired := make(map[string]struct{}, len(members))
 	for i := range members {
 		desired[agentNamespace(members[i].Name)] = struct{}{}
+	}
+	// Credentials are bearer authority even after Services and policies disappear.
+	// Agent labels survive organization changes, unlike the organization label.
+	var secrets corev1.SecretList
+	if err := r.List(ctx, &secrets, client.HasLabels{AgentNameLabel}); err != nil {
+		return err
+	}
+	for i := range secrets.Items {
+		secret := &secrets.Items[i]
+		if _, ok := desired[secret.Namespace]; ok {
+			continue
+		}
+		raw := secret.Data[agentA2ACredentialsKey]
+		if len(raw) == 0 {
+			continue
+		}
+		updated, err := removeGatewayCredential(raw, "forge-gateway:"+org.Name)
+		if err != nil {
+			return err
+		}
+		if string(updated) == string(raw) {
+			continue
+		}
+		before := secret.DeepCopy()
+		secret.Data[agentA2ACredentialsKey] = updated
+		if err := r.Patch(ctx, secret, client.MergeFrom(before)); err != nil {
+			return err
+		}
 	}
 	selector := client.MatchingLabels{OrganizationLabel: org.Name}
 	var services corev1.ServiceList
@@ -434,6 +465,31 @@ func mergeGatewayCredential(raw []byte, principal, token string) ([]byte, error)
 	t, _ := json.Marshal(token)
 	entries = append(entries, map[string]json.RawMessage{"principal": p, "token": t})
 	encoded, err := json.Marshal(entries)
+	if err != nil {
+		return nil, err
+	}
+	config["credentials"] = encoded
+	return json.Marshal(config)
+}
+
+func removeGatewayCredential(raw []byte, principal string) ([]byte, error) {
+	var config map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &config); err != nil {
+		return nil, err
+	}
+	var entries []map[string]json.RawMessage
+	if err := json.Unmarshal(config["credentials"], &entries); err != nil {
+		return nil, err
+	}
+	kept := slices.DeleteFunc(entries, func(entry map[string]json.RawMessage) bool {
+		var value string
+		_ = json.Unmarshal(entry["principal"], &value)
+		return value == principal
+	})
+	if len(kept) == len(entries) {
+		return raw, nil
+	}
+	encoded, err := json.Marshal(kept)
 	if err != nil {
 		return nil, err
 	}

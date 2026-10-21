@@ -127,7 +127,7 @@ var _ = Describe("Agent Controller", func() {
 		organization := createAcceptedOrganization(ctx)
 		agent := validAgent(uniqueTestName(researcherAgentSlug), organization.Name)
 		agent.Spec.Profile.Model = "outfitter/gpt-6-luna"
-		agent.Spec.Channels = []string{"slack", "github"}
+		agent.Spec.Channels = []string{"slack", githubChannelSource}
 		secretName := "model-credentials"
 		configName := testRuntimeConfigName
 		legacyConfigName := "legacy-github-notify"
@@ -354,7 +354,7 @@ var _ = Describe("Agent Controller", func() {
 	It("projects Agent channel and GitHub notification overrides", func() {
 		organization := createAcceptedOrganization(ctx)
 		agent := validAgent(uniqueTestName("github-notify"), organization.Name)
-		agent.Spec.Channels = []string{"slack", "github"}
+		agent.Spec.Channels = []string{"slack", githubChannelSource}
 		pollMS := int64(15000)
 		agent.Spec.GitHub = &aioutfitterv1alpha1.GitHubSpec{
 			NotifyOrgs: []string{"example-one", "example-two"},

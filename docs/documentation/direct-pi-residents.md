@@ -39,7 +39,7 @@ retain their existing catalog profile during migration.
 The generated Pi configuration lives in a fresh per-pod volume under
 `$HOME/.config/pi-runtime`. It is writable because Pi locks its settings files;
 restarts reconstruct it from the CRD. Settings changes roll the pod. Session
-files remain under the existing home PVC, and Channels retains its existing task
+files retain the existing `$HOME/.pi/agent/sessions` path on the home PVC, and Channels retains its existing task
 store path and acceptance history. Channels task sessions load the same Pi
 configuration directory, including its system prompt and packages.
 
@@ -47,3 +47,7 @@ Pi ignores untrusted project configuration at startup. No catalog skills or
 profile inheritance are needed. Configuration validation and an authenticated
 A2A read are useful checks, but verify a real provider event and the resident's
 response before claiming migration is complete.
+
+Older installations with only an `agent-workspace` PVC are blocked from
+creating an empty replacement. Preserve their state and provision `agent-home`
+before upgrading; this operator does not migrate or delete legacy volumes.

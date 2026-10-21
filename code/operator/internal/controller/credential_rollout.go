@@ -25,6 +25,9 @@ func transportCredentialHash(ctx context.Context, c client.Client, namespace, na
 		return "", err
 	}
 	selected := make(map[string][]byte, len(keys))
+	if len(keys) == 0 {
+		selected = secret.Data
+	}
 	for _, key := range keys {
 		selected[key] = secret.Data[key]
 	}

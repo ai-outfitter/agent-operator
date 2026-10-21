@@ -16,7 +16,7 @@ import (
 
 const (
 	testPollingChannels = "github,slack"
-	testGitHubSource    = "github"
+	testGitHubSource    = githubChannelSource
 	testSlackSource     = "slack"
 )
 
@@ -31,7 +31,7 @@ func TestWebhookModeOverridesLegacyPollingSelection(t *testing.T) {
 	org := &aioutfitterv1alpha1.Organization{Spec: aioutfitterv1alpha1.OrganizationSpec{AgentCatalogs: []aioutfitterv1alpha1.AgentCatalog{{GitHub: ptr.To("Unsupervisedcom/.agents")}}}}
 	agent := &aioutfitterv1alpha1.Agent{ObjectMeta: metav1.ObjectMeta{Name: "luce"}}
 	agent.Spec.EnvFrom = []corev1.EnvFromSource{{ConfigMapRef: &corev1.ConfigMapEnvSource{LocalObjectReference: corev1.LocalObjectReference{Name: "github-mode-fixture"}}}}
-	agent.Spec.GitHub = &aioutfitterv1alpha1.GitHubSpec{Mode: "webhook"}
+	agent.Spec.GitHub = &aioutfitterv1alpha1.GitHubSpec{Mode: githubWebhookMode}
 	agent.Spec.Channels = []string{testSlackSource}
 	for _, want := range []string{testSlackSource, "off"} {
 		values, err := r.runtimeConfigurationEnvironment(context.Background(), agent, org)

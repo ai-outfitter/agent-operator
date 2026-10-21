@@ -9,6 +9,8 @@ import (
 	aioutfitterv1alpha1 "github.com/ai-outfitter/agent-operator/code/operator/api/v1alpha1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -18,7 +20,7 @@ import (
 func TestDirectPiWithoutCatalog(t *testing.T) {
 	ctx := context.Background()
 	scheme := runtime.NewScheme()
-	for _, add := range []func(*runtime.Scheme) error{corev1.AddToScheme, appsv1.AddToScheme, aioutfitterv1alpha1.AddToScheme} {
+	for _, add := range []func(*runtime.Scheme) error{corev1.AddToScheme, rbacv1.AddToScheme, appsv1.AddToScheme, aioutfitterv1alpha1.AddToScheme} {
 		if err := add(scheme); err != nil {
 			t.Fatal(err)
 		}
@@ -76,4 +78,45 @@ func TestDirectPiWithoutCatalog(t *testing.T) {
 	if got.Spec.Template.Annotations[SettingsHashAnnotation] == before {
 		t.Fatal("prompt update did not trigger rollout")
 	}
+	testDirectPiCredentialRotationAndLegacyPVC(t, ctx, r, agent, org)
+
+}
+
+func testDirectPiCredentialRotationAndLegacyPVC(t *testing.T, ctx context.Context, r *AgentReconciler, agent *aioutfitterv1alpha1.Agent, org *aioutfitterv1alpha1.Organization) {
+	t.Helper()
+	c := r.Client
+	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: defaultAgentCredentials, Namespace: agentNamespace(agent.Name)}, Data: map[string][]byte{githubPATKey: []byte("first")}}
+	if err := c.Create(ctx, secret); err != nil {
+		t.Fatal(err)
+	}
+	previous := ""
+	for _, key := range []string{githubPATKey, "SPARK_AUTHORIZATION"} {
+		initial, err := r.ensureAgentDeployment(ctx, agent, org)
+		if err != nil {
+			t.Fatal(err)
+		}
+		previous = initial.Spec.Template.Annotations[credentialHashAnnotation]
+		secret.Data[key] = []byte("rotated")
+		if err := c.Update(ctx, secret); err != nil {
+			t.Fatal(err)
+		}
+		updated, err := r.ensureAgentDeployment(ctx, agent, org)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if updated.Spec.Template.Annotations[credentialHashAnnotation] == previous {
+			t.Fatalf("%s rotation failed to roll resident", key)
+		}
+	}
+	legacy := &corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{Name: "agent-workspace", Namespace: agentNamespace(agent.Name)}}
+	if err := c.Create(ctx, legacy); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.ensureWorkspaceResources(ctx, agent); err == nil || !strings.Contains(err.Error(), "legacy") {
+		t.Fatal("legacy data was not protected", err)
+	}
+	if err := c.Get(ctx, types.NamespacedName{Namespace: agentNamespace(agent.Name), Name: HomeVolumeName}, &corev1.PersistentVolumeClaim{}); !apierrors.IsNotFound(err) {
+		t.Fatal("created an empty replacement home", err)
+	}
+
 }

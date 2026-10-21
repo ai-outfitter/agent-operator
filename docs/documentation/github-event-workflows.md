@@ -20,12 +20,12 @@ mode per resident to avoid concurrent dispatch through both paths.
 | GitHub event | Resident workflow |
 | --- | --- |
 | `issues.assigned` | The changed assignee implements the issue as a draft PR. |
-| `issues.opened` with assignees | Assigned agents implement; mentioned agents respond. |
+| `issues.opened` | Mentioned agents respond; implementation starts from `issues.assigned`. |
 | New comment mentioning an agent | Respond to the addressed request; a question alone does not request implementation. |
 | New reply on an agent-authored issue or PR | Respond to the thread. |
 | `pull_request.review_requested` | The requested reviewer reviews the PR. |
 | Submitted change-request review | The PR author revises the existing PR. |
-| Review questions and inline feedback | The PR author responds on the existing PR. |
+| Review questions and inline thread replies | The PR author responds on the existing PR. |
 
 Self-directed events are not forwarded. Ordinary comments on another author's
 issue do not inherit the issue's standing assignment as an implementation

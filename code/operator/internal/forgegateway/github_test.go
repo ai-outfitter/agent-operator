@@ -25,7 +25,7 @@ func TestGitHubWorkflowRouting(t *testing.T) {
 	}{
 		{"assignment", eventIssues, `{"action":"assigned","assignee":{"login":"luce"},"issue":{"number":38,"assignees":[{"login":"luce"},{"login":"vega"}]}}`, map[string]string{testLuce: workflowImplement}},
 		{"unrelated assignment", eventIssues, `{"action":"assigned","assignee":{"login":"human"},"issue":{"number":38,"assignees":[{"login":"luce"},{"login":"human"}]}}`, nil},
-		{"new assigned issue", eventIssues, `{"action":"opened","issue":{"number":38,"assignees":[{"login":"luce"}],"body":"@luce implement this"}}`, map[string]string{testLuce: workflowImplement}},
+		{"new assigned issue", eventIssues, `{"action":"opened","issue":{"number":38,"assignees":[{"login":"luce"}],"body":"@luce implement this"}}`, nil},
 		{"ordinary comment on old assignment", eventIssueComment, `{"action":"created","issue":{"number":38,"assignees":[{"login":"luce"},{"login":"vega"}]},"comment":{"body":"Here is a proposed direction"}}`, nil},
 		{"explicit question", eventIssueComment, `{"action":"created","issue":{"number":38,"assignees":[{"login":"luce"}]},"comment":{"body":"@luce what do you think?"}}`, map[string]string{testLuce: workflowRespond}},
 		{"reply on agent thread", eventIssueComment, `{"action":"created","issue":{"number":38,"user":{"login":"luce"}},"comment":{"body":"Can you explain this?"}}`, map[string]string{testLuce: workflowRespond}},
@@ -33,6 +33,11 @@ func TestGitHubWorkflowRouting(t *testing.T) {
 		{"review request", eventPullRequest, `{"action":"review_requested","requested_reviewer":{"login":"vega"},"pull_request":{"number":43,"head":{"sha":"abc"}}}`, map[string]string{testVega: workflowReview}},
 		{"review feedback", eventReview, `{"action":"submitted","pull_request":{"number":43,"user":{"login":"luce"}},"review":{"state":"changes_requested","commit_id":"abc","body":"Fix this"}}`, map[string]string{testLuce: workflowRevise}},
 		{"review question", eventReview, `{"action":"submitted","pull_request":{"number":43,"user":{"login":"luce"}},"review":{"state":"commented","body":"Why this approach?"}}`, map[string]string{testLuce: workflowRespond}},
+		{"review with only inline comments", eventReview, `{"action":"submitted","pull_request":{"number":43,"user":{"login":"luce"}},"review":{"state":"commented","body":""}}`, map[string]string{testLuce: workflowRespond}},
+		{"batched inline comment", eventReviewComment, `{"action":"created","pull_request":{"number":43,"user":{"login":"luce"}},"comment":{"body":"Fix this"}}`, nil},
+		{"inline thread reply", eventReviewComment, `{"action":"created","pull_request":{"number":43,"user":{"login":"luce"}},"comment":{"in_reply_to_id":12,"body":"Why this change?"}}`, map[string]string{testLuce: workflowRespond}},
+		{"agent reply does not bounce", eventIssueComment, `{"action":"created","sender":{"login":"vega"},"issue":{"number":38,"user":{"login":"luce"}},"comment":{"body":"Thanks"}}`, nil},
+		{"explicit agent mention still routes", eventIssueComment, `{"action":"created","sender":{"login":"vega"},"issue":{"number":38,"user":{"login":"luce"}},"comment":{"body":"@luce please explain"}}`, map[string]string{testLuce: workflowRespond}},
 		{"edited issue is not assignment", eventIssues, `{"action":"edited","issue":{"number":38,"assignees":[{"login":"luce"}]}}`, nil},
 	}
 	for _, tt := range tests {

@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	aioutfitterv1alpha1 "github.com/ai-outfitter/agent-operator/code/operator/api/v1alpha1"
@@ -92,4 +93,20 @@ func TestTransportCredentialRotationRollsGateway(t *testing.T) {
 	if len(requests) != 1 || requests[0].Name != agent.Name {
 		t.Fatal("credential update does not enqueue its resident")
 	}
+	if err := r.cleanupStaleAgentA2A(ctx, org, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Get(ctx, types.NamespacedName{Namespace: agentNS.Name, Name: defaultAgentCredentials}, agentSecret); err != nil {
+		t.Fatal(err)
+	}
+	var revoked struct {
+		Credentials []any `json:"credentials"`
+	}
+	if err := json.Unmarshal(agentSecret.Data[agentA2ACredentialsKey], &revoked); err != nil {
+		t.Fatal(err)
+	}
+	if len(revoked.Credentials) != 0 {
+		t.Fatal("departed member retained gateway authority")
+	}
+
 }

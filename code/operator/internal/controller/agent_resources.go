@@ -289,6 +289,19 @@ func (r *AgentReconciler) ensureWorkspaceResources(
 	if workspaceSize.IsZero() {
 		workspaceSize = defaultWorkspaceSize.DeepCopy()
 	}
+	// Never silently replace an older installation's durable state with an
+	// empty home. Existing home PVCs are already the supported live layout.
+	if err := r.Get(ctx, types.NamespacedName{Namespace: namespace, Name: HomeVolumeName}, &corev1.PersistentVolumeClaim{}); apierrors.IsNotFound(err) {
+		legacyErr := r.Get(ctx, types.NamespacedName{Namespace: namespace, Name: "agent-workspace"}, &corev1.PersistentVolumeClaim{})
+		if legacyErr == nil {
+			return nil, fmt.Errorf("legacy agent-workspace PVC exists: preserve its data and provision agent-home before upgrading")
+		}
+		if !apierrors.IsNotFound(legacyErr) {
+			return nil, legacyErr
+		}
+	} else if err != nil {
+		return nil, err
+	}
 	if err := r.ensurePVC(ctx, namespace, HomeVolumeName, labels, storageClass, workspaceSize); err != nil {
 		return nil, err
 	}
@@ -425,8 +438,12 @@ func (r *AgentReconciler) ensureAgentDeployment(
 	}
 	providerVolume, providerChecksum, hasProviders := providerSecretVolume(providerCopies)
 	transportHash := ""
-	if agent.Spec.Forge != nil || agent.Spec.TaskPlane != nil {
-		transportHash, err = transportCredentialHash(ctx, r.Client, namespace, agentCredentialSecretName(agent), agentA2ACredentialsKey)
+	if agent.Spec.Pi != nil || agent.Spec.Forge != nil || agent.Spec.TaskPlane != nil {
+		keys := []string{agentA2ACredentialsKey}
+		if agent.Spec.Pi != nil {
+			keys = nil
+		}
+		transportHash, err = transportCredentialHash(ctx, r.Client, namespace, agentCredentialSecretName(agent), keys...)
 		if err != nil {
 			return nil, err
 		}
@@ -900,8 +917,8 @@ func (r *AgentReconciler) runtimeConfigurationEnvironment(
 	}
 	// A typed webhook selection owns intake selection. Legacy envFrom must not
 	// reactivate notification polling when a resident has switched to webhooks.
-	if agent.Spec.GitHub != nil && agent.Spec.GitHub.Mode == "webhook" {
-		if slices.Contains(agent.Spec.Channels, "github") {
+	if agent.Spec.GitHub != nil && agent.Spec.GitHub.Mode == githubWebhookMode {
+		if slices.Contains(agent.Spec.Channels, githubChannelSource) {
 			return nil, fmt.Errorf("GitHub webhook mode cannot include the github polling channel")
 		}
 		channels := joinedSet(agent.Spec.Channels)

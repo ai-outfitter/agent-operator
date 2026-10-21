@@ -8,9 +8,13 @@ import (
 
 	aioutfitterv1alpha1 "github.com/ai-outfitter/agent-operator/code/operator/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/utils/ptr"
 )
 
 const (
+	githubWebhookMode           = "webhook"
+	githubChannelSource         = "github"
+	githubPATKey                = "GITHUB_PERSONAL_ACCESS_TOKEN"
 	piSessionIDFlag             = "--session-id"
 	piRPCMode                   = "rpc"
 	piModeFlag                  = "--mode"
@@ -57,11 +61,11 @@ func configureDirectPi(container *corev1.Container, agent *aioutfitterv1alpha1.A
 	container.Command = []string{"pi"}
 	container.Args = []string{piModeFlag, piRPCMode, piSessionIDFlag, agent.Name, "--no-approve", "--no-skills", "--no-prompt-templates", "--no-themes"}
 	if agent.Spec.Forge != nil {
-		container.Env = append(container.Env, corev1.EnvVar{Name: "GH_TOKEN", ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: agentCredentialSecretName(agent)}, Key: "GITHUB_PERSONAL_ACCESS_TOKEN"}}})
+		container.Env = append(container.Env, corev1.EnvVar{Name: "GH_TOKEN", ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: agentCredentialSecretName(agent)}, Key: githubPATKey, Optional: ptr.To(true)}}})
 	}
 	container.Env = append(container.Env,
 		corev1.EnvVar{Name: "PI_CODING_AGENT_DIR", Value: agentConfigPath(agent)},
-		corev1.EnvVar{Name: "PI_CODING_AGENT_SESSION_DIR", Value: path.Join(agentHome(agent), ".local/share/pi/sessions")},
+		corev1.EnvVar{Name: "PI_CODING_AGENT_SESSION_DIR", Value: path.Join(agentHome(agent), ".pi/agent/sessions")},
 		corev1.EnvVar{Name: "PI_TELEMETRY", Value: "0"},
 	)
 }

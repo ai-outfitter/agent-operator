@@ -148,13 +148,12 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		blockAgentConditions(agent, aioutfitterv1alpha1.AgentConditionWorkloadReady, "SettingsNotReady", "Outfitter settings are not ready")
 		return r.finishAgent(ctx, statusBase, agent, ctrl.Result{}, err)
 	}
-	agent.Status.CatalogSources = catalogSourceStatuses(organization.Spec.AgentCatalogs)
 	if agent.Spec.Pi != nil {
 		agent.Status.CatalogSources = nil
-	}
-	setAgentCondition(agent, aioutfitterv1alpha1.AgentConditionOutfitterSettingsReady, metav1.ConditionTrue, "Ready", "Outfitter settings contain the pinned source; runtime resolution is delegated to Outfitter")
-	if agent.Spec.Pi != nil {
 		setAgentCondition(agent, aioutfitterv1alpha1.AgentConditionOutfitterSettingsReady, metav1.ConditionTrue, "PiConfigured", "Native Pi configuration rendered directly from Agent spec")
+	} else {
+		agent.Status.CatalogSources = catalogSourceStatuses(organization.Spec.AgentCatalogs)
+		setAgentCondition(agent, aioutfitterv1alpha1.AgentConditionOutfitterSettingsReady, metav1.ConditionTrue, "Ready", "Outfitter settings contain the pinned source; runtime resolution is delegated to Outfitter")
 	}
 
 	deployment, err := r.ensureAgentDeployment(ctx, agent, organization)
@@ -208,6 +207,14 @@ func (r *AgentReconciler) validateAgent(
 		}
 	} else if agent.Spec.Profile.Agent == "" {
 		return nil, "declare either pi or a catalog profile", nil
+	}
+	if agent.Spec.GitHub != nil && agent.Spec.GitHub.Mode == githubWebhookMode {
+		if agent.Spec.Forge == nil {
+			return nil, "GitHub webhook mode requires forge.username", nil
+		}
+		if slices.Contains(agent.Spec.Channels, githubChannelSource) {
+			return nil, "GitHub webhook mode cannot also enable GitHub polling", nil
+		}
 	}
 	membership := agent.Spec.Memberships[0]
 	organization := &aioutfitterv1alpha1.Organization{}
