@@ -41,6 +41,19 @@ const (
 var _ = Describe("Agent Controller", func() {
 	ctx := context.Background()
 
+	It("admits a direct Pi resident without a catalog profile", func() {
+		organization := createAcceptedOrganization(ctx)
+		agent := validAgent(uniqueTestName("native-pi"), organization.Name)
+		agent.Spec.Profile = aioutfitterv1alpha1.AgentProfile{}
+		agent.Spec.Pi = &aioutfitterv1alpha1.PiSpec{SystemPrompt: "Answer the addressed task.", Model: "provider/model"}
+		Expect(k8sClient.Create(ctx, agent)).To(Succeed())
+		DeferCleanup(removeAgent, ctx, agent.Name)
+		fetched := &aioutfitterv1alpha1.Agent{}
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: agent.Name}, fetched)).To(Succeed())
+		Expect(fetched.Spec.Pi.SystemPrompt).To(Equal(agent.Spec.Pi.SystemPrompt))
+		Expect(fetched.Spec.Profile.Agent).To(BeEmpty())
+	})
+
 	It("inherits Organization defaults while preserving Agent overrides", func() {
 		organization := createAcceptedOrganization(ctx)
 		organizationCredentials := &corev1.Secret{}
