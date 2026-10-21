@@ -48,6 +48,6 @@
         }
       }
     },
-    "image": "216577824627.dkr.ecr.us-east-1.amazonaws.com/ai-outfitter/agent-pi@sha256:811d03662a6cb699247681b8ec6a8b9705a7e1910433d2e8cebb77abfd482cf2"
+    "image": "216577824627.dkr.ecr.us-east-1.amazonaws.com/ai-outfitter/agent-pi@sha256:b45c6cc9acff9ddbd374cc97b2083145e6bc7196ed29f6840d9fa588c34996c0"
   }
 }
