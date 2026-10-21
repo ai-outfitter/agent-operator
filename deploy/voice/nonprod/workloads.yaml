@@ -31,7 +31,7 @@ spec:
     app: voice-broker
   ports:
     - name: http
-      port: 4190
+      port: 4191
       targetPort: http
 ---
 apiVersion: apps/v1
@@ -78,7 +78,7 @@ spec:
               memory: 256Mi
           ports:
             - name: http
-              containerPort: 4190
+              containerPort: 4191
           startupProbe:
             httpGet:
               path: /health
@@ -113,6 +113,8 @@ spec:
                   key: apiSecret
             - name: HOST
               value: 0.0.0.0
+            - name: PORT
+              value: "4191"
             - name: VOICE_SERVICE_TOKEN
               valueFrom:
                 secretKeyRef:
@@ -227,7 +229,7 @@ spec:
                   name: voice-media
                   key: apiSecret
             - name: VOICE_SERVICE_INTERNAL_URL
-              value: http://voice-broker:4190
+              value: http://voice-broker:4191
             - name: VOICE_BACKEND
               value: openai
             - name: VOICE_MODEL

@@ -56,8 +56,8 @@ docker push VOICE_IMAGE:COMMIT
 ```
 
 Use a nonprod ECR repository with immutable tags and record the commit/digest
-mapping. The checked-in image is webapp commit `0733adff96fe9116985f03039766100c1cfe3348`,
-ECR digest `sha256:a66e1d911a322520109115e06a54d48d2179adf69edb41640a5548f5848002bd`.
+mapping. The checked-in image is webapp commit `6465f9b3b0bf8cdb30f9b38158c2569a9b2b0249`,
+ECR digest `sha256:b5b1e369e1aac7e71d9907a00ba8ab8276b1ca4910bd28858ca9cbeb5abd8ef1`.
 Update that pin only after reviewing the replacement image source. This repository does not publish a new operator image.
 
 Claude reviews both this diff and the runtime changes before cluster apply.
@@ -83,7 +83,7 @@ kubectl --context webapp-nonprod -n voice-preview rollout status deployment/voic
 kubectl --context webapp-nonprod -n voice-preview rollout status deployment/voice-worker
 ```
 
-Broker health is `/health:4190`; production worker health is `/:8081`. Config and
+Broker health is `/health:4191`; production worker health is `/:8081`. Config and
 Secrets are read at startup; explicitly restart only the relevant preview workload
 after rotation. The worker has one prewarmed process and a 2Gi memory limit.
 Configuring the broker with a private `publicUrl` is allowed for cluster smoke

@@ -16,7 +16,7 @@ spec:
             matchLabels:
               app.kubernetes.io/name: ingress-nginx
       ports:
-        - port: 4190
+        - port: 4191
   egress:
     - to:
         - podSelector: {}
