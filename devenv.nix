@@ -26,8 +26,8 @@ let
     mkdir -p \
       "$out/opt/agent/.agents" \
       "$out/opt/agent/.cache" \
-      "$out/workspace/.agent" \
-      "$out/workspace/.pi/agent"
+      "$out/home/researcher/.agent" \
+      "$out/home/researcher/.pi/agent"
     cp -r ${./code/agent/agents-catalog}/. "$out/opt/agent/.agents/"
     cp -r ${channels}/. "$out/opt/agent/.cache/"
     cp ${./code/agent/entrypoint.sh} "$out/opt/agent/entrypoint"
@@ -239,7 +239,7 @@ in
     copyToRoot = emptyContainerHome;
     entrypoint = [ "/opt/agent/entrypoint" ];
     startupCommand = [ ];
-    workingDir = "/workspace";
+    workingDir = "/home/researcher";
     maxLayers = 20;
     layers = [
       {
@@ -251,7 +251,7 @@ in
         copyToRoot = [ agentContainerRoot ];
         perms = [{
           path = agentContainerRoot;
-          regex = "/workspace(/.*)?";
+          regex = "/home(/.*)?";
           mode = "0755";
           uid = 1000;
           gid = 1000;
@@ -443,10 +443,10 @@ in
           kubectl -n agent-researcher describe pod/pi-seeder
           exit 1
         fi
-        tar -C "$HOME" -cf - .pi | kubectl -n agent-researcher exec -i pi-seeder -- tar -C /workspace -xf -
-        kubectl -n agent-researcher exec pi-seeder -- test -d /workspace/.pi/agent
+        tar -C "$HOME" -cf - .pi | kubectl -n agent-researcher exec -i pi-seeder -- tar -C /home/researcher -xf -
+        kubectl -n agent-researcher exec pi-seeder -- test -d /home/researcher/.pi/agent
         if [ -f "$HOME/.pi/agent/auth.json" ]; then
-          kubectl -n agent-researcher exec pi-seeder -- test -s /workspace/.pi/agent/auth.json
+          kubectl -n agent-researcher exec pi-seeder -- test -s /home/researcher/.pi/agent/auth.json
         fi
         kubectl -n agent-researcher delete pod pi-seeder --wait=true
         kubectl -n agent-researcher create configmap researcher-pi-ready \
@@ -629,7 +629,7 @@ in
 
         # 4) pi auth was seeded into the workspace.
         kubectl -n agent-researcher exec deployment/agent-runtime -- \
-          test -s /workspace/.pi/agent/auth.json
+          test -s /home/researcher/.pi/agent/auth.json
 
         # 5) Statelessness: restart the pod; the message stays processed and is
         #    NOT replied to a second time (dedup is server-side mailbox state).

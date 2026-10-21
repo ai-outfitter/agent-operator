@@ -35,7 +35,8 @@ type Membership struct {
 // AgentProfile selects the slug and harness that Outfitter resolves at runtime.
 type AgentProfile struct {
 	// +kubebuilder:validation:MinLength=1
-	Agent string `json:"agent"`
+	// +optional
+	Agent string `json:"agent,omitempty"`
 
 	// +kubebuilder:default=pi
 	// +kubebuilder:validation:Enum=pi
@@ -53,11 +54,35 @@ type AgentProfile struct {
 	Model string `json:"model,omitempty"`
 }
 
+// PiSpec declares the complete resident configuration without a catalog.
+type PiSpec struct {
+	// +kubebuilder:validation:MinLength=1
+	SystemPrompt string `json:"systemPrompt"`
+	// +kubebuilder:validation:Pattern=`^[^/[:space:]]+/[^[:space:]]+$`
+	Model string `json:"model"`
+	// Packages are Pi packages present in the selected image or pinned sources.
+	// +optional
+	Packages []string `json:"packages,omitempty"`
+	// +optional
+	// +kubebuilder:validation:Enum=off;minimal;low;medium;high;xhigh;max
+	Thinking string `json:"thinking,omitempty"`
+	// Models is native Pi models.json. Use environment names for API keys.
+	// +optional
+	// +kubebuilder:pruning:PreserveUnknownFields
+	Models *runtime.RawExtension `json:"models,omitempty"`
+}
+
 // GitHubSpec configures the resident runtime's GitHub notification source.
 // Values supplied by credential env projections take precedence during
 // migration. When NotifyOrgs is omitted, the operator derives the forge owner
 // from the Organization's GitHub catalog shorthand when available.
 type GitHubSpec struct {
+	// Mode selects notification polling or signed webhook delivery over A2A.
+	// Webhook mode overrides legacy channel environment selection.
+	// +kubebuilder:validation:Enum=polling;webhook
+	// +optional
+	Mode string `json:"mode,omitempty"`
+
 	// +listType=set
 	// +optional
 	// +kubebuilder:validation:MinItems=1
@@ -199,7 +224,13 @@ type AgentSpec struct {
 	// +kubebuilder:validation:MinLength=1
 	Image string `json:"image,omitempty"`
 
-	Profile AgentProfile `json:"profile"`
+	// Profile is retained for residents that still use catalog composition.
+	// +optional
+	Profile AgentProfile `json:"profile,omitempty"`
+
+	// Pi runs Pi directly and does not resolve Outfitter catalogs.
+	// +optional
+	Pi *PiSpec `json:"pi,omitempty"`
 
 	// CredentialSecretName selects the Agent's single standard Secret.
 	// +kubebuilder:default="agent-credentials"

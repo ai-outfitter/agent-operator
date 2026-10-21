@@ -74,8 +74,8 @@ for every accepted agent:
 - namespace `agent-<agent-name>`;
 - one runtime service account;
 - one RoleBinding from that service account to the built-in `admin` ClusterRole;
-- one operator-owned ResourceQuota named `agent-workspace`;
-- one operator-owned LimitRange named `agent-workspace-defaults`;
+- one operator-owned ResourceQuota named `agent-home`;
+- one operator-owned LimitRange named `agent-defaults`;
 - one durable per-agent workspace volume; and
 - one long-running agent Deployment.
 

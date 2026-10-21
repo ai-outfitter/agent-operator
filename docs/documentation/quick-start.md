@@ -127,8 +127,8 @@ status until you create them.
 Inspect the workspace boundary and budget:
 
 ```sh
-kubectl -n agent-researcher describe resourcequota agent-workspace
-kubectl -n agent-researcher get limitrange agent-workspace-defaults -o yaml
+kubectl -n agent-researcher describe resourcequota agent-home
+kubectl -n agent-researcher get limitrange agent-defaults -o yaml
 kubectl -n agent-researcher get rolebinding
 ```
 
@@ -181,7 +181,7 @@ kubectl wait agent/researcher \
   --timeout=5m
 kubectl get agent/researcher -o yaml
 kubectl -n agent-researcher get all,pvc,configmap,secret
-kubectl -n agent-researcher describe resourcequota agent-workspace
+kubectl -n agent-researcher describe resourcequota agent-home
 ```
 
 `Ready=True` means the organization membership, pinned catalogs, credentials,

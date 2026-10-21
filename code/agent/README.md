@@ -86,10 +86,10 @@ resident runtime:
 - `AGENT_ENDPOINT_ID=link:<agent>` and the matching `AGENT_PRINCIPAL_ID`.
   `Agent` names are cluster-scoped, so this remains unique and within the
   channel protocol's identifier bound across pod replacement;
-- `AGENT_SPOOL_PATH=/workspace/.channels/agent`, on the persistent workspace
+- `AGENT_SPOOL_PATH=$HOME/.local/state/channels/agent`, on the persistent workspace
   volume, for unacknowledged local delivery only.
 
-Pi sessions are stored under `/workspace/.pi/agent/sessions` and the entrypoint
+Pi sessions are stored under `$HOME/.pi/agent/sessions` and the entrypoint
 uses `--continue`, so a restarted pod resumes the durable session instead of
 minting an unrelated ephemeral session. Native agent-channel messages and replay
 state are recorded as Pi session entries, making this session on the workspace
@@ -103,6 +103,30 @@ present in the image. Channel connections are opened without inference; only a
 matching event initiates a model turn.
 
 For local development, `devenv tasks run demo:m1` copies the developer's entire
-`$HOME/.pi` directory directly into `/workspace/.pi` on the agent PVC before it
+`$HOME/.pi` directory directly into `$HOME/.pi` on the agent PVC before it
 creates the ConfigMap that unblocks the Deployment. The `.pi` contents are never
 committed, baked into the image, or stored in the Kubernetes API.
+
+## Resident filesystem
+
+The operator sets `HOME` and the uid-1000 passwd entry to
+`/home/<Agent metadata.name>`. A fresh `agent-home` PVC holds that home; profile
+selection does not change its path. Runtime, setup, catalog sync, and workflow
+export all use this same home. Chromium persists its profile in
+`$HOME/.config/chromium`, with cache in `$HOME/.cache/chromium`, both mounted
+from that PVC into the browser sidecar. The
+browser does not mount the rest of the home or the agent's service-account token.
+A stable pod hostname and `Recreate` strategy keep one browser on the profile.
+
+Outfitter's catalog cache uses `$HOME/.cache/outfitter`, Channels' spool uses
+`$HOME/.local/state/channels/agent`, and workflow exports use
+`$HOME/.local/share/outfitter/workflow`. Pi keeps its application-native `.pi`
+directory. Nix keeps its store and database under `/nix`, on `agent-nix-store`
+when the selected image needs that volume.
+
+This is a clean storage reset: there are no old-path aliases or data migrations.
+During rollout, stop the old residents before deleting their old home PVCs and
+obsolete quota/limit resources, then deploy the new operator and bootstrap fresh
+homes from the existing Agent definitions and credential sources. Remove unused
+Nix-store claims for residents running images that do not mount them. Do not
+remove storage belonging to the separate Workspace workloads.

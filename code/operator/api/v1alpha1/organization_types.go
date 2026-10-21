@@ -26,7 +26,7 @@ type ForgeSpoolSpec struct {
 
 // OrganizationForgeSpec configures one isolated organization gateway.
 type OrganizationForgeSpec struct {
-	// +kubebuilder:validation:Enum=forgejo
+	// +kubebuilder:validation:Enum=forgejo;github
 	Provider string `json:"provider"`
 	// +kubebuilder:validation:MinLength=1
 	Owner string `json:"owner"`
@@ -132,11 +132,11 @@ type OrganizationSpec struct {
 	// +optional
 	Repositories []Repository `json:"repositories,omitempty"`
 
-	// +kubebuilder:validation:MinItems=1
+	// +optional
 	// +kubebuilder:validation:MaxItems=16
 	// +listType=map
 	// +listMapKey=name
-	AgentCatalogs []AgentCatalog `json:"agentCatalogs"`
+	AgentCatalogs []AgentCatalog `json:"agentCatalogs,omitempty"`
 
 	// +listType=map
 	// +listMapKey=name

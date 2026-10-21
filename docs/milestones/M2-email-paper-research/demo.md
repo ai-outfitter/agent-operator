@@ -89,8 +89,8 @@ Before credentials are created, the observable intermediate state MUST be
 `CredentialsReady=False` while the Deployment exists and Kubernetes reports the
 missing non-optional references through the Pod's standard container status.
 
-The namespace MUST also contain `ResourceQuota/agent-workspace`,
-`LimitRange/agent-workspace-defaults`, a durable per-agent workspace volume, and
+The namespace MUST also contain `ResourceQuota/agent-home`,
+`LimitRange/agent-defaults`, a durable per-agent workspace volume, and
 a RoleBinding to the built-in `admin` ClusterRole. The agent may freely create
 namespaced resources while the operator-owned quota bounds their aggregate
 consumption.

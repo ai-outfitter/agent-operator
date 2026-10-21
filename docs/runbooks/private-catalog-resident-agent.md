@@ -122,7 +122,7 @@ spec:
           printf '%s' "${catalog_uri}#${catalog_revision}" | \
             base64 | tr -d '\n' | tr '+/' '-_' | tr -d '='
         )"
-        repos_root='/workspace/.agents-cache/repos'
+        repos_root="$HOME/.cache/outfitter/repos"
         cache_path="${repos_root}/${cache_key}"
         install -d -m 0700 "$repos_root"
 
@@ -221,7 +221,7 @@ spec:
 
 `encodeRemoteSource` in Outfitter's `SourceCache` derives a source directory by
 applying base64url encoding to `<credential-free-uri>#<revision>` under
-`/workspace/.agents-cache/repos/`. `redactSourceUriCredentials` removes embedded
+`$HOME/.cache/outfitter/repos/`. `redactSourceUriCredentials` removes embedded
 credentials before that key is derived. The script's `catalog_uri` therefore
 MUST contain no credentials and MUST be byte-identical to
 `Organization.spec.agentCatalogs[].uri`. Differences such as a trailing slash,

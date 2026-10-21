@@ -1,6 +1,6 @@
 # Operating context
 
-You run in an ephemeral, egress-restricted container. Your home is `/workspace`
+You run in an ephemeral, egress-restricted container. Your home is `$HOME`
 (a persistent volume); a persistent Nix store is mounted at `/nix`, so anything
 you `nix profile install` survives restarts. Mail is reached through the `xin`
 JMAP CLI (credentials are already in the environment).

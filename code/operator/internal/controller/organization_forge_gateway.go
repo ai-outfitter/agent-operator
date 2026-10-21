@@ -79,6 +79,9 @@ func (r *OrganizationReconciler) reconcileForgeGateway(ctx context.Context, org 
 		return ctrl.Result{}, err
 	}
 	if org.Spec.Forge == nil {
+		if err := r.cleanupStaleAgentA2A(ctx, org, nil); err != nil {
+			return ctrl.Result{}, err
+		}
 		setOrganizationCondition(org, aioutfitterv1alpha1.OrganizationConditionForgeGatewayReady, metav1.ConditionFalse, "NotConfigured", "Forge gateway is not configured")
 		setOrganizationCondition(org, aioutfitterv1alpha1.OrganizationConditionForgeRoutesReady, metav1.ConditionFalse, "NotConfigured", "Forge routes are not configured")
 		return ctrl.Result{}, nil
@@ -110,6 +113,9 @@ func (r *OrganizationReconciler) reconcileForgeGateway(ctx context.Context, org 
 		}
 		seen[key] = agent.Name
 		members = append(members, *agent)
+	}
+	if err := r.cleanupStaleAgentA2A(ctx, org, members); err != nil {
+		return ctrl.Result{}, err
 	}
 	if len(members) == 0 {
 		setOrganizationCondition(org, aioutfitterv1alpha1.OrganizationConditionForgeRoutesReady, metav1.ConditionFalse, "NoRoutes", "No member Agent declares spec.forge.username")
@@ -165,9 +171,6 @@ func (r *OrganizationReconciler) reconcileForgeGateway(ctx context.Context, org 
 			return ctrl.Result{}, err
 		}
 	}
-	if err := r.cleanupStaleAgentA2A(ctx, org, members); err != nil {
-		return ctrl.Result{}, err
-	}
 	routesJSON, _ := json.Marshal(routes)
 	publicJSON, _ := json.Marshal(public)
 	if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, credentials, func() error {
@@ -210,6 +213,35 @@ func (r *OrganizationReconciler) cleanupStaleAgentA2A(ctx context.Context, org *
 	for i := range members {
 		desired[agentNamespace(members[i].Name)] = struct{}{}
 	}
+	// Credentials are bearer authority even after Services and policies disappear.
+	// Agent labels survive organization changes, unlike the organization label.
+	var secrets corev1.SecretList
+	if err := r.List(ctx, &secrets, client.HasLabels{AgentNameLabel}); err != nil {
+		return err
+	}
+	for i := range secrets.Items {
+		secret := &secrets.Items[i]
+		if _, ok := desired[secret.Namespace]; ok {
+			continue
+		}
+		raw := secret.Data[agentA2ACredentialsKey]
+		if len(raw) == 0 {
+			continue
+		}
+		updated, err := removeGatewayCredential(raw, "forge-gateway:"+org.Name)
+		if err != nil {
+			ctrl.LoggerFrom(ctx).Error(err, "Skipping malformed A2A credential document", "namespace", secret.Namespace, "secret", secret.Name)
+			continue
+		}
+		if string(updated) == string(raw) {
+			continue
+		}
+		before := secret.DeepCopy()
+		secret.Data[agentA2ACredentialsKey] = updated
+		if err := r.Patch(ctx, secret, client.MergeFrom(before)); err != nil {
+			return err
+		}
+	}
 	selector := client.MatchingLabels{OrganizationLabel: org.Name}
 	var services corev1.ServiceList
 	if err := r.List(ctx, &services, selector); err != nil {
@@ -248,15 +280,18 @@ func (r *OrganizationReconciler) ensureAgentA2A(ctx context.Context, org *aioutf
 	if err := r.Get(ctx, types.NamespacedName{Name: ns}, &namespace); err != nil {
 		return fmt.Errorf("agent namespace %q is not ready: %w", ns, err)
 	}
-	credentials, _ := json.Marshal(map[string]any{"credentials": []map[string]string{{"token": token, "principal": "forge-gateway:" + org.Name}}})
 	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: agentCredentialSecretName(agent), Namespace: ns}}
-	_ = r.Get(ctx, client.ObjectKeyFromObject(secret), secret)
 	if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, secret, func() error {
 		secret.Labels = mergeLabels(secret.Labels, labels)
 		if secret.Data == nil {
 			secret.Data = map[string][]byte{}
 		}
+		credentials, err := mergeGatewayCredential(secret.Data[agentA2ACredentialsKey], "forge-gateway:"+org.Name, token)
+		if err != nil {
+			return err
+		}
 		secret.Data[agentA2ACredentialsKey] = credentials
+		secret.Labels[AgentNameLabel] = agent.Name
 		return nil
 	}); err != nil {
 		return err
@@ -285,6 +320,10 @@ func (r *OrganizationReconciler) ensureGatewayResources(ctx context.Context, org
 	ns := organizationNamespace(org.Name)
 	credentialsName := organizationCredentialSecretName(org)
 	selector := map[string]string{appNameLabel: ForgeGatewayName, appInstanceLabel: org.Name}
+	transportHash, err := transportCredentialHash(ctx, r.Client, ns, credentialsName, forgeRoutesKey, forgeWebhookSecretKey)
+	if err != nil {
+		return err
+	}
 	pvc := &corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{Name: ForgeSpoolPVCName, Namespace: ns}}
 	if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, pvc, func() error {
 		pvc.Labels = mergeLabels(pvc.Labels, labels)
@@ -303,11 +342,14 @@ func (r *OrganizationReconciler) ensureGatewayResources(ctx context.Context, org
 	if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, deployment, func() error {
 		deployment.Labels = mergeLabels(deployment.Labels, labels)
 		deployment.Spec.Replicas = ptr.To[int32](1)
+		// The SQLite spool has a single writer and a ReadWriteOnce volume.
+		deployment.Spec.Strategy = appsv1.DeploymentStrategy{Type: appsv1.RecreateDeploymentStrategyType}
 		deployment.Spec.Selector = &metav1.LabelSelector{MatchLabels: selector}
 		deployment.Spec.Template.Labels = mergeLabels(deployment.Spec.Template.Labels, selector)
+		deployment.Spec.Template.Annotations = mergeLabels(deployment.Spec.Template.Annotations, map[string]string{credentialHashAnnotation: transportHash})
 		deployment.Spec.Template.Spec.AutomountServiceAccountToken = ptr.To(false)
 		deployment.Spec.Template.Spec.SecurityContext = &corev1.PodSecurityContext{RunAsNonRoot: ptr.To(true), RunAsUser: ptr.To[int64](1000), RunAsGroup: ptr.To[int64](1000), FSGroup: ptr.To[int64](1000), SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault}}
-		deployment.Spec.Template.Spec.Containers = []corev1.Container{{Name: ForgeGatewayName, Image: r.GatewayImage, Command: []string{"/bin/manager"}, Args: []string{"forge-gateway"}, Ports: []corev1.ContainerPort{{Name: httpPortName, ContainerPort: 8080}}, Env: []corev1.EnvVar{{Name: "ORGANIZATION", Value: org.Name}, {Name: "FORGE_OWNER", Value: forge.Owner}, {Name: "SPOOL_PATH", Value: "/var/lib/forge-gateway/spool.db"}, {Name: "FORGE_ROUTES", ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: credentialsName}, Key: forgeRoutesKey}}}, {Name: "FORGE_WEBHOOK_SECRET", ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: credentialsName}, Key: forgeWebhookSecretKey}}}}, VolumeMounts: []corev1.VolumeMount{{Name: "spool", MountPath: "/var/lib/forge-gateway"}}, SecurityContext: &corev1.SecurityContext{AllowPrivilegeEscalation: ptr.To(false), ReadOnlyRootFilesystem: ptr.To(true), Capabilities: &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}}}, Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("50m"), corev1.ResourceMemory: resource.MustParse("64Mi")}, Limits: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("500m"), corev1.ResourceMemory: resource.MustParse("256Mi")}}}}
+		deployment.Spec.Template.Spec.Containers = []corev1.Container{{Name: ForgeGatewayName, Image: r.GatewayImage, Command: []string{"/bin/manager"}, Args: []string{"forge-gateway"}, Ports: []corev1.ContainerPort{{Name: httpPortName, ContainerPort: 8080}}, Env: []corev1.EnvVar{{Name: "ORGANIZATION", Value: org.Name}, {Name: "FORGE_OWNER", Value: forge.Owner}, {Name: "FORGE_PROVIDER", Value: forge.Provider}, {Name: "SPOOL_PATH", Value: "/var/lib/forge-gateway/spool.db"}, {Name: "FORGE_ROUTES", ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: credentialsName}, Key: forgeRoutesKey}}}, {Name: "FORGE_WEBHOOK_SECRET", ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: credentialsName}, Key: forgeWebhookSecretKey}}}}, VolumeMounts: []corev1.VolumeMount{{Name: "spool", MountPath: "/var/lib/forge-gateway"}}, SecurityContext: &corev1.SecurityContext{AllowPrivilegeEscalation: ptr.To(false), ReadOnlyRootFilesystem: ptr.To(true), Capabilities: &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}}}, Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("50m"), corev1.ResourceMemory: resource.MustParse("64Mi")}, Limits: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("500m"), corev1.ResourceMemory: resource.MustParse("256Mi")}}}}
 		deployment.Spec.Template.Spec.Volumes = []corev1.Volume{{Name: "spool", VolumeSource: corev1.VolumeSource{PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: ForgeSpoolPVCName}}}}
 		return controllerutil.SetControllerReference(org, deployment, r.Scheme)
 	}); err != nil {
@@ -398,4 +440,63 @@ func orgAgents(ctx context.Context, c client.Client, org string) []string {
 		}
 	}
 	return out
+}
+
+// Preserve workflow clients when adding the forge gateway to a resident that
+// already accepts A2A calls. Only this gateway's own principal is replaced.
+func mergeGatewayCredential(raw []byte, principal, token string) ([]byte, error) {
+	config := map[string]json.RawMessage{}
+	if len(raw) > 0 {
+		if err := json.Unmarshal(raw, &config); err != nil {
+			return nil, fmt.Errorf("invalid existing A2A credential configuration: %w", err)
+		}
+	}
+	var entries []map[string]json.RawMessage
+	if existing := config["credentials"]; len(existing) > 0 {
+		if err := json.Unmarshal(existing, &entries); err != nil {
+			return nil, fmt.Errorf("invalid existing A2A credentials: %w", err)
+		}
+	}
+	entries = slices.DeleteFunc(entries, func(entry map[string]json.RawMessage) bool {
+		var value string
+		_ = json.Unmarshal(entry["principal"], &value)
+		return value == principal
+	})
+	p, _ := json.Marshal(principal)
+	t, _ := json.Marshal(token)
+	entries = append(entries, map[string]json.RawMessage{"principal": p, "token": t})
+	encoded, err := json.Marshal(entries)
+	if err != nil {
+		return nil, err
+	}
+	config["credentials"] = encoded
+	return json.Marshal(config)
+}
+
+func removeGatewayCredential(raw []byte, principal string) ([]byte, error) {
+	var config map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &config); err != nil {
+		return nil, err
+	}
+	if len(config["credentials"]) == 0 {
+		return raw, nil
+	}
+	var entries []map[string]json.RawMessage
+	if err := json.Unmarshal(config["credentials"], &entries); err != nil {
+		return nil, err
+	}
+	kept := slices.DeleteFunc(entries, func(entry map[string]json.RawMessage) bool {
+		var value string
+		_ = json.Unmarshal(entry["principal"], &value)
+		return value == principal
+	})
+	if len(kept) == len(entries) {
+		return raw, nil
+	}
+	encoded, err := json.Marshal(kept)
+	if err != nil {
+		return nil, err
+	}
+	config["credentials"] = encoded
+	return json.Marshal(config)
 }

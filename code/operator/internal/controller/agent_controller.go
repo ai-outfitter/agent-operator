@@ -148,8 +148,13 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		blockAgentConditions(agent, aioutfitterv1alpha1.AgentConditionWorkloadReady, "SettingsNotReady", "Outfitter settings are not ready")
 		return r.finishAgent(ctx, statusBase, agent, ctrl.Result{}, err)
 	}
-	agent.Status.CatalogSources = catalogSourceStatuses(organization.Spec.AgentCatalogs)
-	setAgentCondition(agent, aioutfitterv1alpha1.AgentConditionOutfitterSettingsReady, metav1.ConditionTrue, "Ready", "Outfitter settings contain the pinned source; runtime resolution is delegated to Outfitter")
+	if agent.Spec.Pi != nil {
+		agent.Status.CatalogSources = nil
+		setAgentCondition(agent, aioutfitterv1alpha1.AgentConditionOutfitterSettingsReady, metav1.ConditionTrue, "PiConfigured", "Native Pi configuration rendered directly from Agent spec")
+	} else {
+		agent.Status.CatalogSources = catalogSourceStatuses(organization.Spec.AgentCatalogs)
+		setAgentCondition(agent, aioutfitterv1alpha1.AgentConditionOutfitterSettingsReady, metav1.ConditionTrue, "Ready", "Outfitter settings contain the pinned source; runtime resolution is delegated to Outfitter")
+	}
 
 	deployment, err := r.ensureAgentDeployment(ctx, agent, organization)
 	if err != nil {
@@ -196,6 +201,21 @@ func (r *AgentReconciler) validateAgent(
 	if message := inputValidationMessage(agent); message != "" {
 		return nil, message, nil
 	}
+	if agent.Spec.Pi != nil {
+		if agent.Spec.Profile.Agent != "" || agent.Spec.TaskPlane != nil || (agent.Spec.CatalogSync != nil && agent.Spec.CatalogSync.Enabled) {
+			return nil, "direct Pi configuration cannot be combined with a catalog profile, catalog sync, or catalog workflow", nil
+		}
+	} else if agent.Spec.Profile.Agent == "" {
+		return nil, "declare either pi or a catalog profile", nil
+	}
+	if agent.Spec.GitHub != nil && agent.Spec.GitHub.Mode == githubWebhookMode {
+		if agent.Spec.Forge == nil {
+			return nil, "GitHub webhook mode requires forge.username", nil
+		}
+		if slices.Contains(agent.Spec.Channels, githubChannelSource) {
+			return nil, "GitHub webhook mode cannot also enable GitHub polling", nil
+		}
+	}
 	membership := agent.Spec.Memberships[0]
 	organization := &aioutfitterv1alpha1.Organization{}
 	if err := r.Get(ctx, types.NamespacedName{Name: membership.Organization}, organization); err != nil {
@@ -206,6 +226,9 @@ func (r *AgentReconciler) validateAgent(
 	}
 	if !apiMeta.IsStatusConditionTrue(organization.Status.Conditions, aioutfitterv1alpha1.OrganizationConditionAccepted) {
 		return organization, fmt.Sprintf("Organization %q is not accepted", membership.Organization), nil
+	}
+	if agent.Spec.Pi == nil && len(organization.Spec.AgentCatalogs) == 0 {
+		return organization, "catalog profiles require an organization catalog", nil
 	}
 	projects := make(map[string]struct{}, len(organization.Spec.Projects))
 	for _, project := range organization.Spec.Projects {
@@ -227,7 +250,7 @@ func inputValidationMessage(agent *aioutfitterv1alpha1.Agent) string {
 		}
 	}
 	reservedVolumes := map[string]struct{}{
-		WorkspaceName: {}, SettingsName: {}, NixStoreName: {}, APITokenVolumeName: {}, A2ACredentialsVolumeName: {}, browserDataName: {},
+		piEmptyCatalogVolume: {}, HomeVolumeName: {}, IdentityVolumeName: {}, SettingsName: {}, NixStoreName: {}, APITokenVolumeName: {}, A2ACredentialsVolumeName: {},
 		inferenceTokenVolumeName: {}, AgentsLayerName: {},
 	}
 	volumeNames := map[string]struct{}{}
@@ -241,7 +264,7 @@ func inputValidationMessage(agent *aioutfitterv1alpha1.Agent) string {
 		}
 		volumeNames[volume.Name] = struct{}{}
 	}
-	reservedPaths := []string{WorkspaceMount, NixMount, A2ACredentialsMount, CredentialsRoot, APITokenMountPath}
+	reservedPaths := []string{agentHome(agent), "/etc/passwd", NixMount, A2ACredentialsMount, CredentialsRoot, APITokenMountPath}
 	for i := range agent.Spec.VolumeMounts {
 		mount := &agent.Spec.VolumeMounts[i]
 		if _, declared := volumeNames[mount.Name]; !declared {

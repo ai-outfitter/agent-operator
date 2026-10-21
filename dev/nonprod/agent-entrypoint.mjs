@@ -28,7 +28,6 @@ const child = spawn(
 	{
 		env: {
 			...process.env,
-			HOME: "/workspace",
 			OUTFITTER_CHANNELS: "slack",
 		},
 		stdio: ["pipe", "inherit", "inherit"],

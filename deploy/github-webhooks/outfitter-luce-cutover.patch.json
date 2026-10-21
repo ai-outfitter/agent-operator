@@ -1,0 +1,8 @@
+{
+  "spec": {
+    "github": {
+      "mode": "webhook"
+    },
+    "channels": null
+  }
+}
