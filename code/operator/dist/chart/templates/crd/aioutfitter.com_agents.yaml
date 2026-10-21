@@ -244,6 +244,14 @@ spec:
                     minItems: 1
                     type: array
                     x-kubernetes-list-type: set
+                  mode:
+                    description: |-
+                      Mode selects notification polling or signed webhook delivery over A2A.
+                      Webhook mode overrides legacy channel environment selection.
+                    enum:
+                    - polling
+                    - webhook
+                    type: string
                   notifyOrgs:
                     items:
                       minLength: 1
@@ -292,9 +300,43 @@ spec:
                 x-kubernetes-list-map-keys:
                 - organization
                 x-kubernetes-list-type: map
+              pi:
+                description: Pi runs Pi directly and does not resolve Outfitter catalogs.
+                properties:
+                  model:
+                    pattern: ^[^/[:space:]]+/[^[:space:]]+$
+                    type: string
+                  models:
+                    description: Models is native Pi models.json. Use environment
+                      names for API keys.
+                    type: object
+                    x-kubernetes-preserve-unknown-fields: true
+                  packages:
+                    description: Packages are Pi packages present in the selected
+                      image or pinned sources.
+                    items:
+                      type: string
+                    type: array
+                  systemPrompt:
+                    minLength: 1
+                    type: string
+                  thinking:
+                    enum:
+                    - "off"
+                    - minimal
+                    - low
+                    - medium
+                    - high
+                    - xhigh
+                    - max
+                    type: string
+                required:
+                - model
+                - systemPrompt
+                type: object
               profile:
-                description: AgentProfile selects the slug and harness that Outfitter
-                  resolves at runtime.
+                description: Profile is retained for residents that still use catalog
+                  composition.
                 properties:
                   agent:
                     minLength: 1
@@ -315,8 +357,6 @@ spec:
                     minLength: 3
                     pattern: ^[^/[:space:]]+/[^[:space:]]+$
                     type: string
-                required:
-                - agent
                 type: object
               setup:
                 description: |-
@@ -2415,7 +2455,6 @@ spec:
                 type: object
             required:
             - memberships
-            - profile
             - workspace
             type: object
           status:
