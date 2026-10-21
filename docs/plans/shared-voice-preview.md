@@ -87,7 +87,7 @@ came from without logging values. Do not copy production credentials blindly.
 ## Validation
 
 - Render and server-side dry-run deployment configuration. Verify Secrets never
-  appear in rendered review artifacts. Test disabled/external-media configurations.
+  appear in rendered review artifacts.
 - Broker health, worker registration, room creation and cleanup, scoped room token,
   and configured resident access from within the cluster.
 - Browser on exact PR revision: list allowed resident, start/mute/hang up, failure

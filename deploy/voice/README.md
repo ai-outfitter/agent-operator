@@ -32,9 +32,10 @@ Create Secrets out of band, never in Kustomize or git:
 | `voice-media` | `url`, `publicUrl`, `apiKey`, `apiSecret` | Broker and worker |
 | `voice-broker` | `serviceToken` (32+ characters), `targets.json` | Broker only |
 | `voice-provider` | `apiKey` | Worker only |
-| `voice-livekit-keys` | `keys.yaml` (LiveKit key mapping) | Optional internal LiveKit |
+| `voice-livekit-keys` | `keys` (LiveKit key mapping) | Optional internal LiveKit |
 
-`url` is server-side; `publicUrl` is browser-side. Use an explicitly approved
+`url` is server-side; optional `publicUrl` is browser-side and must be nonempty
+when supplied. Omitting it uses the same endpoint for both. Use an explicitly approved
 nonprod provider and one allowlisted test user. The target schema is in webapp's
 `workspace/voice/targets.example.json`; copy only the selected resident credential,
 not the entire gateway Secret. The allowed organization ID must match the
@@ -55,8 +56,9 @@ docker push VOICE_IMAGE:COMMIT
 ```
 
 Use a nonprod ECR repository with immutable tags and record the commit/digest
-mapping. Replace the placeholder in `nonprod/kustomization.yaml` with that digest
-before deployment. This repository does not publish a new operator image.
+mapping. The checked-in image is webapp commit `0733adff96fe9116985f03039766100c1cfe3348`,
+ECR digest `sha256:a66e1d911a322520109115e06a54d48d2179adf69edb41640a5548f5848002bd`.
+Update that pin only after reviewing the replacement image source. This repository does not publish a new operator image.
 
 Claude reviews both this diff and the runtime changes before cluster apply.
 See `docs/plans/shared-voice-preview.md` and PR #108 for review evidence.
@@ -72,10 +74,11 @@ operator overlay for this milestone.
 kubectl --context webapp-nonprod apply -f deploy/voice/nonprod/namespace.yaml
 # Provision Secrets through the approved private channel.
 kubectl --context webapp-nonprod apply --dry-run=server -k deploy/voice/nonprod
+# Optional internal smoke transport first; wait before starting the worker:
+kubectl --context webapp-nonprod apply -k deploy/voice/livekit-internal
+kubectl --context webapp-nonprod -n voice-preview rollout status deployment/voice-livekit
 kubectl --context webapp-nonprod apply -k deploy/voice/nonprod
 kubectl --context webapp-nonprod apply -f deploy/voice/resident-access.yaml
-# Optional internal smoke transport only:
-kubectl --context webapp-nonprod apply -k deploy/voice/livekit-internal
 kubectl --context webapp-nonprod -n voice-preview rollout status deployment/voice-broker
 kubectl --context webapp-nonprod -n voice-preview rollout status deployment/voice-worker
 ```

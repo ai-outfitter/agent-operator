@@ -7,7 +7,6 @@ data:
   livekit.yaml: |
     port: 7880
     bind_addresses: ["0.0.0.0"]
-    key_file: /run/keys/keys.yaml
     rtc:
       use_external_ip: false
       tcp_port: 7881
@@ -50,6 +49,12 @@ spec:
         - name: livekit
           image: docker.io/livekit/livekit-server:v1.13.10
           args: [--config, /etc/livekit/livekit.yaml]
+          env:
+            - name: LIVEKIT_KEYS
+              valueFrom:
+                secretKeyRef:
+                  name: voice-livekit-keys
+                  key: keys
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -82,16 +87,10 @@ spec:
             - name: config
               mountPath: /etc/livekit
               readOnly: true
-            - name: keys
-              mountPath: /run/keys
-              readOnly: true
       volumes:
         - name: config
           configMap:
             name: voice-livekit
-        - name: keys
-          secret:
-            secretName: voice-livekit-keys
 ---
 apiVersion: v1
 kind: Service

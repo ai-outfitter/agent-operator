@@ -123,6 +123,7 @@ spec:
                 secretKeyRef:
                   name: voice-media
                   key: publicUrl
+                  optional: true
             - name: VOICE_TARGETS_FILE
               value: /run/voice/targets.json
             - name: VOICE_DATABASE
@@ -206,8 +207,7 @@ spec:
               port: http
             periodSeconds: 5
           livenessProbe:
-            httpGet:
-              path: /
+            tcpSocket:
               port: http
             periodSeconds: 20
           env:

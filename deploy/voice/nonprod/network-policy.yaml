@@ -17,7 +17,6 @@ spec:
               app.kubernetes.io/name: ingress-nginx
       ports:
         - port: 4190
-        - port: 7880
   egress:
     - to:
         - podSelector: {}
