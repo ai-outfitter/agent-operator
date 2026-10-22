@@ -21,7 +21,7 @@ Do not add old-path aliases, data migrations, or a separate browser-data volume.
 ## GitHub identity
 
 Follow [GitHub agent identity and authorization](docs/github-agent-identity.md).
-Residents use Chrome MCP and their password manager for their own-account sign-in.
+Intended sign-in uses Chrome MCP and the resident's password manager.
 Preserve the intended agent author; never substitute a human account or App bot.
 Resident `GH_TOKEN` credentials are temporary; gateway-managed App user grants
 are planned. Declarative configuration references bindings, not raw credentials.
