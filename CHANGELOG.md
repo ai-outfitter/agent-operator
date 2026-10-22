@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.19.0](https://github.com/ai-outfitter/agent-operator/compare/agent-operator-v0.18.0...agent-operator-v0.19.0) (2026-10-22)
+
+
+### Features
+
+* run declarative Pi residents with GitHub event workflows ([#106](https://github.com/ai-outfitter/agent-operator/issues/106)) ([9b26802](https://github.com/ai-outfitter/agent-operator/commit/9b268029213b2e49c487b34bc28d0d8f0973c654))
+
 ## [0.18.0](https://github.com/ai-outfitter/agent-operator/compare/agent-operator-v0.17.0...agent-operator-v0.18.0) (2026-10-12)
 
 
