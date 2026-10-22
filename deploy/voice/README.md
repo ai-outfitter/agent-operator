@@ -30,9 +30,9 @@ Create Secrets out of band, never in Kustomize or git:
 | Secret | Keys | Consumers |
 | --- | --- | --- |
 | `voice-media` | `url`, `publicUrl`, `apiKey`, `apiSecret` | Broker and worker |
-| `voice-broker` | `serviceToken` (32+ characters), `targets.json` | Broker only |
+| `voice-broker` | `serviceToken` (32+ characters), `targets.json`; gateway mode adds distinct `authorityToken` | Broker; only `authorityToken` also goes to isolated gateway |
 | `voice-provider` | `apiKey` | Worker only |
-| `voice-livekit-keys` | `keys` (LiveKit key mapping) | Optional internal LiveKit |
+| `voice-livekit-keys` | `keys` (LiveKit key mapping) | Optional internal or public LiveKit (in its namespace) |
 
 `url` is server-side; optional `publicUrl` is browser-side and must be nonempty
 when supplied. Omitting it uses the same endpoint for both. Use an explicitly approved
@@ -42,9 +42,10 @@ not the entire gateway Secret. The allowed organization ID must match the
 branch preview's authenticated fixture organization, not an arbitrary browser
 input. Test resident tokens must actually authorize the A2A endpoint.
 
-Direct provider credentials are a bounded preview exception. Managed realtime
-inference and automatic resident discovery remain deferred. Limit this preview
-to one organization and authorized test identities.
+Direct provider credentials in `modes/env` are a bounded preview exception.
+`modes/gateway` requires the separately reviewed realtime gateway integration
+described below. Automatic resident discovery remains deferred. Limit this
+preview to one organization and authorized test identities.
 
 ## Image and review
 
@@ -113,3 +114,11 @@ If internal LiveKit was applied, delete only that overlay. Keep the broker PVC a
 namespace until receipts have been reviewed; do not delete the namespace or run
 `delete -k nonprod` as ordinary rollback because that deletes the PVC. Review and
 remove retained Secrets when no longer needed. Recheck existing resident health.
+
+## Public EKS media and inference mode options
+
+[Public media setup](livekit-public/README.md) provides an opt-in dedicated public
+EKS node and LiveKit overlay; it does not turn the existing private nodes into
+public media servers. [Inference modes](modes/README.md) provides explicit `env`
+and `gateway` overlays, including the gateway rollout/network dependencies.
+Prepare/review their infrastructure and new runtime image before applying.

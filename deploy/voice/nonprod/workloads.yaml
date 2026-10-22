@@ -96,6 +96,10 @@ spec:
               port: http
             periodSeconds: 20
           env:
+            - name: VOICE_INFERENCE_MODE
+              value: env
+            - name: VOICE_MODEL
+              value: gpt-realtime
             - name: LIVEKIT_URL
               valueFrom:
                 secretKeyRef:
@@ -230,6 +234,8 @@ spec:
                   key: apiSecret
             - name: VOICE_SERVICE_INTERNAL_URL
               value: http://voice-broker:4191
+            - name: VOICE_INFERENCE_MODE
+              value: env
             - name: VOICE_BACKEND
               value: openai
             - name: VOICE_MODEL

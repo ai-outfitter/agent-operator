@@ -1,0 +1,120 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: voice-inference-gateway
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: voice-inference-gateway-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: gp3-encrypted-csi
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: voice-inference-gateway
+spec:
+  selector:
+    app: voice-inference-gateway
+  ports:
+    - name: http
+      port: 4040
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: voice-inference-gateway
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: voice-inference-gateway
+  template:
+    metadata:
+      labels:
+        app: voice-inference-gateway
+    spec:
+      serviceAccountName: voice-inference-gateway
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: gateway
+          image: voice-inference-gateway
+          command:
+            - node
+            - workspace/gateway.mjs
+          ports:
+            - name: http
+              containerPort: 4040
+          env:
+            - name: WORKSPACE_GATEWAY_PORT
+              value: "4040"
+            - name: WORKSPACE_DATABASE_URL
+              value: file:/data/voice-gateway.db
+            - name: WORKSPACE_GATEWAY_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: voice-gateway-platform
+                  key: platformToken
+            - name: WORKSPACE_RESOLVE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: voice-gateway-platform
+                  key: resolveUrl
+            - name: WORKSPACE_USAGE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: voice-gateway-platform
+                  key: usageUrl
+            - name: VOICE_AUTHORITY_URL
+              value: http://voice-broker:4191/inference-authority
+            - name: VOICE_AUTHORITY_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: voice-broker
+                  key: authorityToken
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: voice-inference-gateway-data
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi

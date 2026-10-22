@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: voice-media-preview
+  labels:
+    app.kubernetes.io/part-of: voice-preview
+    # hostNetwork is forbidden by baseline/restricted. Exception is media-only.
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/audit: restricted

@@ -116,3 +116,16 @@ kubectl kustomize deploy/voice/livekit-internal
 The small check asserts singleton SQLite, credential separation and exact public
 routes. Server-side validation and actual call acceptance are separate deployment
 gates documented in `deploy/voice/README.md`.
+
+Explicit inference overlays and the public media overlay can also be checked
+without API discovery using `yq` (Mike Farah's Go implementation):
+
+```sh
+kubectl kustomize deploy/voice/modes/env | yq -o=json -I=0 . | python3 deploy/voice/check-render.py
+kubectl kustomize deploy/voice/modes/gateway | yq -o=json -I=0 . | python3 deploy/voice/check-render.py
+kubectl kustomize deploy/voice/livekit-public | yq -o=json -I=0 . | python3 deploy/voice/check-public-render.py
+```
+
+For the separate opt-in media node Terraform root, run `tofu init -backend=false`,
+`tofu fmt -check` and `tofu validate` in `deploy/voice/livekit-public/infra`.
+These checks create no infrastructure and do not prove public WebRTC connectivity.

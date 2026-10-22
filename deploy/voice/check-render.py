@@ -22,9 +22,38 @@ for role in ('broker', 'worker'):
     c = spec['containers'][0]
     assert c['securityContext']['readOnlyRootFilesystem'] is True
     secret_names = {e.get('valueFrom', {}).get('secretKeyRef', {}).get('name') for e in c['env']}
-    assert ('voice-provider' in secret_names) == (role == 'worker')
+    env = {e['name']: e for e in c['env']}
+    mode = env['VOICE_INFERENCE_MODE']['value']
+    assert mode in ('env', 'gateway')
+    if mode == 'gateway':
+        # The base image predates mode support and would silently use env behavior.
+        assert 'sha256:b5b1e369e1aac7e71d9907a00ba8ab8276b1ca4910bd28858ca9cbeb5abd8ef1' not in c['image']
+    assert ('voice-provider' in secret_names) == (role == 'worker' and mode == 'env')
+    if role == 'worker' and mode == 'gateway':
+        assert 'VOICE_GATEWAY_URL' in env
+        assert not any(k in env for k in ('OPENAI_API_KEY', 'GOOGLE_API_KEY', 'VOICE_SERVICE_TOKEN', 'VOICE_AUTHORITY_TOKEN'))
+    if role == 'broker':
+        assert env['VOICE_MODEL']['value']
+        if mode == 'gateway':
+            assert env['VOICE_AUTHORITY_TOKEN']['valueFrom']['secretKeyRef'] == {'name': 'voice-broker', 'key': 'authorityToken'}
+        else:
+            assert 'VOICE_AUTHORITY_TOKEN' not in env
     assert ('voice-broker' in secret_names) == (role == 'broker')
     assert 'voice-media' in secret_names
+if ('Deployment', 'voice-inference-gateway') in objects:
+    gateway = objects['Deployment', 'voice-inference-gateway']
+    assert gateway['spec']['replicas'] == 1
+    assert gateway['spec']['strategy']['type'] == 'Recreate'
+    pod = gateway['spec']['template']['spec']
+    assert pod['automountServiceAccountToken'] is False
+    c = pod['containers'][0]
+    assert c['command'] == ['node', 'workspace/gateway.mjs']
+    env = {e['name']: e for e in c['env']}
+    assert env['WORKSPACE_DATABASE_URL']['value'] == 'file:/data/voice-gateway.db'
+    assert env['VOICE_AUTHORITY_TOKEN']['valueFrom']['secretKeyRef'] == {'name': 'voice-broker', 'key': 'authorityToken'}
+    assert env['WORKSPACE_GATEWAY_TOKEN']['valueFrom']['secretKeyRef']['name'] == 'voice-gateway-platform'
+    assert not any(k.startswith(('WORKFLOW_', 'OPENAI_')) or k == 'INFERENCE_PROVIDERS' for k in env)
+    assert objects['PersistentVolumeClaim', 'voice-inference-gateway-data']['spec']['accessModes'] == ['ReadWriteOnce']
 pvc = objects['PersistentVolumeClaim', 'voice-broker-data']
 assert pvc['spec']['accessModes'] == ['ReadWriteOnce']
 ingress = objects['Ingress', 'voice-preview']

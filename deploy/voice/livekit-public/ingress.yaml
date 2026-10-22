@@ -1,0 +1,46 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: voice-turn
+spec:
+  secretName: voice-turn-tls
+  dnsNames: [turn-voice-preview.unsupervised.wtf]
+  issuerRef:
+    name: letsencrypt-cloudflare-dns
+    kind: ClusterIssuer
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: voice-livekit
+spec:
+  secretName: voice-livekit-tls
+  dnsNames: [livekit-voice-preview.unsupervised.wtf]
+  issuerRef:
+    name: letsencrypt-cloudflare-dns
+    kind: ClusterIssuer
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: voice-livekit
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts: [livekit-voice-preview.unsupervised.wtf]
+      secretName: voice-livekit-tls
+  rules:
+    - host: livekit-voice-preview.unsupervised.wtf
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: voice-livekit
+                port:
+                  name: http

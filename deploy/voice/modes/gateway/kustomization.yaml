@@ -1,0 +1,17 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: voice-preview
+resources:
+  - ../../nonprod
+  - gateway.yaml
+patches:
+  - path: mode.yaml
+# Deliberately unrunnable until parent builds/reviews the root webapp Dockerfile.
+images:
+  - name: voice-inference-gateway
+    newName: invalid.local/voice-gateway-requires-reviewed-image
+    newTag: replace-before-apply
+  # Base overlay pins an old runtime. Gateway mode must fail closed until replaced.
+  - name: 216577824627.dkr.ecr.us-east-1.amazonaws.com/ai-outfitter/voice-preview
+    newName: invalid.local/voice-runtime-requires-reviewed-image
+    digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
