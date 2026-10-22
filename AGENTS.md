@@ -17,3 +17,11 @@ Resident homes are `/home/<Agent metadata.name>` on `agent-home`, with matching
 `HOME` and passwd identity. Use application-native/XDG paths under that home;
 Nix's store stays at `/nix`. Chromium uses the home's `.config/chromium` directory.
 Do not add old-path aliases, data migrations, or a separate browser-data volume.
+
+## GitHub identity
+
+Follow [GitHub agent identity and authorization](docs/github-agent-identity.md).
+Intended sign-in uses Chrome MCP and the resident's password manager.
+Preserve the intended agent author; never substitute a human account or App bot.
+Resident `GH_TOKEN` credentials are temporary; gateway-managed App user grants
+are planned. Declarative configuration references bindings, not raw credentials.
