@@ -61,3 +61,7 @@ internal maintenance/platform routes are token protected and namespace private.
 Keep `INFERENCE_PROVIDERS` and `OPENAI_*` unset; provider selection comes solely
 from the scoped resolver. Final image review must verify `ws` and all imported
 `workspace/*.mjs` modules are present before updating the image pin.
+
+Set `VOICE_GATEWAY_ORGANIZATION_IDS` on that branch-preview webapp to the
+comma-separated canonical organization IDs admitted by this preview. An empty
+allowlist refuses the scoped token; the voice worker never receives this token.

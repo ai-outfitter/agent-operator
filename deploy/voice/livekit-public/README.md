@@ -111,3 +111,7 @@ Before deployment, verify no DaemonSet tolerating this node's taint binds host
 checks. Record the TURN certificate's `notAfter` and next renewal check date in
 the deployment receipt; schedule an operational reminder before expiry and
 restart/verify LiveKit following renewal. No automated restart is installed.
+
+The LiveKit v1.13.10 image is pinned to the pulled and locally tested amd64
+manifest `sha256:e96a42b8623f738919a3f2006d433aeb19d0f3c67ce11eb986ea20e2cf65fbf5`.
+The dedicated node group is amd64. Review a replacement digest before upgrades.

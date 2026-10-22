@@ -26,6 +26,8 @@ assert pod['tolerations'] == [{'key': 'aioutfitter.com/voice-media', 'operator':
 assert pod['automountServiceAccountToken'] is False
 assert pod['containers'][0]['securityContext']['capabilities'] == {'add': ['NET_BIND_SERVICE'], 'drop': ['ALL']}
 assert pod['containers'][0]['securityContext']['allowPrivilegeEscalation'] is False
+assert pod['containers'][0]['securityContext']['readOnlyRootFilesystem'] is True
+assert pod['containers'][0]['image'].endswith('@sha256:e96a42b8623f738919a3f2006d433aeb19d0f3c67ce11eb986ea20e2cf65fbf5')
 ports = {p['name']: p for p in pod['containers'][0]['ports']}
 assert ports['turn-tls']['hostPort'] == 443
 assert ports['turn-udp']['hostPort'] == 3478
