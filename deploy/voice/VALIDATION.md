@@ -62,3 +62,31 @@ The temporary diagnostic Worker used for the latter was removed.
 No working browser audio, meeting participation, second-provider acceptance,
 automatic resident provisioning, or deployment of a new operator binary is claimed.
 Rollback steps, including preserving the receipt PVC, are in README.md.
+
+## October 22 follow-up: gateway inference and public media
+
+Implementation source: operator `b0f6c50`, webapp `a026e98` (CI path-filter follow-up
+`d1e54a8`). These changes are not deployed to EKS. AWS SSO expired; the device
+login did not complete, so no new infrastructure plan/apply or image publication
+was attempted with stale credentials. The October 21 evidence above describes
+the earlier internal-only stack, not this gateway/public-media implementation.
+
+- Thirty gateway/resolver/regression tests passed, including organization-ID
+  binding, scoped platform authorization, real WebSocket forwarding to a mock
+  upstream, reset/error cleanup and model selection.
+- Twelve voice tests passed with a real local LiveKit server, including SDK
+  handshake path/authentication tests. These are not live OpenAI audio acceptance.
+- Webapp lint/type checks passed with zero errors; build passed. Voice and root
+  gateway container builds passed locally during implementation; reviewed final
+  source must still be published and pinned before activation.
+- OpenTofu formatting/validation and all env/gateway/public-media render checks
+  passed. No AWS plan or public WebRTC result is claimed.
+- Claude Code reviewed both PRs and the fixes. Adopted simplifications include
+  ordinary manifests, explicit modes, existing broker call credentials, no model
+  alias rewriting, small routing helpers, and VPC DNS for the public media pod.
+
+Activation still requires scoped preview credentials, resolver/usage URLs pointing
+at the authenticating preview's identity database, new immutable runtime images,
+reviewed live node/subnet/security-group inputs, DNS/certificates, and actual
+external microphone/speaker plus UDP-blocked TURN validation. Public media remains
+an opt-in dedicated node, not a change to existing resident/operator workloads.
