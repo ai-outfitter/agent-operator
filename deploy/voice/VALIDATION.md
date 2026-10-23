@@ -124,3 +124,32 @@ blockers. Both PRs remain unmerged.
 The first actual browser call reached the worker and exposed a missing distro
 CA bundle in the voice runtime. Native WebRTC rejected public WSS before joining.
 The public media and gateway health checks must not be reported as audio acceptance.
+
+The CA-bundle fix was separately Claude-reviewed, built, and published from webapp
+`142a2c46486c8f39ef94fbcf3f0f80bc4f7d9b84`. The built native WebRTC client validated
+public WSS, and the runtime was deployed by immutable digest. Preview health
+reports that exact revision. Dedicated voice/gateway CI run `39879988694` passed.
+
+Actual Chromium acceptance now passes with a synthetic microphone: session create
+200, OpenAI-generated speech and captions, received RTP (3,093 bytes, 27 packets,
+nonzero decoded audio energy), outbound microphone RTP (21,855 bytes), hangup 200,
+and removal of browser audio elements. Direct selected candidates used UDP.
+This validates live gateway-resolved OpenAI and public browser media, not a human's
+microphone/speaker experience or speech-driven task completion.
+
+A second Chromium run forced relay policy and allowed only
+`turns:turn-voice-preview.unsupervised.wtf:443?transport=tcp`. The selected pair
+reported `relayProtocol=tls` and that exact URL; received audio had 1,938 bytes,
+15 packets and nonzero decoded energy, with 2,292 outbound bytes and captions.
+Hangup returned 200 and audio elements were removed. No DNS override was used.
+This is an ICE-configuration restriction, not a test behind an actual UDP-blocking
+firewall. Chromium classified its local candidate as `prflx`; validation used the
+selected pair's TLS relay protocol/URL rather than assuming the candidate label.
+
+Remaining gates: allowlist a verified human preview identity; test real speech,
+interruptions, spoken task completion and latency; verify on a real restrictive
+network. The Access service token needs rotation within 30 days; media public IP
+and DNS must be reconciled after node replacement. Shared CNI/IMDS permissions,
+certificate reload, and the media UDP-buffer warning remain documented preview
+operational limitations. This deployment does not add meeting bots or a new
+operator binary, and does not merge either PR.
