@@ -6,12 +6,10 @@ resources:
   - gateway.yaml
 patches:
   - path: mode.yaml
-# Deliberately unrunnable until parent builds/reviews the root webapp Dockerfile.
+# Reviewed webapp gateway 29406c0 and voice runtime 142a2c4.
 images:
-  - name: voice-inference-gateway
-    newName: invalid.local/voice-gateway-requires-reviewed-image
-    newTag: replace-before-apply
-  # Base overlay pins an old runtime. Gateway mode must fail closed until replaced.
   - name: 216577824627.dkr.ecr.us-east-1.amazonaws.com/ai-outfitter/voice-preview
-    newName: invalid.local/voice-runtime-requires-reviewed-image
-    digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+    digest: sha256:b57c28f1a5f599aef0c114c67e57f70b33d1fa656bc6e9bb180a680aaf150b7e
+  - name: voice-inference-gateway
+    newName: 216577824627.dkr.ecr.us-east-1.amazonaws.com/ai-outfitter/voice-preview
+    digest: sha256:6d947c3e4d57415141a834f61a2a788b6822cfc6b6b013d30e404b50114fe0d5

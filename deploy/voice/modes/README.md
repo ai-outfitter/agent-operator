@@ -3,8 +3,8 @@
 Apply exactly one complete runtime overlay: `modes/env` or `modes/gateway`.
 Both set `VOICE_INFERENCE_MODE` on broker and worker and `VOICE_MODEL` on the
 broker; model authorization therefore uses the broker's configured model.
-The env overlay retains the earlier runtime pin; gateway mode requires new image
-pins. Rebuild/review/pin the runtime containing mode support before deployment.
+The env overlay retains the earlier runtime pin; gateway mode pins the reviewed
+mode-capable runtime and a separately built gateway.
 
 `env` is the bounded direct-provider preview: only worker gets
 `voice-provider.apiKey`; broker gets no provider key.
@@ -42,14 +42,18 @@ must return canonical organization/user scope from stored call state, never
 trust scope from worker input. The broker ingress exposes only
 residents/sessions/end, never authority or worker callback routes.
 
-**Deployment gate:** the gateway image deliberately uses an `invalid.local`
-placeholder. Build the root webapp Dockerfile at the reviewed
-realtime-gateway source and replace the image with its immutable digest in
-`gateway/kustomization.yaml`. The gateway overlay also replaces the old base voice runtime pin with a
-deliberately unrunnable `invalid.local` placeholder. Rebuild and pin the voice
-runtime for explicit inference-mode support before selecting gateway mode.
-The base/env overlay retains its existing image pin. Neither current checked-in pin
-proves that new code is available. The existing shared gateway is never replaced.
+For an Access-protected preview, also provide ConfigMap `accessOrigin` and Secret
+`accessClientId`/`accessClientSecret`, all three together. Use a dedicated Access
+service token limited to this branch's internal resolver and usage paths. Never
+mount the shared preview-agent token. Headers are restricted to that exact HTTPS
+origin and are not forwarded to providers or the authority callback.
+
+**Image provenance:** `gateway/kustomization.yaml` pins voice runtime from webapp
+`142a2c4` and gateway from `29406c0`. Both were built and published to ECR after
+Claude review. Keep the runtime image transformer before the gateway rename:
+both use the same ECR repository, and reversing the order replaces the gateway
+with the voice image. `check-render.py` rejects identical images. The base/env
+image remains unchanged; the existing shared gateway is never replaced.
 
 Rollback scales broker/worker/gateway to zero and removes only preview routing.
 Retain both voice preview PVCs until receipt/usage review; do not use wholesale

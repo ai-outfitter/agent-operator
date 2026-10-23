@@ -22,10 +22,6 @@ variable "existing_node_security_group_ids" {
   }
 }
 variable "cluster_name" { type = string }
-variable "node_role_arn" {
-  type        = string
-  description = "Reviewed least-privilege EKS worker role; hostNetwork can retrieve its IMDS credentials. No role mutation."
-}
 variable "public_subnet_ids" {
   type        = set(string)
   description = "Existing public subnets with IGW routes AND MapPublicIpOnLaunch=true."
@@ -38,6 +34,29 @@ data "aws_eks_cluster" "existing" { name = var.cluster_name }
 data "aws_subnet" "public" {
   for_each = var.public_subnet_ids
   id       = each.value
+}
+# hostNetwork can retrieve this role from IMDS; never reuse the general worker role.
+# Current aws-node has no workload identity. Its CNI permissions remain on this
+# dedicated role until a separately reviewed cluster identity migration.
+resource "aws_iam_role" "media" {
+  name = "voice-preview-media-node"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "ec2.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+    }]
+  })
+}
+resource "aws_iam_role_policy_attachment" "media" {
+  for_each = toset([
+    "arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy",
+    "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryPullOnly",
+    "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy",
+  ])
+  role       = aws_iam_role.media.name
+  policy_arn = each.value
 }
 resource "aws_security_group" "media" {
   name_prefix = "voice-preview-media-"
@@ -92,9 +111,10 @@ resource "aws_launch_template" "media" {
   }
 }
 resource "aws_eks_node_group" "media" {
+  depends_on      = [aws_iam_role_policy_attachment.media]
   cluster_name    = var.cluster_name
   node_group_name = "voice-preview-public-media"
-  node_role_arn   = var.node_role_arn
+  node_role_arn   = aws_iam_role.media.arn
   subnet_ids      = var.public_subnet_ids
   instance_types  = ["c6i.large"]
   ami_type        = "AL2023_x86_64_STANDARD"

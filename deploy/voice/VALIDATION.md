@@ -90,3 +90,37 @@ at the authenticating preview's identity database, new immutable runtime images,
 reviewed live node/subnet/security-group inputs, DNS/certificates, and actual
 external microphone/speaker plus UDP-blocked TURN validation. Public media remains
 an opt-in dedicated node, not a change to existing resident/operator workloads.
+
+## October 23 activation: public EKS media and scoped gateway
+
+This supersedes the earlier AWS-authentication and internal-only deployment
+blockers. Both PRs remain unmerged.
+
+- Applied the reviewed S3-backed plan: seven additions, zero changes/deletions.
+  The new `voice-preview-public-media` node group has one Ready public node,
+  `35.173.195.253`; all ten prior aws-auth role mappings were preserved.
+- Public LiveKit runs in `voice-media-preview`. Signaling HTTPS returns 200
+  through both ingress addresses. TURN on public TCP443 serves a trusted
+  certificate; LiveKit validates and advertises its public address. Both DNS
+  records are DNS-only. These checks alone do not establish a working call.
+- TURN certificate expires 2027-01-20 23:42:36 UTC; cert-manager renewal is due
+  2026-12-21 23:42:36 UTC. Check renewal and restart/verify LiveKit then: no
+  automatic certificate-reload controller or scheduled reminder is installed.
+- Gateway image is webapp `29406c0`, pinned by immutable ECR digest. The gateway
+  has its own PVC and a dedicated branch-scoped platform token. OpenAI resolution
+  returned a configured provider key and the preview enables `gpt-realtime`.
+  Provider keys are no longer mounted in the voice worker.
+- A dedicated 30-day Cloudflare Access token is admitted only by two exact
+  branch-preview internal endpoint applications. Resolver returned 200; usage
+  rejected an invalid payload with 400 after Access admission. The same token
+  was denied on the preview UI and another branch. Existing agent access was
+  preserved. The shared Access application was not modified.
+- Claude approved the infrastructure plan, gateway Access fix, and deployment
+  delta. Render invariants, server dry-runs and OpenTofu validation passed.
+- Twenty-five existing resident/operator Deployment and non-Job Pod objects
+  retained their identities and specifications. Shared gateway and operator
+  deployments were unchanged. CronJob lifecycle changes were excluded.
+
+The first actual browser call reached the worker and exposed a missing distro
+CA bundle in the voice runtime. Native WebRTC rejected public WSS before joining.
+The public media and gateway health checks must not be reported as audio acceptance.

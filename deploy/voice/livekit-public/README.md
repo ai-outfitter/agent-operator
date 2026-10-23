@@ -8,16 +8,17 @@ require host networking and direct node reachability. HTTPS ingress only carries
 signaling; it cannot carry UDP media or fix NAT candidate advertisement.
 
 `infra/` is a separate OpenTofu root, never included in existing infrastructure
-applies. Supply the verified existing cluster name, worker IAM role, existing ingress-node security group IDs and public
+applies. Supply the verified existing cluster name, existing ingress-node security group IDs and public
 subnets. It refuses other AWS accounts and subnets lacking automatic public IPv4.
 Review the plan and verify internet-gateway routes, NACLs, node/control-plane
 security group connectivity and the minimal worker-role permissions before applying.
 No existing node group or subnet is modified. A new billed `c6i.large` public
-node is required. No infrastructure was provisioned by preparing these files.
+node is required. The nonprod node was provisioned from the reviewed seven-resource
+plan; see the deployment receipt for activation and acceptance evidence.
 
 1. In account `216577824627`, inspect the cluster and existing public subnets;
-   the worker role must already have node/ECR permissions (CNI permissions belong
-   to its own workload identity where supported). Discover the **actual SGs** on
+   the root creates a dedicated node role with WorkerNode, ECR PullOnly and CNI
+   policies. Current aws-node has no workload identity; no shared workloads change. Discover the **actual SGs** on
    the existing ingress-nginx worker nodes and pass
    `existing_node_security_group_ids`; the added rule permits private TCP7880
    from those SGs only. Do not assume cluster-primary SG membership. Use
@@ -115,3 +116,48 @@ restart/verify LiveKit following renewal. No automated restart is installed.
 The LiveKit v1.13.10 image is pinned to the pulled and locally tested amd64
 manifest `sha256:e96a42b8623f738919a3f2006d433aeb19d0f3c67ce11eb986ea20e2cf65fbf5`.
 The dedicated node group is amd64. Review a replacement digest before upgrades.
+
+## Verified nonprod discovery (2026-10-22)
+
+Cluster `nonprod`, VPC `vpc-03ca4063bf2ec68e7`, has public/private API endpoints.
+Public subnets `subnet-0ce66e514687155f4` (1a) and `subnet-0ec7aa90fdcc0ab92`
+(1b) auto-assign public IPv4, have an active IGW default route and allow-all NACL.
+Both ingress workers use `sg-0c06df8e5172d15a5`. Eligible DaemonSets have no
+configured host 443/3478 listeners. New nodes use aws-node and kube-proxy; they
+lack the Cilium node selector. Existing worker role includes PG_Analyze and
+autoscaler access and must not be reused.
+
+The dedicated role retains standard `AmazonEKS_CNI_Policy` because aws-node has
+no IRSA annotation or pod identity. HostNetwork inherits these CNI EC2 permissions
+as a residual risk. Existing `AmazonEKSVPCCNIRole` activation requires a separate
+shared-workload change. No such change belongs to this overlay.
+
+This preview uses the dedicated S3 backend recorded below. Private local plans
+are review evidence only; do not apply an old local-backend plan. Keep credentials,
+variables, state and binary plans outside git.
+
+## October 23 apply prerequisites checked
+
+The dedicated state bucket is `ai-outfitter-voice-state-216577824627-us-east-1`,
+key `nonprod/public-media/terraform.tfstate`, with versioning, AES256 encryption,
+public-access blocking, TLS-only access and S3 lockfiles. It is bootstrapped
+separately and must be retained when removing the media node.
+The fresh S3-backed plan added seven resources and changed/destroyed none.
+Backend and provider profiles must both target `unsup-nonprod-admin`; changing
+`aws_profile` alone does not change the backend profile.
+
+This cluster uses CONFIG_MAP authentication. EKS managed-node-group provisioning
+registers the new node role in `aws-auth`; verify that mapping after creation.
+The existing ConfigMap has a historical `cluster-singleton` Argo CD ownership
+label and last-applied roles, although no Argo CD application API exists in this
+cluster. Any future reconciliation of that shared source must preserve the new
+media role mapping while this preview exists. This deployment does not disable
+reconciliation or replace existing auth mappings. Loss of the new role mapping
+is a preview availability risk; check it during acceptance and before reuse.
+
+The standard CNI policy is account/region-wide for ENI operations, including
+modifying security-group assignments on unrelated interfaces. It is not limited
+to this node. Host-network media can inherit these permissions through IMDS.
+The dedicated role excludes the unrelated database/autoscaler privileges on the
+existing worker role. Moving CNI permissions to its existing workload identity
+is separate cluster work; this preview does not restart shared CNI workloads.

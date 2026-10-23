@@ -48,6 +48,7 @@ if ('Deployment', 'voice-inference-gateway') in objects:
     assert pod['automountServiceAccountToken'] is False
     c = pod['containers'][0]
     assert c['command'] == ['node', 'workspace/gateway.mjs']
+    assert c['image'] != objects['Deployment', 'voice-worker']['spec']['template']['spec']['containers'][0]['image'], 'Gateway and voice runtime require separate images'
     env = {e['name']: e for e in c['env']}
     assert env['WORKSPACE_DATABASE_URL']['value'] == 'file:/data/voice-gateway.db'
     assert env['VOICE_AUTHORITY_TOKEN']['valueFrom']['secretKeyRef'] == {'name': 'voice-broker', 'key': 'authorityToken'}
