@@ -177,3 +177,29 @@ Set backing PV reclaim policy to `Retain` and verify restore evidence first.
 Run only one operator version during migration. An old binary cannot reconcile
 the new Agent-owned shared Service. Operator rollback requires a reviewed Service
 ownership migration; do not simply start the old binary alongside or after it.
+
+## Explicit voice endpoint for nonprod-bot
+
+`unsupervised-nonprod-bot` has no forge configuration. Its voice endpoint is
+explicitly provisioned rather than assigning a forge username or changing its
+role. `bot-a2a.yaml` defines only a `resident-voice` ConfigMap and the canonical
+`agent-runtime` Service on TCP 8788 in its existing namespace. Never apply that
+file directly: source files intentionally omit a concrete Agent UID.
+
+Run `python3 deploy/voice/bootstrap-bot-a2a.py` to inspect a JSON creation plan.
+The helper reads the live Agent UID, checks the namespace UID label, attaches
+Agent controller ownership, and refuses mismatched ownership or deletion. After
+review, `python3 deploy/voice/bootstrap-bot-a2a.py --apply` server-dry-runs and
+creates only missing resources. It refuses adoption or silent changes to existing
+objects; a racing creator makes creation fail safely. A repeat invocation with
+matching resources is a no-op. Keep the generated plan with private deployment
+receipts; it contains ownership metadata, no credentials.
+
+Bootstrap the bot's dedicated voice A2A principal into its existing credential
+Secret first, preserving all other principals. Create the ConfigMap/Service before
+patching the bot Agent's generic `envFrom` and credential projection to mount
+`a2a-credentials.json` at `/var/run/agent/a2a/credentials.json`. Do not start a pod
+referencing a missing key. The separate resident ingress policy admits only the
+voice broker on TCP 8788. Verify endpoints, an authenticated harmless A2A call and
+rejection of an invalid credential before enabling broker discovery. This endpoint
+does not alter GitHub webhooks, Slack, provider settings, or bot responsibilities.

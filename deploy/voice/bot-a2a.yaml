@@ -1,0 +1,26 @@
+# Apply only through bootstrap-bot-a2a.py, which binds the live Agent UID.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: resident-voice
+  namespace: agent-unsupervised-nonprod-bot
+data:
+  A2A_SERVER: '1'
+  A2A_HOST: '0.0.0.0'
+  A2A_PORT: '8788'
+  A2A_CREDENTIALS_PATH: /var/run/agent/a2a/credentials.json
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: agent-runtime
+  namespace: agent-unsupervised-nonprod-bot
+spec:
+  selector:
+    app.kubernetes.io/name: agent-runtime
+    app.kubernetes.io/instance: unsupervised-nonprod-bot
+  ports:
+    - name: a2a
+      port: 8788
+      targetPort: 8788
+      protocol: TCP

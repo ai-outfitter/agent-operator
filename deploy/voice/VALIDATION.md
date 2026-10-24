@@ -193,3 +193,18 @@ remain. The human allowlist is in the private `voice-preview/voice-broker` Secre
 rotation. Rollback removes only the exact CNAME (restoring wildcard resolution),
 removes the added user ID from that Secret, and restarts only `voice-broker`.
 The latency samples are acceptance evidence, not an availability guarantee.
+
+### Shared-resident operator activation, 2026-10-24
+
+Reviewed commit `334a199e4314d7be556fc45d43d80c29b74b311c` was published and
+activated on nonprod as operator digest
+`sha256:1d9c321408f668918c4d473f48e3673812e8510b30915cb4d4005233aa335c35`.
+The generated Agent membership schema was applied, removing the one-membership
+limit. Old operator termination preceded new startup; the new pod became Ready
+with zero restarts and acquired leadership. Before/after Deployment specs were
+identical except the manager image: all arguments, defaults, environment and one
+replica were preserved, including the existing forge-gateway image argument.
+All five then-existing Agents remained Accepted/WorkloadReady/Ready. Private
+backups are under `~/.local/state/ai-outfitter/voice-preview/operator-20261024/`.
+This receipt establishes operator/schema activation, not duplicate retirement,
+secondary membership activation or canonical voice acceptance.
