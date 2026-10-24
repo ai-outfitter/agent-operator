@@ -1,6 +1,5 @@
-# This sample demonstrates the forward-compatible many-to-many membership shape.
-# The MVP exercises a single membership entry; many-to-many routing (and the
-# per-membership projects field) is deferred behavior, not deferred schema.
+# One resident serves both organizations through separate scoped gateways.
+# The first membership remains the catalog, credential and runtime identity.
 # Apply matching Organization resources before applying this Agent.
 apiVersion: aioutfitter.com/v1alpha1
 kind: Agent

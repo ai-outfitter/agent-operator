@@ -1,0 +1,36 @@
+{
+  "inspectionDateUTC": "2026-10-24",
+  "operation": "inspect",
+  "organization": "outfitter",
+  "installationId": "9e11d1eb-128f-4866-831e-7db5de1808d7",
+  "legacyEndpoint": {
+    "path": "/api/internal/foundry-workspaces",
+    "status": 404
+  },
+  "currentEndpoint": "/api/internal/app-workflows/software-foundry",
+  "repositories": [
+    {
+      "repository": "ai-outfitter/outfitter-playground-internal",
+      "status": 200,
+      "subscriptionId": "777a0e71-a663-4f08-be1f-8c32e22000c4",
+      "workflow": "issue-to-merge-actions-ci",
+      "configurationValid": false,
+      "reviewer": null,
+      "activeRunIds": [],
+      "pendingDeliveryIds": []
+    },
+    {
+      "repository": "ai-outfitter/webapp",
+      "status": 200,
+      "subscriptionId": "0abed31f-35be-48fe-89cd-62ff54ef1f1d",
+      "workflow": "issue-to-merge-actions-ci",
+      "configurationValid": false,
+      "reviewer": null,
+      "activeRunIds": [],
+      "pendingDeliveryIds": []
+    }
+  ],
+  "scope": "Read-only inspection; no configuration, target, binding or subscription writes. No credentials included.",
+  "retirementDecision": "Unused legacy Outfitter Vega target may be decommissioned. Reactivation requires a new approved canonical resident binding with current identity, model, profile digest and target revision. The legacy minimal-profile declaration must not be reused.",
+  "warning": "The current Foundry configure operation creates workspace bindings for all roles; it is not a legacy resident-binding refresh."
+}

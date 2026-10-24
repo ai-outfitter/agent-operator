@@ -209,6 +209,7 @@ func (r *OrganizationReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&aioutfitterv1alpha1.Organization{}).
 		Watches(&aioutfitterv1alpha1.Agent{}, handler.EnqueueRequestsFromMapFunc(r.organizationsForAgent)).
 		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(r.organizationForCredentialSecret)).
+		Watches(&corev1.Service{}, handler.EnqueueRequestsFromMapFunc(r.organizationsForAgentService)).
 		Owns(&corev1.Namespace{}).
 		Owns(&corev1.ConfigMap{}).
 		Owns(&corev1.Secret{}).
@@ -251,4 +252,21 @@ func (r *OrganizationReconciler) organizationForCredentialSecret(ctx context.Con
 		return nil
 	}
 	return []reconcile.Request{{NamespacedName: client.ObjectKey{Name: name}}}
+}
+
+// Shared A2A Services are Agent-owned, so Organization Owns(Service) is insufficient.
+func (r *OrganizationReconciler) organizationsForAgentService(ctx context.Context, object client.Object) []reconcile.Request {
+	service, ok := object.(*corev1.Service)
+	if !ok || service.Name != RuntimeName {
+		return nil
+	}
+	owner := metav1.GetControllerOf(service)
+	if owner == nil || owner.Kind != "Agent" || owner.APIVersion != aioutfitterv1alpha1.GroupVersion.String() {
+		return nil
+	}
+	agent := &aioutfitterv1alpha1.Agent{}
+	if err := r.Get(ctx, client.ObjectKey{Name: owner.Name}, agent); err != nil || agent.UID != owner.UID || service.Namespace != agentNamespace(agent.Name) {
+		return nil
+	}
+	return r.organizationsForAgent(ctx, agent)
 }

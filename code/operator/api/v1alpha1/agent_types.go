@@ -211,9 +211,9 @@ type WorkspaceSpec struct {
 
 // AgentSpec defines the desired state of Agent.
 type AgentSpec struct {
-	// M1 exercises one membership while retaining the eventual list shape.
+	// Memberships share one resident across organizations. The first membership
+	// owns catalog, inherited credentials and runtime identity.
 	// +kubebuilder:validation:MinItems=1
-	// +kubebuilder:validation:MaxItems=1
 	// +listType=map
 	// +listMapKey=organization
 	Memberships []Membership `json:"memberships"`

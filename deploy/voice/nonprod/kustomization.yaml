@@ -1,0 +1,13 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: voice-preview
+resources:
+  - namespace.yaml
+  - workloads.yaml
+  - network-policy.yaml
+  - ingress.yaml
+# DO NOT APPLY with direct-Pi speech settings: replace these legacy image pins first.
+images:
+  - name: voice-runtime
+    newName: 216577824627.dkr.ecr.us-east-1.amazonaws.com/ai-outfitter/voice-preview
+    digest: sha256:eb5a0cf93d5f2bff4b1b5cf81e351afb086aca58dcafeba23dbf027638f7dd63
