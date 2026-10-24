@@ -253,3 +253,20 @@ review and focused worker checks passed. This instruction change does not
 establish correct spoken identifiers or task results: all three strict live
 proofs must be recorded at this exact revision before retirement. The retirement
 script remains unexecuted and rejects older-revision evidence.
+
+### Bot acceptance fixture scope, 2026-10-24
+
+The nonprod-bot correctly rejected the proposed boot-ID file read because that
+operation is outside its configured Grafana/Slack/A2A role. That failed fixture
+is retained and does not count as acceptance. The replacement is a permitted
+read-only Grafana `list_datasources` authentication diagnostic. An independent
+call from the bot pod returned HTTP 401 `Unauthorized`; the expected voice task
+must actually complete that diagnostic and speak the same failure accurately.
+
+The bot retirement gate therefore requires the independently verified 401 and
+`Unauthorized` result, explicit scope `read-only Grafana authentication diagnostic;
+provider query failed`, and a matching completed task and confirmed spoken result
+at `0415a850511c93717a6063bbd2c74c7b4b5f9892`. No profile permissions, runtime
+image or engineer proof requirements change. A successful diagnostic would prove
+truthful reporting of an authentication failure, not working Grafana access.
+Retirement remains gated on the parent's review of all three valid proofs.
