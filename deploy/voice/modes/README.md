@@ -1,10 +1,13 @@
 # Explicit inference modes
 
 Apply exactly one complete runtime overlay: `modes/env` or `modes/gateway`.
-Both set `VOICE_INFERENCE_MODE` on broker and worker and `VOICE_MODEL` on the
-broker; model authorization therefore uses the broker's configured model.
-The env overlay retains the earlier runtime pin; gateway mode pins the reviewed
-mode-capable runtime and a separately built gateway.
+Both set `VOICE_INFERENCE_MODE`, `VOICE_BACKEND` and `VOICE_MODEL` on broker and
+worker. Keep their backend, model and optional `VOICE_VOICE` default identical:
+the broker validates the browser's selected built-in voice against that backend
+and persists the selection for the worker. The default manifests use OpenAI,
+`gpt-realtime` and `coral`. If `VOICE_VOICE` is omitted, OpenAI uses Coral and
+Gemini uses Puck; a configured built-in default is retained. Gateway mode remains
+OpenAI-only. Runtime image pins must support this broker configuration.
 
 `env` is the bounded direct-provider preview: only worker gets
 `voice-provider.apiKey`; broker gets no provider key.
@@ -48,12 +51,12 @@ service token limited to this branch's internal resolver and usage paths. Never
 mount the shared preview-agent token. Headers are restricted to that exact HTTPS
 origin and are not forwarded to providers or the authority callback.
 
-**Image provenance:** `gateway/kustomization.yaml` pins voice runtime from webapp
-`142a2c4` and gateway from `29406c0`. Both were built and published to ECR after
-Claude review. Keep the runtime image transformer before the gateway rename:
+**Image provenance:** the runtime revision is recorded next to its image pin in
+`gateway/kustomization.yaml`; the separate gateway comes from `29406c0`. Both
+images require review before publication. Keep the runtime image transformer before the gateway rename:
 both use the same ECR repository, and reversing the order replaces the gateway
-with the voice image. `check-render.py` rejects identical images. The base/env
-image remains unchanged; the existing shared gateway is never replaced.
+with the voice image. `check-render.py` rejects identical images. Base/env and gateway mode use the same reviewed voice runtime; the existing
+shared gateway is never replaced.
 
 Rollback scales broker/worker/gateway to zero and removes only preview routing.
 Retain both voice preview PVCs until receipt/usage review; do not use wholesale
@@ -69,3 +72,10 @@ from the scoped resolver. Final image review must verify `ws` and all imported
 Set `VOICE_GATEWAY_ORGANIZATION_IDS` on that branch-preview webapp to the
 comma-separated canonical organization IDs admitted by this preview. An empty
 allowlist refuses the scoped token; the voice worker never receives this token.
+
+
+When activating a new voice-selection runtime, wait for active calls to finish,
+then update the worker before the broker. The new broker requires
+`VOICE_BACKEND`; supply it together with the matching model and optional default
+voice. Render and validate both modes before applying. Do not interrupt human
+calls to roll out this configuration.

@@ -98,8 +98,12 @@ spec:
           env:
             - name: VOICE_INFERENCE_MODE
               value: env
+            - name: VOICE_BACKEND
+              value: openai
             - name: VOICE_MODEL
               value: gpt-realtime
+            - name: VOICE_VOICE
+              value: coral
             - name: LIVEKIT_URL
               valueFrom:
                 secretKeyRef:

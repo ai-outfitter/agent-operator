@@ -12,6 +12,7 @@ while source:
     source = source[end:].lstrip()
 assert not any(x['kind'] in ('Secret', 'CustomResourceDefinition', 'ClusterRole') for x in items)
 objects = {(x['kind'], x['metadata']['name']): x for x in items}
+runtime_settings = {}
 for role in ('broker', 'worker'):
     d = objects['Deployment', 'voice-' + role]
     assert d['spec']['replicas'] == 1
@@ -25,6 +26,13 @@ for role in ('broker', 'worker'):
     env = {e['name']: e for e in c['env']}
     mode = env['VOICE_INFERENCE_MODE']['value']
     assert mode in ('env', 'gateway')
+    backend = env['VOICE_BACKEND']['value']
+    assert backend in ('openai', 'gemini')
+    assert env['VOICE_MODEL']['value']
+    runtime_settings[role] = (backend, env['VOICE_MODEL']['value'], env.get('VOICE_VOICE', {}).get('value'))
+    if mode == 'gateway':
+        assert backend == 'openai', 'Gateway voice mode supports only OpenAI'
+
     if mode == 'gateway':
         # The base image predates mode support and would silently use env behavior.
         assert 'sha256:b5b1e369e1aac7e71d9907a00ba8ab8276b1ca4910bd28858ca9cbeb5abd8ef1' not in c['image']
@@ -40,6 +48,7 @@ for role in ('broker', 'worker'):
             assert 'VOICE_AUTHORITY_TOKEN' not in env
     assert ('voice-broker' in secret_names) == (role == 'broker')
     assert 'voice-media' in secret_names
+assert runtime_settings['broker'] == runtime_settings['worker'], 'Broker and worker backend/model/default voice must agree'
 if ('Deployment', 'voice-inference-gateway') in objects:
     gateway = objects['Deployment', 'voice-inference-gateway']
     assert gateway['spec']['replicas'] == 1
