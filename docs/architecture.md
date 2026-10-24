@@ -74,7 +74,10 @@ Dotagents resources and its runtime image.
 - **Tools.** Capabilities such as the `wiki` and `source-ingest` skills.
 - **Subagent delegation.** A running agent may launch subagents as Kubernetes
   Jobs in its own namespace, using its `admin` rights and bounded by the shared
-  `ResourceQuota`. See [OPR-005](requirements/OPR-005-subagent-jobs.md).
+  `ResourceQuota`. See [OPR-005](requirements/OPR-005-subagent-jobs.md). The
+  namespaced launch surface — a `Run` request the operator materializes into such a
+  Job, usable by the agent itself or by an operator on its behalf — is
+  [OPR-006](requirements/OPR-006-agent-run.md).
 - **External systems of record.** The authoritative state for a mailbox is a mail
   server (JMAP / Stalwart); for issues and pull requests it is GitHub / Forgejo;
   for the wiki it is a Git repository. The agent's durable volume is a working
