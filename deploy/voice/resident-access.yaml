@@ -1,14 +1,60 @@
-# Apply separately; the only resource added outside voice-preview.
+# Apply separately: explicit access to the three Unsupervised nonprod residents.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: allow-voice-preview-a2a
-  namespace: agent-outfitter-vega
+  namespace: agent-unsupervised-luce
 spec:
   podSelector:
     matchLabels:
       app.kubernetes.io/name: agent-runtime
-      app.kubernetes.io/instance: outfitter-vega
+      app.kubernetes.io/instance: unsupervised-luce
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: voice-preview
+          podSelector:
+            matchLabels:
+              app: voice-broker
+      ports:
+        - port: 8788
+          protocol: TCP
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-voice-preview-a2a
+  namespace: agent-unsupervised-nonprod-bot
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: agent-runtime
+      app.kubernetes.io/instance: unsupervised-nonprod-bot
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: voice-preview
+          podSelector:
+            matchLabels:
+              app: voice-broker
+      ports:
+        - port: 8788
+          protocol: TCP
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-voice-preview-a2a
+  namespace: agent-unsupervised-vega
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: agent-runtime
+      app.kubernetes.io/instance: unsupervised-vega
   policyTypes: [Ingress]
   ingress:
     - from:

@@ -26,6 +26,9 @@ import (
 )
 
 const (
+	organizationKind        = "Organization"
+	legacyGatewayPolicyName = "allow-forge-gateway-a2a"
+
 	ForgeGatewayName         = "forge-gateway"
 	LegacyGatewaySecretName  = "forge-gateway"
 	ForgeRoutesConfigMapName = "forge-routes"
@@ -238,7 +241,7 @@ func (r *OrganizationReconciler) cleanupStaleAgentA2A(ctx context.Context, org *
 		}
 		before := secret.DeepCopy()
 		secret.Data[agentA2ACredentialsKey] = updated
-		if err := r.Patch(ctx, secret, client.MergeFrom(before)); err != nil {
+		if err := r.Patch(ctx, secret, client.MergeFromWithOptions(before, client.MergeFromWithOptimisticLock{})); err != nil {
 			return err
 		}
 	}
@@ -249,9 +252,9 @@ func (r *OrganizationReconciler) cleanupStaleAgentA2A(ctx context.Context, org *
 	}
 	for i := range services.Items {
 		item := &services.Items[i]
-		if item.Name == RuntimeName {
+		if item.Name == RuntimeName && metav1.GetControllerOf(item) != nil && metav1.GetControllerOf(item).Kind == organizationKind {
 			if _, ok := desired[item.Namespace]; !ok {
-				if err := r.Delete(ctx, item); client.IgnoreNotFound(err) != nil {
+				if err := r.Delete(ctx, item, client.Preconditions{UID: ptr.To(item.UID), ResourceVersion: ptr.To(item.ResourceVersion)}); client.IgnoreNotFound(err) != nil {
 					return err
 				}
 			}
@@ -263,7 +266,7 @@ func (r *OrganizationReconciler) cleanupStaleAgentA2A(ctx context.Context, org *
 	}
 	for i := range policies.Items {
 		item := &policies.Items[i]
-		if item.Name == "allow-forge-gateway-a2a" {
+		if item.Name == legacyGatewayPolicyName || item.Name == "allow-forge-gateway-a2a-"+org.Name {
 			if _, ok := desired[item.Namespace]; !ok {
 				if err := r.Delete(ctx, item); client.IgnoreNotFound(err) != nil {
 					return err
@@ -274,6 +277,15 @@ func (r *OrganizationReconciler) cleanupStaleAgentA2A(ctx context.Context, org *
 	return nil
 }
 
+// Shared resources retain the primary organization's identity across gateway reconciles.
+func sharedAgentLabels(agent *aioutfitterv1alpha1.Agent, labels map[string]string) map[string]string {
+	out := mergeLabels(nil, labels)
+	if len(agent.Spec.Memberships) > 0 {
+		out[OrganizationLabel] = agent.Spec.Memberships[0].Organization
+	}
+	return out
+}
+
 func (r *OrganizationReconciler) ensureAgentA2A(ctx context.Context, org *aioutfitterv1alpha1.Organization, agent *aioutfitterv1alpha1.Agent, token string, labels map[string]string) error {
 	ns := agentNamespace(agent.Name)
 	var namespace corev1.Namespace
@@ -282,7 +294,7 @@ func (r *OrganizationReconciler) ensureAgentA2A(ctx context.Context, org *aioutf
 	}
 	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: agentCredentialSecretName(agent), Namespace: ns}}
 	if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, secret, func() error {
-		secret.Labels = mergeLabels(secret.Labels, labels)
+		secret.Labels = mergeLabels(secret.Labels, sharedAgentLabels(agent, labels))
 		if secret.Data == nil {
 			secret.Data = map[string][]byte{}
 		}
@@ -298,21 +310,39 @@ func (r *OrganizationReconciler) ensureAgentA2A(ctx context.Context, org *aioutf
 	}
 	service := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: RuntimeName, Namespace: ns}}
 	if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, service, func() error {
-		service.Labels = mergeLabels(service.Labels, labels)
+		service.Labels = mergeLabels(service.Labels, sharedAgentLabels(agent, labels))
+		service.Labels[AgentNameLabel] = agent.Name
 		service.Spec.Selector = map[string]string{appNameLabel: RuntimeName, appInstanceLabel: agent.Name}
 		service.Spec.Ports = []corev1.ServicePort{{Name: A2APortName, Port: A2APort, TargetPort: intstr.FromInt32(A2APort)}}
-		return controllerutil.SetControllerReference(org, service, r.Scheme)
+		// Migrate the formerly org-owned shared Service without deleting it.
+		service.OwnerReferences = slices.DeleteFunc(service.OwnerReferences, func(ref metav1.OwnerReference) bool {
+			return ref.Kind == organizationKind && ref.APIVersion == aioutfitterv1alpha1.GroupVersion.String() && ref.Controller != nil && *ref.Controller
+		})
+		return controllerutil.SetControllerReference(agent, service, r.Scheme)
 	}); err != nil {
 		return err
 	}
-	policy := &networkingv1.NetworkPolicy{ObjectMeta: metav1.ObjectMeta{Name: "allow-forge-gateway-a2a", Namespace: ns}}
+	policy := &networkingv1.NetworkPolicy{ObjectMeta: metav1.ObjectMeta{Name: "allow-forge-gateway-a2a-" + org.Name, Namespace: ns}}
 	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, policy, func() error {
 		tcp := corev1.ProtocolTCP
 		policy.Labels = mergeLabels(policy.Labels, labels)
 		policy.Spec = networkingv1.NetworkPolicySpec{PodSelector: metav1.LabelSelector{MatchLabels: map[string]string{appNameLabel: RuntimeName, appInstanceLabel: agent.Name}}, PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeIngress}, Ingress: []networkingv1.NetworkPolicyIngressRule{{From: []networkingv1.NetworkPolicyPeer{{NamespaceSelector: &metav1.LabelSelector{MatchLabels: map[string]string{namespaceNameLabel: organizationNamespace(org.Name)}}, PodSelector: &metav1.LabelSelector{MatchLabels: map[string]string{appNameLabel: ForgeGatewayName}}}}, Ports: []networkingv1.NetworkPolicyPort{{Protocol: &tcp, Port: ptr.To(intstr.FromInt32(A2APort))}}}}}
 		return controllerutil.SetControllerReference(org, policy, r.Scheme)
 	})
-	return err
+	if err != nil {
+		return err
+	}
+	// Retire only this organization's former shared-name policy after replacement.
+	legacy := &networkingv1.NetworkPolicy{}
+	if err := r.Get(ctx, types.NamespacedName{Name: legacyGatewayPolicyName, Namespace: ns}, legacy); err == nil {
+		owner := metav1.GetControllerOf(legacy)
+		if owner != nil && owner.UID == org.UID && owner.Kind == organizationKind && legacy.Labels[OrganizationLabel] == org.Name {
+			return client.IgnoreNotFound(r.Delete(ctx, legacy))
+		}
+	} else if !apierrors.IsNotFound(err) {
+		return err
+	}
+	return nil
 }
 
 func (r *OrganizationReconciler) ensureGatewayResources(ctx context.Context, org *aioutfitterv1alpha1.Organization, labels map[string]string) error {
