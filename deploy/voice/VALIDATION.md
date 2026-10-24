@@ -223,3 +223,20 @@ approved canonical resident binding with its actual model, literal prompt digest
 identity policy and new target revision. Do not retain the old minimal-profile
 claim for a different resident. The current Foundry configure operation creates
 workspace bindings for all roles; it must not be replayed as a resident refresh.
+
+### Voice-specific resident result adaptation, 2026-10-24
+
+Reviewed webapp head `be2d77f0c2948412b929158e00f3d2c0f4ad1c90` produced runtime
+`sha256:0278491d0ef179d1709b9316fd02924eac9f5f18fb1dd539cd2ed03743d1ae4c`.
+Read-only deployment inspection confirmed both broker and worker at that immutable
+digest with observed generations current and one updated Ready replica each.
+The source overlays pin both runtime modes to that digest; the separate inference
+gateway remains at its existing `6d947c3e…` digest. The worker change adapts actual
+terminal resident prose for voice without relaxing the generic typed workflow
+result contract. Actual Claude review and focused transport/voice tests passed.
+
+This establishes reviewed runtime activation, not spoken-result acceptance.
+Fresh strict calls must independently prove actual task completion and a spoken
+result for each of Luce, Vega and nonprod-bot. The retirement script revision pin
+is updated to this exact head; it remains unexecuted pending all three confirmed
+evidence files and the parent's final retirement decision.

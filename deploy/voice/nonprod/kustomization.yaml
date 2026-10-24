@@ -9,4 +9,4 @@ resources:
 images:
   - name: voice-runtime
     newName: 216577824627.dkr.ecr.us-east-1.amazonaws.com/ai-outfitter/voice-preview
-    digest: sha256:94c194437386710030e932a8424ec207ae1481d5fc6bb9699d98b6df85e3be14
+    digest: sha256:0278491d0ef179d1709b9316fd02924eac9f5f18fb1dd539cd2ed03743d1ae4c
