@@ -208,3 +208,18 @@ All five then-existing Agents remained Accepted/WorkloadReady/Ready. Private
 backups are under `~/.local/state/ai-outfitter/voice-preview/operator-20261024/`.
 This receipt establishes operator/schema activation, not duplicate retirement,
 secondary membership activation or canonical voice acceptance.
+
+### Legacy Foundry dependency inspection, 2026-10-24
+
+The sanitized [inspection receipt](receipts/2026-10-24-foundry-inspection.json)
+records authenticated read-only inspection of both existing Outfitter Foundry
+subscriptions. Both were already configuration-invalid with no reviewer, active
+run or pending delivery. The legacy Foundry platform endpoint returned 404; the
+current app-owned inspect endpoint returned 200. No subscription was reconfigured.
+
+The unused old Outfitter Vega gateway target can therefore be decommissioned
+with duplicate retirement. Reactivating resident execution requires a newly
+approved canonical resident binding with its actual model, literal prompt digest,
+identity policy and new target revision. Do not retain the old minimal-profile
+claim for a different resident. The current Foundry configure operation creates
+workspace bindings for all roles; it must not be replayed as a resident refresh.

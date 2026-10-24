@@ -198,7 +198,8 @@ receipts; it contains ownership metadata, no credentials.
 Bootstrap the bot's dedicated voice A2A principal into its existing credential
 Secret first, preserving all other principals. Create the ConfigMap/Service before
 patching the bot Agent's generic `envFrom` and credential projection to mount
-`a2a-credentials.json` at `/var/run/agent/a2a/credentials.json`. Do not start a pod
+`a2a-credentials.json` at `/var/run/resident-voice/a2a/credentials.json`.
+Do not start a pod
 referencing a missing key. The separate resident ingress policy admits only the
 voice broker on TCP 8788. Verify endpoints, an authenticated harmless A2A call and
 rejection of an invalid credential before enabling broker discovery. This endpoint
