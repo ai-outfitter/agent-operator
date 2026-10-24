@@ -7,6 +7,7 @@ resources:
 patches:
   - path: mode.yaml
 # Reviewed webapp gateway 29406c0 and voice runtime 0415a850.
+# DO NOT APPLY with direct-Pi speech settings: replace these legacy image pins first.
 images:
   - name: 216577824627.dkr.ecr.us-east-1.amazonaws.com/ai-outfitter/voice-preview
     digest: sha256:eb5a0cf93d5f2bff4b1b5cf81e351afb086aca58dcafeba23dbf027638f7dd63

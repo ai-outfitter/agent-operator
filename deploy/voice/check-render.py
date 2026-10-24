@@ -28,8 +28,11 @@ for role in ('broker', 'worker'):
     assert mode in ('env', 'gateway')
     backend = env['VOICE_BACKEND']['value']
     assert backend in ('openai', 'gemini')
-    assert env['VOICE_MODEL']['value']
-    runtime_settings[role] = (backend, env['VOICE_MODEL']['value'], env.get('VOICE_VOICE', {}).get('value'))
+    assert 'VOICE_MODEL' not in env
+    assert env['VOICE_STT_MODEL']['value']
+    assert env['VOICE_TTS_MODEL']['value']
+    assert 'sha256:eb5a0cf93d5f2bff4b1b5cf81e351afb086aca58dcafeba23dbf027638f7dd63' not in c['image'], 'DO NOT APPLY: direct Pi speech requires a new reviewed voice runtime image'
+    runtime_settings[role] = (backend, env['VOICE_STT_MODEL']['value'], env['VOICE_TTS_MODEL']['value'], env.get('VOICE_VOICE', {}).get('value'))
     if mode == 'gateway':
         assert backend == 'openai', 'Gateway voice mode supports only OpenAI'
 
@@ -41,7 +44,6 @@ for role in ('broker', 'worker'):
         assert 'VOICE_GATEWAY_URL' in env
         assert not any(k in env for k in ('OPENAI_API_KEY', 'GOOGLE_API_KEY', 'VOICE_SERVICE_TOKEN', 'VOICE_AUTHORITY_TOKEN'))
     if role == 'broker':
-        assert env['VOICE_MODEL']['value']
         if mode == 'gateway':
             assert env['VOICE_AUTHORITY_TOKEN']['valueFrom']['secretKeyRef'] == {'name': 'voice-broker', 'key': 'authorityToken'}
         else:
@@ -57,6 +59,7 @@ if ('Deployment', 'voice-inference-gateway') in objects:
     assert pod['automountServiceAccountToken'] is False
     c = pod['containers'][0]
     assert c['command'] == ['node', 'workspace/gateway.mjs']
+    assert 'sha256:6d947c3e4d57415141a834f61a2a788b6822cfc6b6b013d30e404b50114fe0d5' not in c['image'], 'DO NOT APPLY: STT/TTS require the reviewed speech gateway image'
     assert c['image'] != objects['Deployment', 'voice-worker']['spec']['template']['spec']['containers'][0]['image'], 'Gateway and voice runtime require separate images'
     env = {e['name']: e for e in c['env']}
     assert env['WORKSPACE_DATABASE_URL']['value'] == 'file:/data/voice-gateway.db'

@@ -1,8 +1,17 @@
 # Shared voice preview
 
+> **Do not apply this candidate yet.** The direct-Pi source/configuration changes
+> require newly published immutable resident, voice-runtime and speech-gateway
+> images. The currently checked-in voice/gateway digests belong to the previous
+> delegation architecture and are incompatible with the new speech settings.
+> Replace and review all image pins, then complete nonproduction live acceptance
+> before merge. Local render checks validate structure, not image compatibility.
+
+
 This opt-in deployment runs the voice runtime from webapp PR #492 in nonproduction.
 It adds no operator controller, CRD, or automatic resident discovery. The resident
-operator and resident Deployments remain unchanged. One worker pool and one media
+operator controller remains unchanged. Direct Pi conversation requires a reviewed
+Channels main-session adapter in the existing resident runtimes. One worker pool and one media
 endpoint serve all explicitly configured targets.
 
 ## Layout
@@ -44,7 +53,7 @@ branch preview's authenticated fixture organization, not an arbitrary browser
 input. Test resident tokens must actually authorize the A2A endpoint.
 
 Direct provider credentials in `modes/env` are a bounded preview exception.
-`modes/gateway` requires the separately reviewed realtime gateway integration
+`modes/gateway` requires the separately reviewed speech gateway integration
 described below. Automatic resident discovery remains deferred. Limit this
 preview to one organization and authorized test identities.
 
@@ -58,9 +67,15 @@ docker push VOICE_IMAGE:COMMIT
 ```
 
 Use a nonprod ECR repository with immutable tags and record the commit/digest
-mapping. The checked-in image is webapp commit `6465f9b3b0bf8cdb30f9b38158c2569a9b2b0249`,
-ECR digest `sha256:b5b1e369e1aac7e71d9907a00ba8ab8276b1ca4910bd28858ca9cbeb5abd8ef1`.
-Update that pin only after reviewing the replacement image source. This repository does not publish a new operator image.
+mapping. The checked-in legacy voice runtime is webapp `0415a850`, digest
+`sha256:eb5a0cf93d5f2bff4b1b5cf81e351afb086aca58dcafeba23dbf027638f7dd63`;
+the legacy isolated gateway digest is
+`sha256:6d947c3e4d57415141a834f61a2a788b6822cfc6b6b013d30e404b50114fe0d5`.
+These are recorded rollout state, not direct-Pi-compatible candidate images.
+`check-render.py` deliberately rejects them with the new speech configuration.
+Replace them after publishing reviewed builds. The new resident image must pin
+Channels `988fb91c46b9586572d06bbd27e5918a6e70254f` (PR #91), retaining Pi 0.80.10.
+This change does not publish or replace the operator controller image.
 
 Claude reviews both this diff and the runtime changes before cluster apply.
 See `docs/plans/shared-voice-preview.md` and PR #108 for review evidence.

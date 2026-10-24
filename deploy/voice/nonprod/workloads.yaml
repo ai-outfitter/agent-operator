@@ -100,8 +100,10 @@ spec:
               value: env
             - name: VOICE_BACKEND
               value: openai
-            - name: VOICE_MODEL
-              value: gpt-realtime
+            - name: VOICE_STT_MODEL
+              value: gpt-4o-mini-transcribe
+            - name: VOICE_TTS_MODEL
+              value: gpt-4o-mini-tts
             - name: VOICE_VOICE
               value: coral
             - name: LIVEKIT_URL
@@ -242,8 +244,10 @@ spec:
               value: env
             - name: VOICE_BACKEND
               value: openai
-            - name: VOICE_MODEL
-              value: gpt-realtime
+            - name: VOICE_STT_MODEL
+              value: gpt-4o-mini-transcribe
+            - name: VOICE_TTS_MODEL
+              value: gpt-4o-mini-tts
             - name: VOICE_VOICE
               value: coral
             - name: OPENAI_API_KEY

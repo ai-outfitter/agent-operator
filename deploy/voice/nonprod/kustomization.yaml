@@ -6,6 +6,7 @@ resources:
   - workloads.yaml
   - network-policy.yaml
   - ingress.yaml
+# DO NOT APPLY with direct-Pi speech settings: replace these legacy image pins first.
 images:
   - name: voice-runtime
     newName: 216577824627.dkr.ecr.us-east-1.amazonaws.com/ai-outfitter/voice-preview
