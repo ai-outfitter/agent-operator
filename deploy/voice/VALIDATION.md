@@ -240,3 +240,16 @@ Fresh strict calls must independently prove actual task completion and a spoken
 result for each of Luce, Vega and nonprod-bot. The retirement script revision pin
 is updated to this exact head; it remains unexecuted pending all three confirmed
 evidence files and the parent's final retirement decision.
+
+### Identifier preservation instruction, 2026-10-24
+
+Reviewed head `0415a850511c93717a6063bbd2c74c7b4b5f9892` produced runtime
+`sha256:eb5a0cf93d5f2bff4b1b5cf81e351afb086aca58dcafeba23dbf027638f7dd63`.
+The voice instruction now preserves repository identifiers and asks for
+clarification when uncertain. Read-only inspection confirmed broker and worker
+at this digest with one updated Ready replica each. Both source runtime modes
+pin it, while the inference gateway digest remains unchanged. Actual Claude
+review and focused worker checks passed. This instruction change does not
+establish correct spoken identifiers or task results: all three strict live
+proofs must be recorded at this exact revision before retirement. The retirement
+script remains unexecuted and rejects older-revision evidence.

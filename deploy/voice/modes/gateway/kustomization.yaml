@@ -6,10 +6,10 @@ resources:
   - gateway.yaml
 patches:
   - path: mode.yaml
-# Reviewed webapp gateway 29406c0 and voice runtime be2d77f0.
+# Reviewed webapp gateway 29406c0 and voice runtime 0415a850.
 images:
   - name: 216577824627.dkr.ecr.us-east-1.amazonaws.com/ai-outfitter/voice-preview
-    digest: sha256:0278491d0ef179d1709b9316fd02924eac9f5f18fb1dd539cd2ed03743d1ae4c
+    digest: sha256:eb5a0cf93d5f2bff4b1b5cf81e351afb086aca58dcafeba23dbf027638f7dd63
   - name: voice-inference-gateway
     newName: 216577824627.dkr.ecr.us-east-1.amazonaws.com/ai-outfitter/voice-preview
     digest: sha256:6d947c3e4d57415141a834f61a2a788b6822cfc6b6b013d30e404b50114fe0d5
