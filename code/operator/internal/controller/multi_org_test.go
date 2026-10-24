@@ -108,6 +108,7 @@ func TestMultiOrgGatewaySharedResources(t *testing.T) {
 	if err := c.Get(ctx, types.NamespacedName{Name: legacyGatewayPolicyName, Namespace: ns}, &networkingv1.NetworkPolicy{}); !apierrors.IsNotFound(err) {
 		t.Fatalf("owned legacy policy was not removed after replacement: %v", err)
 	}
+	verifyMultiOrgCredentialConvergence(t, r, agent, p, s)
 	verifySharedServiceRepair(t, r, agent, s, svc)
 	verifyCleanupOptimisticLock(t, r, agent, s)
 	if err := r.cleanupStaleAgentA2A(ctx, s, nil); err != nil {
@@ -207,5 +208,29 @@ func verifyCleanupOptimisticLock(t *testing.T, r *OrganizationReconciler, agent 
 	raw := string(latest.Data[agentA2ACredentialsKey])
 	if !strings.Contains(raw, "voice-preview") || !strings.Contains(raw, "forge-gateway:"+org.Name) {
 		t.Fatal("stale cleanup overwrote concurrent principals")
+	}
+}
+
+func verifyMultiOrgCredentialConvergence(t *testing.T, r *OrganizationReconciler, agent *a.Agent, orgs ...*a.Organization) {
+	t.Helper()
+	ctx := context.Background()
+	key := types.NamespacedName{Name: agentCredentialSecretName(agent), Namespace: agentNamespace(agent.Name)}
+	secret := &corev1.Secret{}
+	if err := r.Get(ctx, key, secret); err != nil {
+		t.Fatal(err)
+	}
+	stable := string(secret.Data[agentA2ACredentialsKey])
+	for range 5 {
+		for _, org := range orgs {
+			if err := r.ensureAgentA2A(ctx, org, agent, "token-"+org.Name, map[string]string{OrganizationLabel: org.Name}); err != nil {
+				t.Fatal(err)
+			}
+			if err := r.Get(ctx, key, secret); err != nil {
+				t.Fatal(err)
+			}
+			if string(secret.Data[agentA2ACredentialsKey]) != stable {
+				t.Fatal("actual multi-org reconcile changed unchanged credential bytes")
+			}
+		}
 	}
 }

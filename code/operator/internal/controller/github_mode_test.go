@@ -86,3 +86,46 @@ func TestGatewayCredentialPreservesOtherClients(t *testing.T) {
 		t.Fatal("invalid existing config accepted")
 	}
 }
+
+// Independent org controllers must converge byte-for-byte: credential bytes feed
+// the runtime rollout hash, so moving principals causes endless Recreate rollouts.
+func TestGatewayCredentialMultiOrgConvergence(t *testing.T) {
+	const first = "forge-gateway:first-org"
+	const second = "forge-gateway:second-org"
+	raw := []byte(`{"credentials":[{"principal":"voice-preview","token":"voice-kept"},{"principal":"forge-gateway:first-org","token":"first-kept","extra":"stable-extra"},{"principal":"forge-gateway:second-org","token":"second-kept"}],"other":"stable-config"}`)
+	var err error
+	raw, err = mergeGatewayCredential(raw, first, "first-kept")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stable := string(raw)
+	for i := range 20 {
+		for _, item := range []struct{ principal, token string }{{second, "second-kept"}, {first, "first-kept"}} {
+			raw, err = mergeGatewayCredential(raw, item.principal, item.token)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(raw) != stable {
+				t.Fatalf("unchanged multi-org reconcile changed rollout bytes on iteration %d: %s", i, raw)
+			}
+		}
+	}
+	rotated, err := mergeGatewayCredential(raw, first, "rotated")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var parsed struct {
+		Credentials []struct{ Principal, Token, Extra string }
+		Other       string
+	}
+	if err := json.Unmarshal(rotated, &parsed); err != nil {
+		t.Fatal(err)
+	}
+	if len(parsed.Credentials) != 3 || parsed.Credentials[1].Principal != first || parsed.Credentials[1].Token != "rotated" || parsed.Credentials[1].Extra != "stable-extra" || parsed.Credentials[0].Token != "voice-kept" || parsed.Credentials[2].Token != "second-kept" || parsed.Other != "stable-config" {
+		t.Fatalf("rotation changed position or unrelated authority: %s", rotated)
+	}
+	repeated, err := mergeGatewayCredential(rotated, first, "rotated")
+	if err != nil || string(repeated) != string(rotated) {
+		t.Fatalf("rotation not stable: %s %v", repeated, err)
+	}
+}

@@ -487,14 +487,25 @@ func mergeGatewayCredential(raw []byte, principal, token string) ([]byte, error)
 			return nil, fmt.Errorf("invalid existing A2A credentials: %w", err)
 		}
 	}
+	p, _ := json.Marshal(principal)
+	t, _ := json.Marshal(token)
+	updated := false
 	entries = slices.DeleteFunc(entries, func(entry map[string]json.RawMessage) bool {
 		var value string
 		_ = json.Unmarshal(entry["principal"], &value)
-		return value == principal
+		if value != principal {
+			return false
+		}
+		if updated {
+			return true // Drop duplicate principals without moving the retained entry.
+		}
+		entry["token"] = t
+		updated = true
+		return false
 	})
-	p, _ := json.Marshal(principal)
-	t, _ := json.Marshal(token)
-	entries = append(entries, map[string]json.RawMessage{"principal": p, "token": t})
+	if !updated {
+		entries = append(entries, map[string]json.RawMessage{"principal": p, "token": t})
+	}
 	encoded, err := json.Marshal(entries)
 	if err != nil {
 		return nil, err
