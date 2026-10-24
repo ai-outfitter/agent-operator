@@ -270,3 +270,52 @@ at `0415a850511c93717a6063bbd2c74c7b4b5f9892`. No profile permissions, runtime
 image or engineer proof requirements change. A successful diagnostic would prove
 truthful reporting of an authentication failure, not working Grafana access.
 Retirement remains gated on the parent's review of all three valid proofs.
+
+### Final canonical cutover and operator recovery, 2026-10-24
+
+The reviewed retirement completed: only `unsupervised-luce`,
+`unsupervised-vega` and `unsupervised-nonprod-bot` remain as Agent CRs. All three
+are Ready with Unsupervised first and Outfitter second in their memberships.
+Both organization gateways are Ready and each has two canonical engineer routes;
+the bot retains its separate explicit voice endpoint and unchanged role.
+The retired Outfitter runtime Deployments remain at zero with no pods. Their
+namespaces and original home PVCs remain, Bound to PVs with reclaim policy Retain.
+No old home was moved or deleted.
+
+The first multi-organization reconciliation exposed a credential merge defect:
+each gateway moved its own unchanged principal to the end of the credentials
+array. Alternating organizations changed the transport hash repeatedly and
+triggered continuous Recreate rollouts. The operator was paused to contain it.
+Fix `526c0f886dc44cb133a94b444d8c7d0f05e9ebcf` updates an existing principal in
+place, preserving order and extra fields, and appends only new principals.
+It preserves unrelated voice and organization credentials and normal token
+rotation. Actual Claude approved; full operator tests and lint passed. The new
+convergence regression fails immediately with the old implementation and passes
+both repeated merges and actual multi-organization reconciliation with the fix.
+
+The fixed operator was published and activated at immutable digest
+`sha256:2393b9f79d03e80388ba4aec17a19d17212d816bf46cfdab1f3bffa801662d86`.
+The deployment change preserved its full spec except the image and restored one
+replica. Four snapshots over 90 seconds then showed unchanged deployment
+generations (Luce 135, Vega 120, bot 44), stable credential hashes and one updated
+Ready replica each. No new operator errors appeared. The final cutover verifier
+passed the exact three identities/memberships, both gateway routes and retained
+old home checks.
+
+Voice runtime and edge revision remain
+`0415a850511c93717a6063bbd2c74c7b4b5f9892`; no voice pin was changed for this
+operator fix. All three strict synthetic-microphone proofs at that revision
+passed actual task completion and matching spoken-result checks. Luce and Vega
+read back real GitHub PR facts; the bot truthfully spoke the independently verified
+Grafana 401 Unauthorized diagnostic. That bot proof does not establish working
+Grafana access. After cutover, all six organization-to-resident bindings still
+passed authenticated read-only checks with identity/profile unchanged.
+Authenticated human and preview-agent discovery returned exactly the same three
+residents for both enterprise organizations; an unlisted caller saw none. Exact
+edge health and discovery HTTP 200 were verified after refreshing the test session.
+
+These checks establish the nonprod canonical cutover and stable reconciliation.
+A real human microphone/speaker conversation and a physical restrictive-network
+call remain separate acceptance checks. Production rollout and PR merge were not
+performed. Private task text, credentials, audio and raw home data are omitted
+from this receipt; the parent retained the private evidence and backups.
