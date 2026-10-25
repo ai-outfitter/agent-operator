@@ -1,0 +1,264 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: voice-broker
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: voice-worker
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: voice-broker-data
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: gp3-encrypted-csi
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: voice-broker
+spec:
+  selector:
+    app: voice-broker
+  ports:
+    - name: http
+      port: 4191
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: voice-broker
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: voice-broker
+  template:
+    metadata:
+      labels:
+        app: voice-broker
+    spec:
+      serviceAccountName: voice-broker
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: broker
+          image: voice-runtime
+          command: [node, --import, tsx, src/server.ts]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: '1'
+              memory: 256Mi
+          ports:
+            - name: http
+              containerPort: 4191
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            failureThreshold: 30
+            periodSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 20
+          env:
+            - name: VOICE_INFERENCE_MODE
+              value: env
+            - name: VOICE_BACKEND
+              value: openai
+            - name: VOICE_STT_MODEL
+              value: gpt-4o-mini-transcribe
+            - name: VOICE_TTS_MODEL
+              value: gpt-4o-mini-tts
+            - name: VOICE_VOICE
+              value: coral
+            - name: LIVEKIT_URL
+              valueFrom:
+                secretKeyRef:
+                  name: voice-media
+                  key: url
+            - name: LIVEKIT_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: voice-media
+                  key: apiKey
+            - name: LIVEKIT_API_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: voice-media
+                  key: apiSecret
+            - name: HOST
+              value: 0.0.0.0
+            - name: PORT
+              value: "4191"
+            - name: VOICE_SERVICE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: voice-broker
+                  key: serviceToken
+            - name: LIVEKIT_PUBLIC_URL
+              valueFrom:
+                secretKeyRef:
+                  name: voice-media
+                  key: publicUrl
+                  optional: true
+            - name: VOICE_TARGETS_FILE
+              value: /run/voice/targets.json
+            - name: VOICE_DATABASE
+              value: /data/voice.db
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: targets
+              mountPath: /run/voice
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: voice-broker-data
+        - name: targets
+          secret:
+            secretName: voice-broker
+            items:
+              - key: targets.json
+                path: targets.json
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: voice-worker
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: voice-worker
+  template:
+    metadata:
+      labels:
+        app: voice-worker
+    spec:
+      serviceAccountName: voice-worker
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: worker
+          image: voice-runtime
+          command: [node, --import, tsx, src/worker.ts, start]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: 500m
+              memory: 512Mi
+            limits:
+              cpu: '2'
+              memory: 2Gi
+          ports:
+            - name: http
+              containerPort: 8081
+          startupProbe:
+            httpGet:
+              path: /
+              port: http
+            failureThreshold: 30
+            periodSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 20
+          env:
+            - name: LIVEKIT_URL
+              valueFrom:
+                secretKeyRef:
+                  name: voice-media
+                  key: url
+            - name: LIVEKIT_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: voice-media
+                  key: apiKey
+            - name: LIVEKIT_API_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: voice-media
+                  key: apiSecret
+            - name: VOICE_SERVICE_INTERNAL_URL
+              value: http://voice-broker:4191
+            - name: VOICE_INFERENCE_MODE
+              value: env
+            - name: VOICE_BACKEND
+              value: openai
+            - name: VOICE_STT_MODEL
+              value: gpt-4o-mini-transcribe
+            - name: VOICE_TTS_MODEL
+              value: gpt-4o-mini-tts
+            - name: VOICE_VOICE
+              value: coral
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: voice-provider
+                  key: apiKey
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 128Mi

@@ -1,0 +1,135 @@
+# Opt-in dedicated PUBLIC EKS node; never schedule on existing private nodes.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: voice-livekit
+data:
+  livekit.yaml: |
+    port: 7880
+    bind_addresses: ["0.0.0.0"]
+    rtc:
+      use_external_ip: true
+      tcp_port: 7881
+      udp_port: 7882
+    turn:
+      enabled: true
+      domain: turn-voice-preview.unsupervised.wtf
+      tls_port: 443
+      udp_port: 3478
+      cert_file: /etc/turn/tls.crt
+      key_file: /etc/turn/tls.key
+    logging:
+      level: info
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: voice-livekit
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: voice-livekit
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: voice-livekit
+  template:
+    metadata:
+      labels:
+        app: voice-livekit
+    spec:
+      hostNetwork: true
+      dnsPolicy: Default
+      nodeSelector:
+        aioutfitter.com/voice-media: public
+      tolerations:
+        - key: aioutfitter.com/voice-media
+          operator: Equal
+          value: public
+          effect: NoSchedule
+      serviceAccountName: voice-livekit
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: false
+        runAsUser: 0
+        runAsGroup: 0
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: livekit
+          image: docker.io/livekit/livekit-server:v1.13.10@sha256:e96a42b8623f738919a3f2006d433aeb19d0f3c67ce11eb986ea20e2cf65fbf5
+          args: [--config, /etc/livekit/livekit.yaml]
+          env:
+            - name: LIVEKIT_KEYS
+              valueFrom:
+                secretKeyRef:
+                  name: voice-livekit-keys
+                  key: keys
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+              add: [NET_BIND_SERVICE]
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: '1'
+              memory: 512Mi
+          ports:
+            - name: turn-tls
+              containerPort: 443
+              hostPort: 443
+            - name: turn-udp
+              containerPort: 3478
+              hostPort: 3478
+              protocol: UDP
+            - name: http
+              containerPort: 7880
+            - name: rtc-tcp
+              containerPort: 7881
+            - name: rtc-udp
+              containerPort: 7882
+              protocol: UDP
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+          volumeMounts:
+            - name: turn-tls
+              mountPath: /etc/turn
+              readOnly: true
+            - name: config
+              mountPath: /etc/livekit
+              readOnly: true
+      volumes:
+        - name: turn-tls
+          secret:
+            secretName: voice-turn-tls
+        - name: config
+          configMap:
+            name: voice-livekit
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: voice-livekit
+spec:
+  selector:
+    app: voice-livekit
+  ports:
+    - name: http
+      port: 7880
+      targetPort: http

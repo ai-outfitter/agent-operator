@@ -184,8 +184,8 @@ func (r *AgentReconciler) validateAgent(
 	if len(agent.Name) > 57 {
 		return nil, "Agent name must be no longer than 57 characters", nil
 	}
-	if len(agent.Spec.Memberships) != 1 {
-		return nil, "M1 agents must declare exactly one organization membership", nil
+	if len(agent.Spec.Memberships) == 0 {
+		return nil, "agents must declare at least one organization membership", nil
 	}
 	missingQuotaKeys := requiredQuotaKeysMissing(agent.Spec.Workspace.ResourceQuota.Hard)
 	if len(missingQuotaKeys) > 0 {
@@ -216,27 +216,38 @@ func (r *AgentReconciler) validateAgent(
 			return nil, "GitHub webhook mode cannot also enable GitHub polling", nil
 		}
 	}
-	membership := agent.Spec.Memberships[0]
-	organization := &aioutfitterv1alpha1.Organization{}
-	if err := r.Get(ctx, types.NamespacedName{Name: membership.Organization}, organization); err != nil {
-		if apierrors.IsNotFound(err) {
-			return nil, fmt.Sprintf("Organization %q does not exist", membership.Organization), nil
+	var organization *aioutfitterv1alpha1.Organization
+	seen := map[string]bool{}
+	for i, membership := range agent.Spec.Memberships {
+		if seen[membership.Organization] {
+			return nil, fmt.Sprintf("Duplicate organization membership %q", membership.Organization), nil
 		}
-		return nil, "", err
-	}
-	if !apiMeta.IsStatusConditionTrue(organization.Status.Conditions, aioutfitterv1alpha1.OrganizationConditionAccepted) {
-		return organization, fmt.Sprintf("Organization %q is not accepted", membership.Organization), nil
-	}
-	if agent.Spec.Pi == nil && len(organization.Spec.AgentCatalogs) == 0 {
-		return organization, "catalog profiles require an organization catalog", nil
-	}
-	projects := make(map[string]struct{}, len(organization.Spec.Projects))
-	for _, project := range organization.Spec.Projects {
-		projects[project.Name] = struct{}{}
-	}
-	for _, project := range membership.Projects {
-		if _, found := projects[project]; !found {
-			return organization, fmt.Sprintf("Project %q does not exist in organization %q", project, membership.Organization), nil
+		seen[membership.Organization] = true
+		memberOrg := &aioutfitterv1alpha1.Organization{}
+		if err := r.Get(ctx, types.NamespacedName{Name: membership.Organization}, memberOrg); err != nil {
+			if apierrors.IsNotFound(err) {
+				return nil, fmt.Sprintf("Organization %q does not exist", membership.Organization), nil
+			}
+			return nil, "", err
+		}
+		if !apiMeta.IsStatusConditionTrue(memberOrg.Status.Conditions, aioutfitterv1alpha1.OrganizationConditionAccepted) {
+			return memberOrg, fmt.Sprintf("Organization %q is not accepted", membership.Organization), nil
+		}
+		if i == 0 {
+			// The first membership retains catalog, credential and runtime identity.
+			organization = memberOrg
+			if agent.Spec.Pi == nil && len(memberOrg.Spec.AgentCatalogs) == 0 {
+				return memberOrg, "catalog profiles require an organization catalog", nil
+			}
+		}
+		projects := make(map[string]struct{}, len(memberOrg.Spec.Projects))
+		for _, project := range memberOrg.Spec.Projects {
+			projects[project.Name] = struct{}{}
+		}
+		for _, project := range membership.Projects {
+			if _, found := projects[project]; !found {
+				return memberOrg, fmt.Sprintf("Project %q does not exist in organization %q", project, membership.Organization), nil
+			}
 		}
 	}
 	return organization, "", nil

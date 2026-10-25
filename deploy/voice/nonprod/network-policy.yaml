@@ -1,0 +1,98 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: voice-isolation
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector: {}
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: default
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: ingress-nginx
+      ports:
+        - port: 4191
+  egress:
+    - to:
+        - podSelector: {}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    # Public signaling/models and public-node ICE/TURN media. No API credentials.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16]
+      ports:
+        - port: 443
+          protocol: TCP
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: voice-broker-resident
+spec:
+  podSelector:
+    matchLabels:
+      app: voice-broker
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: agent-unsupervised-luce
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: agent-runtime
+              app.kubernetes.io/instance: unsupervised-luce
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: agent-unsupervised-nonprod-bot
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: agent-runtime
+              app.kubernetes.io/instance: unsupervised-nonprod-bot
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: agent-unsupervised-vega
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: agent-runtime
+              app.kubernetes.io/instance: unsupervised-vega
+      ports:
+        - port: 8788
+          protocol: TCP
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: voice-worker-media
+spec:
+  podSelector:
+    matchLabels:
+      app: voice-worker
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16]
+      ports:
+        - port: 7881
+          protocol: TCP
+        - port: 7882
+          protocol: UDP
+        - port: 3478
+          protocol: UDP

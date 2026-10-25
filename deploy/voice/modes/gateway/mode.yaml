@@ -1,0 +1,34 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: voice-broker
+spec:
+  template:
+    spec:
+      containers:
+        - name: broker
+          env:
+            - name: VOICE_INFERENCE_MODE
+              value: gateway
+            - name: VOICE_AUTHORITY_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: voice-broker
+                  key: authorityToken
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: voice-worker
+spec:
+  template:
+    spec:
+      containers:
+        - name: worker
+          env:
+            - name: VOICE_INFERENCE_MODE
+              value: gateway
+            - name: OPENAI_API_KEY
+              $patch: delete
+            - name: VOICE_GATEWAY_URL
+              value: http://voice-inference-gateway:4040

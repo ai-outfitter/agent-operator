@@ -1,0 +1,105 @@
+# Cluster-only smoke-test transport. NOT public browser media hosting.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: voice-livekit
+data:
+  livekit.yaml: |
+    port: 7880
+    bind_addresses: ["0.0.0.0"]
+    rtc:
+      use_external_ip: false
+      tcp_port: 7881
+      udp_port: 7882
+    logging:
+      level: info
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: voice-livekit
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: voice-livekit
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: voice-livekit
+  template:
+    metadata:
+      labels:
+        app: voice-livekit
+    spec:
+      serviceAccountName: voice-livekit
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: livekit
+          image: docker.io/livekit/livekit-server:v1.13.10@sha256:e96a42b8623f738919a3f2006d433aeb19d0f3c67ce11eb986ea20e2cf65fbf5
+          args: [--config, /etc/livekit/livekit.yaml]
+          env:
+            - name: LIVEKIT_KEYS
+              valueFrom:
+                secretKeyRef:
+                  name: voice-livekit-keys
+                  key: keys
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: '1'
+              memory: 512Mi
+          ports:
+            - name: http
+              containerPort: 7880
+            - name: rtc-tcp
+              containerPort: 7881
+            - name: rtc-udp
+              containerPort: 7882
+              protocol: UDP
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+          volumeMounts:
+            - name: config
+              mountPath: /etc/livekit
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: voice-livekit
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: voice-livekit
+spec:
+  selector:
+    app: voice-livekit
+  ports:
+    - name: http
+      port: 7880
+      targetPort: http

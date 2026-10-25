@@ -1,0 +1,25 @@
+# Opt-in capability only. Reference this ConfigMap from each Agent spec.envFrom.
+# Keep existing envFrom entries; the principal must already exist in A2A credentials.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: resident-voice-conversation
+  namespace: agent-unsupervised-luce
+data:
+  A2A_VOICE_PRINCIPALS: voice-broker:voice-preview
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: resident-voice-conversation
+  namespace: agent-unsupervised-vega
+data:
+  A2A_VOICE_PRINCIPALS: voice-broker:voice-preview
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: resident-voice-conversation
+  namespace: agent-unsupervised-nonprod-bot
+data:
+  A2A_VOICE_PRINCIPALS: voice-broker:voice-preview
