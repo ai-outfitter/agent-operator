@@ -319,3 +319,59 @@ A real human microphone/speaker conversation and a physical restrictive-network
 call remain separate acceptance checks. Production rollout and PR merge were not
 performed. Private task text, credentials, audio and raw home data are omitted
 from this receipt; the parent retained the private evidence and backups.
+
+## 2026-10-25 direct main-Pi runtime activation (acceptance pending)
+
+AWS account `216577824627` and kubectl context `webapp-nonprod` were verified
+before changes. Fresh configuration and credential backups were saved privately
+with mode 0600; no credential values were logged. Immediately before rollout,
+the broker had zero active unexpired calls and zero unfinished task records.
+All three resident task stores had zero nonterminal tasks. Mounted credential
+principal names (not tokens) confirmed `voice-broker:voice-preview` for each
+canonical resident. All six existing target URLs already used their canonical
+Service root on port 8788, so URLs, credentials and user allowlists were retained.
+
+Published ECR tags and digests were independently checked:
+
+- Voice runtime `pi-voice-8123ab0`:
+  `sha256:a13a77d18408c09b19af3135da9765adc3f84ce09fc77f4119e5bb3f9cba397f`.
+- Separate speech gateway `pi-speech-8123ab0`:
+  `sha256:869fff49557bbf439a9ece8773e1b661fe71ac6ff8abd41e4953ea20d2ffd419`.
+- Direct-Pi resident `pi-conversation-988fb91`:
+  `sha256:ff417d81de0def1dec730952686efcd87e325a42b3a99a254666bac4ff3d8f6e`.
+
+Actual Claude reviews approved the source preparation, published pin delta and
+follow-up documentation. Both env and gateway render checks passed with the new
+pins, and server dry-runs validated the narrow live patches. Luce and Vega now
+use the new direct-Pi image. Their existing `envFrom` arrays were preserved with
+only the non-optional `resident-voice-conversation` ConfigMap appended. Every
+other Agent spec field, including models, tools, credentials and memberships,
+was retained. Read-only authenticated polling of a nonexistent turn returned
+`404 turn not found`, confirming the enabled conversation adapter without
+creating a lease, call or resident task.
+
+The bot kept its existing image
+`ghcr.io/unsupervisedcom/nonprod-bot-agent:6f08c52-r33429105296`, launcher,
+profile and permissions. Its canonical Organization catalog revision and embedded
+catalog-bootstrap revision changed together to the independently reviewed
+`6295169817c24b9cbeddb98604c1de7acfdd8473` (private catalog draft PR 57).
+That catalog changes only the bot's Channels dependency to
+`988fb91c46b9586572d06bbd27e5918a6e70254f` (Channels PR 91). Independent
+post-rollout inspection confirmed the actual cached Channels HEAD, Outfitter
+1.5.0 / Pi 0.80.10, the retained bearer principal and the same authenticated
+read-only polling response. No bot image rebuild or policy expansion was needed.
+
+Gateway, worker and broker were updated in that order, checking for active calls
+before each update. Only their images and the reviewed speech settings changed;
+all other Deployment spec fields were preserved. Broker and worker now agree on
+`gateway`, `openai`, `gpt-4o-mini-transcribe`, `gpt-4o-mini-tts` and default
+`coral`; `VOICE_MODEL` is absent. All three completed rollout with one updated,
+Ready replica. Broker local `/health` returned HTTP 200. The resident operator's
+full Deployment spec stayed unchanged, including image
+`sha256:2393b9f79d03e80388ba4aec17a19d17212d816bf46cfdab1f3bffa801662d86`.
+
+This receipt records nonproduction activation and readiness, not speech
+acceptance. Real microphone transcription, persistent Pi context, tool use,
+audible literal Pi output and interruption behavior are being checked separately.
+No acceptance result, production rollout or PR merge is claimed here. Rollouts
+and restarts stopped before the parent's first live Luce acceptance call.
