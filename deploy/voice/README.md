@@ -1,8 +1,8 @@
 # Shared voice preview
 
 > **Candidate activation still requires live acceptance.** Reviewed immutable
-> speech-runtime and gateway images are now published and pinned for webapp
-> `8123ab0`. The resident Pi image contains Channels `988fb91`; the custom bot
+> speech-runtime and gateway images are published and pinned; their separate
+> source revisions are recorded beside the image pins. The resident Pi image contains Channels `988fb91`; the custom bot
 > retains its existing launcher/image and requires a reviewed catalog dependency
 > pin to Channels `988fb91`. Apply
 > only after resident prerequisites and idle-work checks, then verify real speech
@@ -74,9 +74,9 @@ the legacy isolated gateway digest is
 `sha256:6d947c3e4d57415141a834f61a2a788b6822cfc6b6b013d30e404b50114fe0d5`.
 These are historical rollout state, not direct-Pi-compatible candidate images.
 `check-render.py` deliberately rejects them with the new speech configuration.
-The published candidate pins are webapp `8123ab0`: voice runtime
-`sha256:a13a77d18408c09b19af3135da9765adc3f84ce09fc77f4119e5bb3f9cba397f`
-and speech gateway
+The published voice runtime is webapp `9562252`:
+`sha256:6f0f8af038216955c038841ff0bca7176096a34f4b9a4e5812deae538597debd`.
+The separate speech gateway remains webapp `8123ab0`:
 `sha256:869fff49557bbf439a9ece8773e1b661fe71ac6ff8abd41e4953ea20d2ffd419`.
 The direct-Pi resident image is
 `216577824627.dkr.ecr.us-east-1.amazonaws.com/ai-outfitter/agent-pi@sha256:ff417d81de0def1dec730952686efcd87e325a42b3a99a254666bac4ff3d8f6e`.

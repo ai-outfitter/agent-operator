@@ -6,8 +6,8 @@ resources:
   - workloads.yaml
   - network-policy.yaml
   - ingress.yaml
-# Published reviewed direct-Pi speech runtime webapp8123ab0; preserve separate gateway image.
+# Reviewed voice runtime webapp9562252; speech gateway remains webapp8123ab0.
 images:
   - name: voice-runtime
     newName: 216577824627.dkr.ecr.us-east-1.amazonaws.com/ai-outfitter/voice-preview
-    digest: sha256:a13a77d18408c09b19af3135da9765adc3f84ce09fc77f4119e5bb3f9cba397f
+    digest: sha256:6f0f8af038216955c038841ff0bca7176096a34f4b9a4e5812deae538597debd

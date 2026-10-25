@@ -1,8 +1,8 @@
 # Explicit inference modes
 
 > **Candidate activation still requires live acceptance.** Reviewed immutable
-> speech-runtime and gateway images are now published and pinned for webapp
-> `8123ab0`. The resident Pi image contains Channels `988fb91`; the custom bot
+> speech-runtime and gateway images are published and pinned; their separate
+> source revisions are recorded beside the image pins. The resident Pi image contains Channels `988fb91`; the custom bot
 > retains its existing launcher/image and requires a reviewed catalog dependency
 > pin to Channels `988fb91`. Apply
 > only after resident prerequisites and idle-work checks, then verify real speech
