@@ -1,11 +1,12 @@
 # Explicit inference modes
 
-> **Do not apply this candidate yet.** The direct-Pi source/configuration changes
-> require newly published immutable resident, voice-runtime and speech-gateway
-> images. The currently checked-in voice/gateway digests belong to the previous
-> delegation architecture and are incompatible with the new speech settings.
-> Replace and review all image pins, then complete nonproduction live acceptance
-> before merge. Local render checks validate structure, not image compatibility.
+> **Candidate activation still requires live acceptance.** Reviewed immutable
+> speech-runtime and gateway images are now published and pinned for webapp
+> `8123ab0`. The resident Pi image contains Channels `988fb91`; the custom bot
+> retains its existing launcher/image and requires a reviewed catalog dependency
+> pin to Channels `988fb91`. Apply
+> only after resident prerequisites and idle-work checks, then verify real speech
+> and same-session Pi behavior before merge. Render checks prove structure only.
 
 
 Apply exactly one complete runtime overlay: `modes/env` or `modes/gateway`.
@@ -59,8 +60,8 @@ mount the shared preview-agent token. Headers are restricted to that exact HTTPS
 origin and are not forwarded to providers or the authority callback.
 
 **Image provenance:** the runtime revision is recorded next to its image pin in
-`gateway/kustomization.yaml`; the separate gateway comes from `29406c0`. Both
-images require review before publication. Keep the runtime image transformer before the gateway rename:
+`gateway/kustomization.yaml`; the separately built speech gateway comes from `8123ab0`. Both
+images are published and reviewed; live acceptance is pending. Keep the runtime image transformer before the gateway rename:
 both use the same ECR repository, and reversing the order replaces the gateway
 with the voice image. `check-render.py` rejects identical images. Base/env and gateway mode use the same reviewed voice runtime; the existing
 shared gateway is never replaced.

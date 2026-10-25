@@ -1,11 +1,12 @@
 # Shared voice preview
 
-> **Do not apply this candidate yet.** The direct-Pi source/configuration changes
-> require newly published immutable resident, voice-runtime and speech-gateway
-> images. The currently checked-in voice/gateway digests belong to the previous
-> delegation architecture and are incompatible with the new speech settings.
-> Replace and review all image pins, then complete nonproduction live acceptance
-> before merge. Local render checks validate structure, not image compatibility.
+> **Candidate activation still requires live acceptance.** Reviewed immutable
+> speech-runtime and gateway images are now published and pinned for webapp
+> `8123ab0`. The resident Pi image contains Channels `988fb91`; the custom bot
+> retains its existing launcher/image and requires a reviewed catalog dependency
+> pin to Channels `988fb91`. Apply
+> only after resident prerequisites and idle-work checks, then verify real speech
+> and same-session Pi behavior before merge. Render checks prove structure only.
 
 
 This opt-in deployment runs the voice runtime from webapp PR #492 in nonproduction.
@@ -67,13 +68,22 @@ docker push VOICE_IMAGE:COMMIT
 ```
 
 Use a nonprod ECR repository with immutable tags and record the commit/digest
-mapping. The checked-in legacy voice runtime is webapp `0415a850`, digest
+mapping. The previous rollout voice runtime was webapp `0415a850`, digest
 `sha256:eb5a0cf93d5f2bff4b1b5cf81e351afb086aca58dcafeba23dbf027638f7dd63`;
 the legacy isolated gateway digest is
 `sha256:6d947c3e4d57415141a834f61a2a788b6822cfc6b6b013d30e404b50114fe0d5`.
-These are recorded rollout state, not direct-Pi-compatible candidate images.
+These are historical rollout state, not direct-Pi-compatible candidate images.
 `check-render.py` deliberately rejects them with the new speech configuration.
-Replace them after publishing reviewed builds. The new resident image must pin
+The published candidate pins are webapp `8123ab0`: voice runtime
+`sha256:a13a77d18408c09b19af3135da9765adc3f84ce09fc77f4119e5bb3f9cba397f`
+and speech gateway
+`sha256:869fff49557bbf439a9ece8773e1b661fe71ac6ff8abd41e4953ea20d2ffd419`.
+The direct-Pi resident image is
+`216577824627.dkr.ecr.us-east-1.amazonaws.com/ai-outfitter/agent-pi@sha256:ff417d81de0def1dec730952686efcd87e325a42b3a99a254666bac4ff3d8f6e`.
+It is suitable for existing direct-Pi residents; do not substitute it for the
+bot's Outfitter-based launcher. The bot instead retains that image and adopts
+a separately reviewed canonical catalog revision pinning the same Channels
+adapter; do not change its profile or tools. The new resident image must pin
 Channels `988fb91c46b9586572d06bbd27e5918a6e70254f` (PR #91), retaining Pi 0.80.10.
 This change does not publish or replace the operator controller image.
 
