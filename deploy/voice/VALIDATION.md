@@ -375,3 +375,36 @@ acceptance. Real microphone transcription, persistent Pi context, tool use,
 audible literal Pi output and interruption behavior are being checked separately.
 No acceptance result, production rollout or PR merge is claimed here. Rollouts
 and restarts stopped before the parent's first live Luce acceptance call.
+
+## 2026-10-25 two-turn proof and call-lifecycle runtime update
+
+The parent verified a live two-turn Luce harness call on the initial direct-Pi
+runtime `8123ab0` / `a13a77d1…`: the first turn used a real read-only GitHub tool,
+and the follow-up recalled that result in the same main Pi session without a
+second tool call. Offline ASR confirmed both spoken results. An initial failure
+was traced to missing STT/TTS aliases in the branch preview's private platform
+configuration; only that branch configuration was corrected. This is not a
+claim that shared or production provider configuration changed.
+
+Measured final-STT-to-audio latency was 24.1 seconds for the tool turn and 7.6
+seconds for the follow-up. These results demonstrate the conversation path,
+not low-latency acceptance. They belong to the earlier runtime and do not prove
+the subsequent lifecycle changes.
+
+The independently reviewed lifecycle candidate is webapp
+`956225235b47bc53ebb92e9721076b324d1d0148`, published as
+`pi-voice-9562252` with ECR digest
+`sha256:6f0f8af038216955c038841ff0bca7176096a34f4b9a4e5812deae538597debd`.
+Actual Claude approved the focused pin diff; both env/gateway render checks and
+server dry-runs passed. Fresh zero-active-call checks preceded image-only
+patches, worker first and broker second. Both completed rollout Ready 1/updated
+1. Every non-image Deployment spec field, including the effective environment,
+was preserved. The separate gateway stayed on `8123ab0` /
+`sha256:869fff49557bbf439a9ece8773e1b661fe71ac6ff8abd41e4953ea20d2ffd419`.
+Residents, catalog revisions, credentials, permissions and the operator's full
+Deployment spec stayed unchanged. Private fresh backups were retained.
+
+At completion of this rollout, the parent was beginning live UI-loss, additional
+resident and interruption checks on `9562252`. No result for those checks is
+claimed by this receipt. No further rollout or restart was performed during
+those calls, and no production deployment or PR merge was performed.
