@@ -35,7 +35,8 @@ const (
 	// InferenceProviderLabel marks a provider Secret and names its kind.
 	InferenceProviderLabel = "outfitter.ai/inference-provider"
 	// ProviderOwnerKindLabel is "organization" or "user". Only organization
-	// keys reach member agents; a member's own key stays in the organization
+	// keys reach agents hosted primarily by that organization; a member's own
+	// key stays in the organization
 	// namespace for the gateway's per-run use (delegation: webapp#223).
 	ProviderOwnerKindLabel = "outfitter.ai/owner-kind"
 	// ProviderOwnerOrganization is the owner kind of organization keys.
@@ -61,7 +62,7 @@ func OrganizationProviderNamespace(slug string) string { return organizationName
 func providerCopyName(sourceName string) string { return providerCopyPrefix + sourceName }
 
 // ProviderSecretReconciler ensures each Organization's provider namespace and
-// syncs its labelled provider Secrets into the namespaces of member Agents.
+// syncs its labelled provider Secrets into Agents whose first membership owns hosting.
 //
 // Workspaces carry no organization reference in the API, so they receive no
 // copies yet.
@@ -106,7 +107,7 @@ func (r *ProviderSecretReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	desired := map[types.NamespacedName]struct{}{}
 	for i := range agents.Items {
 		agent := &agents.Items[i]
-		if !agent.DeletionTimestamp.IsZero() || !isMemberOf(agent, slug) {
+		if !agent.DeletionTimestamp.IsZero() || !isPrimaryMemberOf(agent, slug) {
 			continue
 		}
 		namespace := agentNamespace(agent.Name)
@@ -153,10 +154,8 @@ func (r *ProviderSecretReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 var errForeignSecret = errors.New("provider copy would overwrite a Secret the operator does not own")
 
-func isMemberOf(agent *aioutfitterv1alpha1.Agent, slug string) bool {
-	return slices.ContainsFunc(agent.Spec.Memberships, func(m aioutfitterv1alpha1.Membership) bool {
-		return m.Organization == slug
-	})
+func isPrimaryMemberOf(agent *aioutfitterv1alpha1.Agent, slug string) bool {
+	return len(agent.Spec.Memberships) > 0 && agent.Spec.Memberships[0].Organization == slug
 }
 
 // ensureNamespace creates the organization namespace or labels an existing
@@ -259,23 +258,37 @@ func (r *ProviderSecretReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	}))
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&aioutfitterv1alpha1.Organization{}).
-		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(organizationForProviderSecret), providerSecrets).
+		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(r.organizationForProviderSecret), providerSecrets).
 		Watches(&aioutfitterv1alpha1.Agent{}, handler.EnqueueRequestsFromMapFunc(r.organizationsForAgent)).
 		Watches(&corev1.Namespace{}, handler.EnqueueRequestsFromMapFunc(r.organizationsForAgentNamespace)).
 		Named("providersecret").
 		Complete(r)
 }
 
-// organizationForProviderSecret maps a canonical Secret (by namespace) or a
-// replica (by its organization label) to its Organization.
-func organizationForProviderSecret(_ context.Context, object client.Object) []reconcile.Request {
+// organizationForProviderSecret maps canonical Secrets to their organization and
+// replicas to their source owner and current hosting owner. Deleting a stale
+// secondary replica must unblock a colliding primary copy without another event.
+func (r *ProviderSecretReconciler) organizationForProviderSecret(ctx context.Context, object client.Object) []reconcile.Request {
 	if slug, ok := strings.CutPrefix(object.GetNamespace(), organizationNamespacePx); ok {
 		return []reconcile.Request{{NamespacedName: types.NamespacedName{Name: slug}}}
 	}
-	if slug := object.GetLabels()[OrganizationSlugLabel]; slug != "" {
-		return []reconcile.Request{{NamespacedName: types.NamespacedName{Name: slug}}}
+	requests := []reconcile.Request{}
+	sourceOrg := object.GetLabels()[OrganizationSlugLabel]
+	if sourceOrg != "" {
+		requests = append(requests, reconcile.Request{NamespacedName: types.NamespacedName{Name: sourceOrg}})
 	}
-	return nil
+	name := object.GetLabels()[AgentNameLabel]
+	if name == "" || object.GetNamespace() != agentNamespace(name) || object.GetAnnotations()[ProviderSourceAnnotation] == "" {
+		return requests
+	}
+	agent := &aioutfitterv1alpha1.Agent{}
+	if err := r.Get(ctx, types.NamespacedName{Name: name}, agent); err != nil || len(agent.Spec.Memberships) == 0 {
+		return requests
+	}
+	if primary := agent.Spec.Memberships[0].Organization; primary != sourceOrg {
+		requests = append(requests, reconcile.Request{NamespacedName: types.NamespacedName{Name: primary}})
+	}
+	return requests
 }
 
 // organizationsForAgent maps an Agent to its organizations, including those

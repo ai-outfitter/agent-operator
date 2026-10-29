@@ -230,8 +230,10 @@ type WorkspaceSpec struct {
 
 // AgentSpec defines the desired state of Agent.
 type AgentSpec struct {
-	// The first membership is primary for namespace ownership, catalogs and inherited
-	// credentials. Additional declared memberships do not inherit their credentials.
+	// The first membership owns hosting resources, catalogs and inherited standard
+	// and forwarded inference credentials. Additional memberships preserve declared
+	// forge associations; application work and approval authority are independently
+	// authorized by apps, never granted by adding Kubernetes memberships.
 	// +kubebuilder:validation:MinItems=1
 	// +listType=map
 	// +listMapKey=organization

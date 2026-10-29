@@ -283,8 +283,10 @@ spec:
                 type: object
               memberships:
                 description: |-
-                  The first membership is primary for namespace ownership, catalogs and inherited
-                  credentials. Additional declared memberships do not inherit their credentials.
+                  The first membership owns hosting resources, catalogs and inherited standard
+                  and forwarded inference credentials. Additional memberships preserve declared
+                  forge associations; application work and approval authority are independently
+                  authorized by apps, never granted by adding Kubernetes memberships.
                 items:
                   description: Membership grants organization-level access and optionally
                     names projects.
