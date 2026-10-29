@@ -19,13 +19,13 @@ written by the webapp gateway in ai-outfitter/webapp#222).
 3. **Copies.** A Secret can't be referenced across namespaces, so the
    `providersecret` controller copies each organization-owned
    (`outfitter.ai/owner-kind=organization`) Secret into `agent-<name>` for
-   every Agent whose `spec.memberships` names the Organization. A member's own
+   every Agent whose first `spec.memberships` entry names the hosting Organization. A member's own
    key (`owner-kind=user`) is never copied to agents; it stays in the
    organization namespace for the gateway's per-run use. A copy is named `inference-<source name>` and keeps the
    source labels, plus `outfitter.ai/organization=<slug>`, the Agent ownership
    labels and an `outfitter.ai/source=<namespace>/<name>` annotation. Copies
    are owned by the Organization, so garbage collection removes them with it.
-   Deleting a source, or removing an Agent's membership, deletes its copies on
+   Deleting a source, or changing an Agent's primary hosting membership, deletes its copies on
    the next reconcile. The controller never overwrites a Secret in an agent
    namespace that isn't a copy of the same source; it logs and skips that one
    copy so the organization's others still sync.
@@ -117,3 +117,9 @@ inference through the relay and the gateway. Other providers are untouched, so
 - **Encryption at rest.** EKS envelope encryption with KMS for Secrets is an
   infrastructure prerequisite and is configured on the cluster, not by the
   operator.
+
+Kubernetes organization membership describes hosting and infrastructure, not app
+work authority. Secondary memberships retain their declared forge-routing behavior,
+but do not automatically copy forwarded inference-provider keys. App work and
+approvals use verified identity and explicit app delegation/current role duties;
+assigning an app role never adds a Kubernetes membership.

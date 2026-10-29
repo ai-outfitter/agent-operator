@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 
+	aioutfitterv1alpha1 "github.com/ai-outfitter/agent-operator/code/operator/api/v1alpha1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	appsv1 "k8s.io/api/apps/v1"
@@ -128,6 +129,74 @@ var _ = Describe("Provider Secret sync", func() {
 		for _, v := range deployment.Spec.Template.Spec.Volumes {
 			Expect(v.Name).NotTo(Equal(providerVolumeName))
 		}
+	})
+
+	It("copies only hosting-primary provider keys and removes stale secondary collisions", func() {
+		primary := createAcceptedOrganization(ctx)
+		secondary := createAcceptedOrganization(ctx)
+		agent := validAgent(uniqueTestName("primary-provider"), primary.Name)
+		agent.Spec.Memberships = append(agent.Spec.Memberships, aioutfitterv1alpha1.Membership{Organization: secondary.Name})
+		Expect(k8sClient.Create(ctx, agent)).To(Succeed())
+		DeferCleanup(removeAgent, ctx, agent.Name)
+		Expect((&AgentReconciler{Client: k8sClient}).ensureAgentNamespace(ctx, agent)).To(Succeed())
+		sync := &ProviderSecretReconciler{Client: k8sClient, Scheme: k8sClient.Scheme()}
+		reconcileOrg := func(name string) {
+			_, err := sync.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: name}})
+			Expect(err).NotTo(HaveOccurred())
+		}
+		for _, name := range []string{primary.Name, secondary.Name} {
+			reconcileOrg(name)
+		}
+		newSource := func(org, name, marker string) *corev1.Secret {
+			source := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: OrganizationProviderNamespace(org), Labels: map[string]string{InferenceProviderLabel: "test", ProviderOwnerKindLabel: ProviderOwnerOrganization}}, Data: map[string][]byte{testAPIKey: []byte(marker)}}
+			Expect(k8sClient.Create(ctx, source)).To(Succeed())
+			return source
+		}
+		primarySource := newSource(primary.Name, "shared", "primary-marker")
+		secondarySource := newSource(secondary.Name, "shared", "secondary-marker")
+		secondaryOnly := newSource(secondary.Name, "secondary-only", "secondary-only-marker")
+		sharedKey := types.NamespacedName{Namespace: agentNamespace(agent.Name), Name: providerCopyName("shared")}
+		secondaryKey := types.NamespacedName{Namespace: agentNamespace(agent.Name), Name: providerCopyName("secondary-only")}
+		reconcileOrg(secondary.Name)
+		Expect(apierrors.IsNotFound(k8sClient.Get(ctx, sharedKey, &corev1.Secret{}))).To(BeTrue())
+		Expect(apierrors.IsNotFound(k8sClient.Get(ctx, secondaryKey, &corev1.Secret{}))).To(BeTrue())
+
+		By("cleaning existing secondary replicas without dropping cleanup enqueue coverage")
+		Expect(sync.ensureCopy(ctx, secondary, agent, secondarySource, sharedKey)).To(Succeed())
+		Expect(sync.ensureCopy(ctx, secondary, agent, secondaryOnly, secondaryKey)).To(Succeed())
+		withoutSecondary := agent.DeepCopy()
+		withoutSecondary.Spec.Memberships = withoutSecondary.Spec.Memberships[:1]
+		Expect(sync.organizationsForAgent(ctx, withoutSecondary)).To(ContainElements(
+			reconcile.Request{NamespacedName: types.NamespacedName{Name: primary.Name}},
+			reconcile.Request{NamespacedName: types.NamespacedName{Name: secondary.Name}},
+		))
+		// Primary-first observes the old collision. The secondary deletion event
+		// must then enqueue the primary to recreate its copy.
+		staleReplica := &corev1.Secret{}
+		Expect(k8sClient.Get(ctx, sharedKey, staleReplica)).To(Succeed())
+		reconcileOrg(primary.Name)
+		reconcileOrg(secondary.Name)
+		Expect(apierrors.IsNotFound(k8sClient.Get(ctx, secondaryKey, &corev1.Secret{}))).To(BeTrue())
+		requests := sync.organizationForProviderSecret(ctx, staleReplica)
+		Expect(requests).To(ConsistOf(
+			reconcile.Request{NamespacedName: types.NamespacedName{Name: primary.Name}},
+			reconcile.Request{NamespacedName: types.NamespacedName{Name: secondary.Name}},
+		))
+		for _, request := range requests {
+			reconcileOrg(request.Name)
+		}
+		replica := &corev1.Secret{}
+		Expect(k8sClient.Get(ctx, sharedKey, replica)).To(Succeed())
+		Expect(replica.Data).To(Equal(primarySource.Data))
+		Expect(replica.Labels[OrganizationSlugLabel]).To(Equal(primary.Name))
+		Expect(replica.OwnerReferences).To(HaveLen(1))
+		Expect(replica.OwnerReferences[0].UID).To(Equal(primary.UID))
+
+		By("keeping primary ownership after any further secondary reconciliation")
+		reconcileOrg(secondary.Name)
+		reconcileOrg(primary.Name)
+		Expect(k8sClient.Get(ctx, sharedKey, replica)).To(Succeed())
+		Expect(replica.Data).To(Equal(primarySource.Data))
 	})
 
 	It("skips, without overwriting, a Secret it does not own", func() {

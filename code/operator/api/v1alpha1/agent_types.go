@@ -230,9 +230,11 @@ type WorkspaceSpec struct {
 
 // AgentSpec defines the desired state of Agent.
 type AgentSpec struct {
-	// M1 exercises one membership while retaining the eventual list shape.
+	// The first membership owns hosting resources, catalogs and inherited standard
+	// and forwarded inference credentials. Additional memberships preserve declared
+	// forge associations; application work and approval authority are independently
+	// authorized by apps, never granted by adding Kubernetes memberships.
 	// +kubebuilder:validation:MinItems=1
-	// +kubebuilder:validation:MaxItems=1
 	// +listType=map
 	// +listMapKey=organization
 	Memberships []Membership `json:"memberships"`

@@ -282,8 +282,11 @@ spec:
                 - secretName
                 type: object
               memberships:
-                description: M1 exercises one membership while retaining the eventual
-                  list shape.
+                description: |-
+                  The first membership owns hosting resources, catalogs and inherited standard
+                  and forwarded inference credentials. Additional memberships preserve declared
+                  forge associations; application work and approval authority are independently
+                  authorized by apps, never granted by adding Kubernetes memberships.
                 items:
                   description: Membership grants organization-level access and optionally
                     names projects.
@@ -303,7 +306,6 @@ spec:
                   required:
                   - organization
                   type: object
-                maxItems: 1
                 minItems: 1
                 type: array
                 x-kubernetes-list-map-keys:
