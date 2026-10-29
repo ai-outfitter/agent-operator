@@ -7,6 +7,16 @@ image must contain the `pi` executable and its declared packages. The provided
 Outfitter installation or catalog. GitHub operations use `gh` through Pi's bash
 tool. The gateway credential remains separate from the GitHub work token.
 
+Managed Outfitter MCP duties require compatible Pi and Channels versions, pinned
+in `code/pi/package.json`. Build `code/pi` with its lockfile; the image checks
+that native task-session MCP factories and the Channels extension load together.
+The source pin includes native MCP support absent from older published artifacts;
+a package version string alone does not establish support. Updating an existing
+resident requires a rolling image update; adding credentials alone cannot add
+tools to an older runtime. Before upgrading, back up the resident configuration,
+Channels ledger and sessions. A rollback must restore those backups along with
+the previous image if the newer runtime has changed their format.
+
 ```yaml
 spec:
   pi:
@@ -42,6 +52,12 @@ restarts reconstruct it from the CRD. Settings changes roll the pod. Session
 files retain the existing `$HOME/.pi/agent/sessions` path on the home PVC, and Channels retains its existing task
 store path and acceptance history. Channels task sessions load the same Pi
 configuration directory, including its system prompt and packages.
+
+For direct Pi, managed `mcp.json` is copied into that configuration directory by
+the settings init container. The main container need not have an
+`OUTFITTER_MANAGED_MCP_CONFIG` variable or a `/var/run/agent/managed-mcp` mount.
+Verify tool availability with a real task calling MCP `whoami` and
+`list_organizations`, rather than inferring it from credential presence.
 
 Pi ignores untrusted project configuration at startup. A separate empty,
 read-only volume masks `$HOME/.agents`, preventing leftover catalog skills
