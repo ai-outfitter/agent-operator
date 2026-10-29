@@ -1,6 +1,11 @@
 {
   "dependencies": {
-    "@ai-outfitter/channels": "https://github.com/ai-outfitter/channels/archive/8755d0cb34a56ed4b0b8a51f15fcfe83d6390163.tar.gz",
-    "@earendil-works/pi-coding-agent": "0.80.10"
+    "@ai-outfitter/channels": "https://github.com/ai-outfitter/channels/archive/c31986a92f87605b46d2349887abf523cc77ab3d.tar.gz",
+    "@earendil-works/pi-coding-agent": "1.4.0"
+  },
+  "overrides": {
+    "@earendil-works/pi-coding-agent": {
+      "undici": "8.12.2"
+    }
   }
 }
