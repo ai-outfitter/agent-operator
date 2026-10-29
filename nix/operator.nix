@@ -20,7 +20,7 @@ buildGoModule {
       || builtins.elem (baseNameOf path) [ "go.mod" "go.sum" ];
   };
 
-  vendorHash = "sha256-1RdUD9G4RJSRYJgm6dB23dytyHcvye64C+ytWQz9pOE=";
+  vendorHash = "sha256-O4WiiqV/Mi46uWj8pp9ltR4H46/7MFpB3VzjsXLmEoc=";
 
   subPackages = [ "cmd" ];
 
