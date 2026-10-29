@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	aioutfitterv1alpha1 "github.com/ai-outfitter/agent-operator/code/operator/api/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
@@ -36,4 +37,28 @@ func transportCredentialHash(ctx context.Context, c client.Client, namespace, na
 		return "", err
 	}
 	return fmt.Sprintf("%x", sha256.Sum256(data)), nil
+}
+
+func agentTransportCredentialHash(ctx context.Context, c client.Client, agent *aioutfitterv1alpha1.Agent) (string, error) {
+	namespace := agentNamespace(agent.Name)
+	transportHash := ""
+	if agent.Spec.Pi != nil || agent.Spec.Forge != nil || agent.Spec.TaskPlane != nil {
+		keys := []string{agentA2ACredentialsKey}
+		if agent.Spec.Pi != nil {
+			keys = nil
+		}
+		var err error
+		transportHash, err = transportCredentialHash(ctx, c, namespace, agentCredentialSecretName(agent), keys...)
+		if err != nil {
+			return "", err
+		}
+	}
+	if managed := agent.Spec.ManagedMcp; managed != nil {
+		managedHash, err := transportCredentialHash(ctx, c, namespace, managed.SecretName)
+		if err != nil {
+			return "", err
+		}
+		transportHash = credentialDigest([]byte(transportHash + managedHash))
+	}
+	return transportHash, nil
 }

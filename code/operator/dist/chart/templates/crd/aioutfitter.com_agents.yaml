@@ -272,6 +272,21 @@ spec:
                   configured default image is used.
                 minLength: 1
                 type: string
+              managedMcp:
+                description: ManagedMcp adds native MCP connections while preserving
+                  the resident configuration.
+                properties:
+                  secretName:
+                    description: |-
+                      SecretName identifies an Agent-namespace Secret containing mcp.json and
+                      environment credentials named OUTFITTER_MANAGED_MCP_* (except CONFIG).
+                      Keys colliding with existing credential sources are rejected. Label the
+                      Secret aioutfitter.com/agent=<Agent name> for immediate rotation handling.
+                    minLength: 1
+                    type: string
+                required:
+                - secretName
+                type: object
               memberships:
                 description: M1 exercises one membership while retaining the eventual
                   list shape.
@@ -382,20 +397,27 @@ spec:
                 x-kubernetes-list-type: atomic
               taskPlane:
                 description: |-
-                  TaskPlane enables authenticated A2A intake and binds this resident to one
-                  resolved Outfitter workflow. The export runs after managed catalog sync
-                  and user setup, so either mechanism can prepare a private catalog.
+                  TaskPlane enables authenticated native A2A intake. An optional workflow
+                  contract exports after managed catalog sync and user setup.
                 properties:
+                  enabled:
+                    default: false
+                    description: |-
+                      Enabled starts generic native Channels task intake without a workflow.
+                      A workflow also enables intake for compatibility with existing residents.
+                    type: boolean
                   workflow:
-                    description: Workflow is the workflow slug resolved from the Organization
-                      catalog.
+                    description: |-
+                      Workflow optionally selects a contract from the Organization catalog.
+                      Omit it for native tasks using the resident profile and runtime defaults.
                     maxLength: 128
                     minLength: 1
                     pattern: ^[a-z0-9]+([._-][a-z0-9]+)*$
                     type: string
-                required:
-                - workflow
                 type: object
+                x-kubernetes-validations:
+                - message: 'taskPlane requires enabled: true or a workflow'
+                  rule: self.enabled == true || has(self.workflow)
               volumeMounts:
                 description: |-
                   VolumeMounts attaches declared input volumes to the Agent and setup
