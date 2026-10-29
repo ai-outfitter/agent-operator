@@ -41,6 +41,66 @@ const (
 var _ = Describe("Agent Controller", func() {
 	ctx := context.Background()
 
+	It("rejects empty membership and keeps the first declared organization primary", func() {
+		primary := createAcceptedOrganization(ctx)
+		secondary := createAcceptedOrganization(ctx)
+		reconciler := &AgentReconciler{Client: k8sClient, Scheme: k8sClient.Scheme()}
+		empty := validAgent(uniqueTestName("empty-membership"), primary.Name)
+		empty.Spec.Memberships = nil
+		_, message, err := reconciler.validateAgent(ctx, empty)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(message).To(ContainSubstring("at least one organization membership"))
+		Expect(apierrors.IsInvalid(k8sClient.Create(ctx, empty))).To(BeTrue())
+
+		for _, count := range []int{1, 2} {
+			agent := validAgent(uniqueTestName("primary-membership"), primary.Name)
+			if count == 2 {
+				agent.Spec.Memberships = append(agent.Spec.Memberships, aioutfitterv1alpha1.Membership{Organization: secondary.Name})
+			}
+			Expect(k8sClient.Create(ctx, agent)).To(Succeed())
+			DeferCleanup(removeAgent, ctx, agent.Name)
+			before := agent.DeepCopy()
+			selected, message, err := reconciler.validateAgent(ctx, agent)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(message).To(BeEmpty())
+			Expect(selected.Name).To(Equal(primary.Name))
+			Expect(agent.Spec).To(Equal(before.Spec))
+			Expect(reconciler.ensureAgentNamespace(ctx, agent)).To(Succeed())
+			namespace := &corev1.Namespace{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: agentNamespace(agent.Name)}, namespace)).To(Succeed())
+			Expect(namespace.Labels[OrganizationLabel]).To(Equal(primary.Name))
+		}
+	})
+
+	It("inherits only primary credentials and preserves authored secondary credentials", func() {
+		primary := createAcceptedOrganization(ctx)
+		secondary := createAcceptedOrganization(ctx)
+		for name, key := range map[string]string{primary.Name: "default.PRIMARY_ONLY", secondary.Name: "default.SECONDARY_ONLY"} {
+			secret := &corev1.Secret{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: organizationNamespace(name), Name: defaultOrgCredentials}, secret)).To(Succeed())
+			secret.Data = map[string][]byte{key: []byte(name)}
+			Expect(k8sClient.Update(ctx, secret)).To(Succeed())
+		}
+		agent := validAgent(uniqueTestName("primary-credentials"), primary.Name)
+		agent.Spec.Memberships = append(agent.Spec.Memberships, aioutfitterv1alpha1.Membership{Organization: secondary.Name})
+		Expect(k8sClient.Create(ctx, agent)).To(Succeed())
+		DeferCleanup(removeAgent, ctx, agent.Name)
+		reconciler := &AgentReconciler{Client: k8sClient, Scheme: k8sClient.Scheme()}
+		selected, message, err := reconciler.validateAgent(ctx, agent)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(message).To(BeEmpty())
+		Expect(reconciler.ensureAgentNamespace(ctx, agent)).To(Succeed())
+		credential := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: defaultAgentCredentials, Namespace: agentNamespace(agent.Name)}, Data: map[string][]byte{"AUTHORED_SECONDARY": []byte("preserve")}}
+		Expect(k8sClient.Create(ctx, credential)).To(Succeed())
+		missing, err := reconciler.ensureStandardAgentCredentials(ctx, agent, selected)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(missing).To(BeEmpty())
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: credential.Name, Namespace: credential.Namespace}, credential)).To(Succeed())
+		Expect(credential.Data["PRIMARY_ONLY"]).To(Equal([]byte(primary.Name)))
+		Expect(credential.Data).NotTo(HaveKey("SECONDARY_ONLY"))
+		Expect(credential.Data["AUTHORED_SECONDARY"]).To(Equal([]byte("preserve")))
+	})
+
 	It("admits a direct Pi resident without a catalog profile", func() {
 		organization := createAcceptedOrganization(ctx)
 		agent := validAgent(uniqueTestName("native-pi"), organization.Name)

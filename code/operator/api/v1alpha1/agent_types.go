@@ -230,9 +230,9 @@ type WorkspaceSpec struct {
 
 // AgentSpec defines the desired state of Agent.
 type AgentSpec struct {
-	// M1 exercises one membership while retaining the eventual list shape.
+	// The first membership is primary for namespace ownership, catalogs and inherited
+	// credentials. Additional declared memberships do not inherit their credentials.
 	// +kubebuilder:validation:MinItems=1
-	// +kubebuilder:validation:MaxItems=1
 	// +listType=map
 	// +listMapKey=organization
 	Memberships []Membership `json:"memberships"`

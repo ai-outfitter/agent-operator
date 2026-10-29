@@ -193,8 +193,8 @@ func (r *AgentReconciler) validateAgent(
 	if len(agent.Name) > 57 {
 		return nil, "Agent name must be no longer than 57 characters", nil
 	}
-	if len(agent.Spec.Memberships) != 1 {
-		return nil, "M1 agents must declare exactly one organization membership", nil
+	if len(agent.Spec.Memberships) == 0 {
+		return nil, "Agents must declare at least one organization membership", nil
 	}
 	missingQuotaKeys := requiredQuotaKeysMissing(agent.Spec.Workspace.ResourceQuota.Hard)
 	if len(missingQuotaKeys) > 0 {
