@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.19.0](https://github.com/ai-outfitter/agent-operator/compare/agent-operator-v0.18.0...agent-operator-v0.19.0) (2026-10-29)
+
+
+### Features
+
+* **residents:** support native tasks and managed MCP configuration ([#111](https://github.com/ai-outfitter/agent-operator/issues/111)) ([60a1042](https://github.com/ai-outfitter/agent-operator/commit/60a10428ddbeb51c5dd61fcb4fbbf183cbd49742))
+* run declarative Pi residents with GitHub event workflows ([#106](https://github.com/ai-outfitter/agent-operator/issues/106)) ([9b26802](https://github.com/ai-outfitter/agent-operator/commit/9b268029213b2e49c487b34bc28d0d8f0973c654))
+
+
+### Bug Fixes
+
+* **agents:** preserve primary scope for multi-organization residents ([#113](https://github.com/ai-outfitter/agent-operator/issues/113)) ([9b2a7b0](https://github.com/ai-outfitter/agent-operator/commit/9b2a7b03df4fa3c265a43b6af6c08f34614184c4))
+* **build:** refresh operator Go dependency hash ([#112](https://github.com/ai-outfitter/agent-operator/issues/112)) ([edb9f47](https://github.com/ai-outfitter/agent-operator/commit/edb9f4720b3daf5a1a41ee8166b83f9de5ea546e))
+* **pi:** enable native MCP in resident task sessions ([#114](https://github.com/ai-outfitter/agent-operator/issues/114)) ([ae29eb8](https://github.com/ai-outfitter/agent-operator/commit/ae29eb88d52b8832328423ceb1d56e33273ec048))
+
 ## [0.18.0](https://github.com/ai-outfitter/agent-operator/compare/agent-operator-v0.17.0...agent-operator-v0.18.0) (2026-10-12)
 
 
