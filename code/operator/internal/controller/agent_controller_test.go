@@ -54,6 +54,54 @@ var _ = Describe("Agent Controller", func() {
 		Expect(fetched.Spec.Profile.Agent).To(BeEmpty())
 	})
 
+	It("admits native task intake without a workflow and rejects an empty task plane", func() {
+		organization := createAcceptedOrganization(ctx)
+		for _, direct := range []bool{false, true} {
+			agent := validAgent(uniqueTestName("generic-tasks"), organization.Name)
+			if direct {
+				agent.Spec.Profile = aioutfitterv1alpha1.AgentProfile{}
+				agent.Spec.Pi = &aioutfitterv1alpha1.PiSpec{SystemPrompt: "Answer addressed tasks.", Model: "provider/task-model"}
+			}
+			agent.Spec.TaskPlane = &aioutfitterv1alpha1.AgentTaskPlaneSpec{Enabled: true}
+			Expect(k8sClient.Create(ctx, agent)).To(Succeed())
+			DeferCleanup(removeAgent, ctx, agent.Name)
+			reconciler := &AgentReconciler{Client: k8sClient}
+			_, message, err := reconciler.validateAgent(ctx, agent)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(message).To(BeEmpty())
+		}
+		invalid := validAgent(uniqueTestName("empty-tasks"), organization.Name)
+		invalid.Spec.TaskPlane = &aioutfitterv1alpha1.AgentTaskPlaneSpec{}
+		Expect(apierrors.IsInvalid(k8sClient.Create(ctx, invalid))).To(BeTrue())
+	})
+
+	It("blocks invalid managed MCP with an actionable condition before replacing the runtime", func() {
+		organization := createAcceptedOrganization(ctx)
+		agent := validAgent(uniqueTestName("invalid-mcp"), organization.Name)
+		agent.Spec.ManagedMcp = &aioutfitterv1alpha1.ManagedMcpSpec{SecretName: "managed-mcp"}
+		Expect(k8sClient.Create(ctx, agent)).To(Succeed())
+		DeferCleanup(removeAgent, ctx, agent.Name)
+		reconciler := &AgentReconciler{Client: k8sClient, Scheme: k8sClient.Scheme(), RelayImage: testRelay, InferenceGatewayURL: testInferenceGateway, InferenceModel: testInferenceModel, AgentImage: testAgentImage}
+		request := reconcile.Request{NamespacedName: types.NamespacedName{Name: agent.Name}}
+		_, err := reconciler.Reconcile(ctx, request)
+		Expect(err).NotTo(HaveOccurred())
+		deployment := &appsv1.Deployment{}
+		key := types.NamespacedName{Namespace: agentNamespace(agent.Name), Name: RuntimeName}
+		Expect(k8sClient.Get(ctx, key, deployment)).To(Succeed())
+		generation := deployment.Generation
+		Expect(k8sClient.Create(ctx, &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "managed-mcp", Namespace: key.Namespace}, Data: map[string][]byte{managedMcpConfigKey: []byte(`{"mcpServers":[]}`)}})).To(Succeed())
+		_, err = reconciler.Reconcile(ctx, request)
+		Expect(err).NotTo(HaveOccurred())
+		current := &aioutfitterv1alpha1.Agent{}
+		Expect(k8sClient.Get(ctx, request.NamespacedName, current)).To(Succeed())
+		condition := apiMeta.FindStatusCondition(current.Status.Conditions, aioutfitterv1alpha1.AgentConditionCredentialsReady)
+		Expect(condition).NotTo(BeNil())
+		Expect(condition.Reason).To(Equal("InvalidManagedMCP"))
+		Expect(condition.Status).To(Equal(metav1.ConditionFalse))
+		Expect(k8sClient.Get(ctx, key, deployment)).To(Succeed())
+		Expect(deployment.Generation).To(Equal(generation))
+	})
+
 	It("inherits Organization defaults while preserving Agent overrides", func() {
 		organization := createAcceptedOrganization(ctx)
 		organizationCredentials := &corev1.Secret{}
@@ -612,7 +660,7 @@ var _ = Describe("Agent Controller", func() {
 		Expect(container.Env).To(ContainElements(
 			corev1.EnvVar{Name: "AGENT_SLUG", Value: researcherAgentSlug},
 			corev1.EnvVar{Name: "AGENT_HARNESS", Value: "pi"},
-			corev1.EnvVar{Name: "A2A_SERVER", Value: "1"},
+			corev1.EnvVar{Name: a2aServerEnv, Value: "1"},
 			corev1.EnvVar{Name: "A2A_HOST", Value: "0.0.0.0"},
 			corev1.EnvVar{Name: A2AWorkflowManifestEnv, Value: agentHome(agent) + "/.local/share/outfitter/workflow/.agents/.outfitter/workflow-composition.json"},
 			corev1.EnvVar{Name: A2AWorkflowEnv, Value: testWorkflowID},
@@ -644,7 +692,7 @@ var _ = Describe("Agent Controller", func() {
 			initNames = append(initNames, initContainer.Name)
 		}
 		Expect(initNames).To(Equal([]string{
-			inferenceRelayName, "init-agent-home", "copy-settings", seedNixStoreName, catalogSyncContainerName,
+			inferenceRelayName, "init-agent-home", copySettingsContainerName, seedNixStoreName, catalogSyncContainerName,
 			"setup-wait-for-mail", "setup-mail-bootstrap", workflowExportContainerName,
 		}))
 		for _, initContainer := range initContainers[1:] {

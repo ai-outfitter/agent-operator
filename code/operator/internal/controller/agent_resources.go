@@ -27,14 +27,15 @@ import (
 )
 
 const (
-	AgentNameLabel = "aioutfitter.com/agent"
-	AgentUIDLabel  = "aioutfitter.com/agent-uid"
-	ManagedByLabel = "app.kubernetes.io/managed-by"
-	RuntimeName    = "agent-runtime"
-	HomeVolumeName = "agent-home"
-	LimitRangeName = "agent-defaults"
-	SettingsName   = "outfitter-settings"
-	SettingsFile   = "settings.yml"
+	AgentNameLabel            = "aioutfitter.com/agent"
+	AgentUIDLabel             = "aioutfitter.com/agent-uid"
+	ManagedByLabel            = "app.kubernetes.io/managed-by"
+	RuntimeName               = "agent-runtime"
+	HomeVolumeName            = "agent-home"
+	LimitRangeName            = "agent-defaults"
+	SettingsName              = "outfitter-settings"
+	copySettingsContainerName = "copy-settings"
+	SettingsFile              = "settings.yml"
 	// ModelsFile defines the `outfitter` Pi provider. The settings ConfigMap is
 	// copied into the workspace .agents layer, which outranks catalog sources.
 	ModelsFile = "models.json"
@@ -96,6 +97,7 @@ const (
 	A2ACredentialsMount            = "/var/run/agent/a2a"
 	A2APortName                    = "a2a"
 	A2APort                  int32 = 8788
+	a2aServerEnv                   = "A2A_SERVER"
 	A2AWorkflowManifestEnv         = "A2A_WORKFLOW_MANIFEST"
 	A2AWorkflowEnv                 = "A2A_WORKFLOW"
 	OutfitterWorkflowEnv           = "OUTFITTER_WORKFLOW"
@@ -356,7 +358,7 @@ func settingsMount(agent *aioutfitterv1alpha1.Agent) corev1.VolumeMount {
 // .agents emptyDir before any other step reads the layer.
 func copySettingsContainer(image string, agent *aioutfitterv1alpha1.Agent) corev1.Container {
 	return corev1.Container{
-		Name:            "copy-settings",
+		Name:            copySettingsContainerName,
 		WorkingDir:      agentHome(agent),
 		Image:           image,
 		ImagePullPolicy: corev1.PullIfNotPresent,
@@ -437,18 +439,18 @@ func (r *AgentReconciler) ensureAgentDeployment(
 		return nil, err
 	}
 	providerVolume, providerChecksum, hasProviders := providerSecretVolume(providerCopies)
-	transportHash := ""
-	if agent.Spec.Pi != nil || agent.Spec.Forge != nil || agent.Spec.TaskPlane != nil {
-		keys := []string{agentA2ACredentialsKey}
-		if agent.Spec.Pi != nil {
-			keys = nil
-		}
-		transportHash, err = transportCredentialHash(ctx, r.Client, namespace, agentCredentialSecretName(agent), keys...)
-		if err != nil {
-			return nil, err
-		}
+	transportHash, err := agentTransportCredentialHash(ctx, r.Client, agent)
+	if err != nil {
+		return nil, err
 	}
 
+	managedMcpEnv, invalidManagedMcp, err := r.managedMcpEnvironment(ctx, agent)
+	if err != nil {
+		return nil, err
+	}
+	if invalidManagedMcp != "" {
+		return nil, fmt.Errorf("invalid managed MCP: %s", invalidManagedMcp)
+	}
 	deployment := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: RuntimeName, Namespace: namespace}}
 	_, err = controllerutil.CreateOrUpdate(ctx, r.Client, deployment, func() error {
 		deployment.Labels = mergeLabels(deployment.Labels, labels)
@@ -574,7 +576,7 @@ func (r *AgentReconciler) ensureAgentDeployment(
 		}
 		if agent.Spec.Forge != nil || agent.Spec.TaskPlane != nil {
 			container.Env = append(container.Env,
-				corev1.EnvVar{Name: "A2A_SERVER", Value: "1"},
+				corev1.EnvVar{Name: a2aServerEnv, Value: "1"},
 				corev1.EnvVar{Name: "A2A_HOST", Value: "0.0.0.0"},
 				corev1.EnvVar{Name: "A2A_PORT", Value: strconv.Itoa(int(A2APort))},
 				corev1.EnvVar{Name: "A2A_CREDENTIALS_PATH", Value: path.Join(A2ACredentialsMount, "credentials.json")},
@@ -586,7 +588,7 @@ func (r *AgentReconciler) ensureAgentDeployment(
 				Items:      []corev1.KeyToPath{{Key: agentA2ACredentialsKey, Path: "credentials.json"}},
 			}}})
 		}
-		if taskPlane := agent.Spec.TaskPlane; taskPlane != nil {
+		if taskPlane := agent.Spec.TaskPlane; taskPlane != nil && taskPlane.Workflow != "" {
 			container.Env = append(container.Env,
 				corev1.EnvVar{Name: A2AWorkflowManifestEnv, Value: path.Join(agentHome(agent), ".local/share/outfitter/workflow/.agents/.outfitter/workflow-composition.json")},
 				corev1.EnvVar{Name: A2AWorkflowEnv, Value: taskPlane.Workflow},
@@ -678,7 +680,7 @@ func (r *AgentReconciler) ensureAgentDeployment(
 				VolumeMounts:    mounts,
 			})
 		}
-		if taskPlane := agent.Spec.TaskPlane; taskPlane != nil {
+		if taskPlane := agent.Spec.TaskPlane; taskPlane != nil && taskPlane.Workflow != "" {
 			mounts := append([]corev1.VolumeMount{identityMount()}, inputMounts...)
 			mounts = append(mounts,
 				corev1.VolumeMount{Name: HomeVolumeName, MountPath: agentHome(agent)},
@@ -702,6 +704,7 @@ func (r *AgentReconciler) ensureAgentDeployment(
 				VolumeMounts: mounts,
 			})
 		}
+		configureManagedMcp(&container, &volumes, initContainers, agent, managedMcpEnv)
 		deployment.Spec.Template.Spec.InitContainers = initContainers
 		containers := []corev1.Container{container}
 		if browser := agent.Spec.Browser; browser != nil && browser.Enabled {
@@ -761,7 +764,7 @@ func renderOutfitterSettings(
 		// resolvable while the catalog wins wherever both define a resource.
 		Sources: sources,
 	}
-	if agent.Spec.TaskPlane != nil {
+	if agent.Spec.TaskPlane != nil && agent.Spec.TaskPlane.Workflow != "" {
 		outfitterConfig.Workflows = []string{agent.Spec.TaskPlane.Workflow}
 	}
 	return yaml.Marshal(outfitterConfig)

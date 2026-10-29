@@ -402,6 +402,52 @@ resident runtime when the same reference is declared under `spec.credentials`.
 A future credential binding MAY narrow a named credential to catalog sync only;
 under OPR-004.2, that binding MUST remain content-agnostic.
 
+## Enable native resident task intake
+
+Native tasks use the resident's existing Pi configuration or Outfitter profile;
+no workflow, model override, or catalog export is required:
+
+```yaml
+spec:
+  taskPlane:
+    enabled: true
+```
+
+This enables authenticated Channels A2A intake on port 8788 using the standard
+Agent Secret's `a2a-credentials.json` key described below. Use a runtime with
+native Pi/Channels task support. Credential provisioning and gateway-restricted
+Service/NetworkPolicy creation belong to the managed gateway; this switch does
+not grant network access or application approval authority. Existing
+`taskPlane.workflow` bindings also enable intake for backward compatibility.
+
+Managed native MCP servers use `spec.managedMcp.secretName`, naming a dedicated
+Agent-namespace Secret with `mcp.json` and environment credentials named
+`OUTFITTER_MANAGED_MCP_*` (except reserved `OUTFITTER_MANAGED_MCP_CONFIG`).
+Use those prefixed variables in the MCP document rather than `GH_TOKEN` or other
+resident credential names. The operator rejects collisions with existing Agent
+or user environment sources and never exports the MCP document as an env var.
+Referenced values are visible to the agent process tree, not just MCP servers.
+The managed Secret must differ from the Agent credential Secret.
+
+Label it `aioutfitter.com/agent=<Agent name>` so rotations immediately trigger
+reconciliation; without this label the periodic reconciliation observes changes
+within five minutes. The managed gateway supplies the label automatically.
+Malformed configuration produces `CredentialsReady=False` with reason
+`InvalidManagedMCP` and blocks a replacement rollout.
+
+Direct Pi's runtime settings directory is a fresh emptyDir. The existing
+`copy-settings` init container dereferences the validated Secret's AtomicWriter
+symlink and copies the document into that actual directory with mode 0600.
+It does not write a shadow configuration or journal to the persistent home.
+Catalog residents require an Outfitter runtime supporting
+`OUTFITTER_MANAGED_MCP_CONFIG` during harness materialization. That runtime
+preserves ordinary catalog/overlay precedence, then adds managed servers,
+refusing different definitions under an occupied name. Removing a managed
+connection rebuilds the next configuration without it; no authored definition
+is adopted or deleted. Neither path changes model or prompt configuration.
+An older catalog image cannot establish managed MCP readiness; verify actual
+MCP task execution after deploying the matching runtime artifact.
+
 ## Bind the resident task plane to a workflow
 
 An existing resident can accept authenticated A2A work without creating a

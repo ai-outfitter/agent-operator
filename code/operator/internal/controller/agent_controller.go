@@ -135,6 +135,15 @@ func (r *AgentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		blockAgentConditions(agent, aioutfitterv1alpha1.AgentConditionOutfitterSettingsReady, "CredentialsUnknown", "Credential readiness is unknown")
 		return r.finishAgent(ctx, statusBase, agent, ctrl.Result{}, err)
 	}
+	_, invalidManagedMcp, err := r.managedMcpEnvironment(ctx, agent)
+	if err != nil {
+		return r.finishAgent(ctx, statusBase, agent, ctrl.Result{}, err)
+	}
+	if invalidManagedMcp != "" {
+		setAgentCondition(agent, aioutfitterv1alpha1.AgentConditionCredentialsReady, metav1.ConditionFalse, "InvalidManagedMCP", invalidManagedMcp)
+		blockAgentConditions(agent, aioutfitterv1alpha1.AgentConditionOutfitterSettingsReady, "InvalidManagedMCP", invalidManagedMcp)
+		return r.finishAgent(ctx, statusBase, agent, ctrl.Result{RequeueAfter: credentialPollInterval}, nil)
+	}
 	missingCredentials = append(missingCredentials, credentialInheritanceMissing...)
 	slices.Sort(missingCredentials)
 	if len(missingCredentials) > 0 {
@@ -202,7 +211,7 @@ func (r *AgentReconciler) validateAgent(
 		return nil, message, nil
 	}
 	if agent.Spec.Pi != nil {
-		if agent.Spec.Profile.Agent != "" || agent.Spec.TaskPlane != nil || (agent.Spec.CatalogSync != nil && agent.Spec.CatalogSync.Enabled) {
+		if agent.Spec.Profile.Agent != "" || (agent.Spec.TaskPlane != nil && agent.Spec.TaskPlane.Workflow != "") || (agent.Spec.CatalogSync != nil && agent.Spec.CatalogSync.Enabled) {
 			return nil, "direct Pi configuration cannot be combined with a catalog profile, catalog sync, or catalog workflow", nil
 		}
 	} else if agent.Spec.Profile.Agent == "" {
@@ -251,7 +260,7 @@ func inputValidationMessage(agent *aioutfitterv1alpha1.Agent) string {
 	}
 	reservedVolumes := map[string]struct{}{
 		piEmptyCatalogVolume: {}, HomeVolumeName: {}, IdentityVolumeName: {}, SettingsName: {}, NixStoreName: {}, APITokenVolumeName: {}, A2ACredentialsVolumeName: {},
-		inferenceTokenVolumeName: {}, AgentsLayerName: {},
+		inferenceTokenVolumeName: {}, AgentsLayerName: {}, managedMcpVolumeName: {},
 	}
 	volumeNames := map[string]struct{}{}
 	for i := range agent.Spec.Volumes {
@@ -264,7 +273,7 @@ func inputValidationMessage(agent *aioutfitterv1alpha1.Agent) string {
 		}
 		volumeNames[volume.Name] = struct{}{}
 	}
-	reservedPaths := []string{agentHome(agent), "/etc/passwd", NixMount, A2ACredentialsMount, CredentialsRoot, APITokenMountPath}
+	reservedPaths := []string{agentHome(agent), "/etc/passwd", NixMount, A2ACredentialsMount, CredentialsRoot, APITokenMountPath, managedMcpMount}
 	for i := range agent.Spec.VolumeMounts {
 		mount := &agent.Spec.VolumeMounts[i]
 		if _, declared := volumeNames[mount.Name]; !declared {
@@ -306,6 +315,15 @@ func (r *AgentReconciler) missingCredentialReferences(
 	}
 	if err := check(credentialKindSecret, agentCredentialSecretName(agent), &corev1.Secret{}); err != nil {
 		return nil, err
+	}
+	if managed := agent.Spec.ManagedMcp; managed != nil {
+		secret := &corev1.Secret{}
+		if err := check(credentialKindSecret, managed.SecretName, secret); err != nil {
+			return nil, err
+		}
+		if secret.Name != "" && len(secret.Data[managedMcpConfigKey]) == 0 {
+			missing = append(missing, "Secret/"+managed.SecretName+"/"+managedMcpConfigKey)
+		}
 	}
 	for i := range agent.Spec.EnvFrom {
 		source := &agent.Spec.EnvFrom[i]

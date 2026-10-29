@@ -153,14 +153,33 @@ type CatalogSyncSpec struct {
 }
 
 // AgentTaskPlaneSpec exposes authenticated A2A intake on the resident and
-// selects the Outfitter workflow contract that intake serves. The standard
-// Agent credential Secret supplies a2a-credentials.json.
+// optionally selects an Outfitter workflow contract. The standard Agent
+// credential Secret supplies a2a-credentials.json.
+// +kubebuilder:validation:XValidation:rule="self.enabled == true || has(self.workflow)",message="taskPlane requires enabled: true or a workflow"
 type AgentTaskPlaneSpec struct {
-	// Workflow is the workflow slug resolved from the Organization catalog.
+	// Enabled starts generic native Channels task intake without a workflow.
+	// A workflow also enables intake for compatibility with existing residents.
+	// +kubebuilder:default=false
+	// +optional
+	Enabled bool `json:"enabled,omitempty"`
+
+	// Workflow optionally selects a contract from the Organization catalog.
+	// Omit it for native tasks using the resident profile and runtime defaults.
+	// +optional
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=128
 	// +kubebuilder:validation:Pattern=`^[a-z0-9]+([._-][a-z0-9]+)*$`
-	Workflow string `json:"workflow"`
+	Workflow string `json:"workflow,omitempty"`
+}
+
+// ManagedMcpSpec supplies additional native MCP servers and env-backed credentials.
+type ManagedMcpSpec struct {
+	// SecretName identifies an Agent-namespace Secret containing mcp.json and
+	// environment credentials named OUTFITTER_MANAGED_MCP_* (except CONFIG).
+	// Keys colliding with existing credential sources are rejected. Label the
+	// Secret aioutfitter.com/agent=<Agent name> for immediate rotation handling.
+	// +kubebuilder:validation:MinLength=1
+	SecretName string `json:"secretName"`
 }
 
 // AgentForgeSpec declares the case-preserving login used to route forge events.
@@ -284,11 +303,14 @@ type AgentSpec struct {
 	// +optional
 	CatalogSync *CatalogSyncSpec `json:"catalogSync,omitempty"`
 
-	// TaskPlane enables authenticated A2A intake and binds this resident to one
-	// resolved Outfitter workflow. The export runs after managed catalog sync
-	// and user setup, so either mechanism can prepare a private catalog.
+	// TaskPlane enables authenticated native A2A intake. An optional workflow
+	// contract exports after managed catalog sync and user setup.
 	// +optional
 	TaskPlane *AgentTaskPlaneSpec `json:"taskPlane,omitempty"`
+
+	// ManagedMcp adds native MCP connections while preserving the resident configuration.
+	// +optional
+	ManagedMcp *ManagedMcpSpec `json:"managedMcp,omitempty"`
 
 	// Setup steps run as ordered init containers before the agent starts, with
 	// the agent's credentials and workspace mounted. Use them for usecase
